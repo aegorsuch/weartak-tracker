@@ -13,6 +13,14 @@ Extremely lightweight Wear OS position tracker modeled on WearTAK-CIV.
 ## UI
 Main screen mirrors CIV: alert button on top, callsign chip (opens settings), connection/location icons, time at the bottom.
 
+## Project Information
+
+**Rights:** Unlimited rights granted to TAK Product Center.
+
+**Point of contact:** Alex Gorsuch on chat.tak.gov or Signal.
+
+**Repositories:** The [TAK Forge repository](https://git.tak.gov/core/weartak-core/weartak-tracker) is canonical. [GitHub](https://github.com/aegorsuch/weartak-tracker) is a secondary repository.
+
 ## Build
 ```
 .\gradlew.bat :app:assembleDebug
