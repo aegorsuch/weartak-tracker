@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">WearTAK-Tracker</string>
+    <string name="channel_name">Position reporting</string>
+    <string name="notification_starting">Starting position reporting</string>
+    <string name="notification_status">Reporting every %1$ds to %2$d endpoint(s)</string>
+</resources>
