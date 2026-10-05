@@ -28,11 +28,3 @@ class ActivityReceiver : BroadcastReceiver() {
 
     companion object { const val MIN_CONFIDENCE = 50 }
 }
-
-class BootReceiver : BroadcastReceiver() {
-    override fun onReceive(context: Context, intent: Intent) {
-        if (intent.action != Intent.ACTION_BOOT_COMPLETED) return
-        val pending = goAsync()
-        TrackerService.startIfEnabled(context, fromBoot = true) { pending.finish() }
-    }
-}

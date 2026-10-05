@@ -114,12 +114,13 @@ fun MainScreen(config: TrackerConfig, go: Navigate) {
     val alerts by TrackerState.alerts.collectAsStateWithLifecycle()
     val isAlerting = alerts.any { it.state == AlertState.ALERT }
 
+    // Reporting starts only when the user opens the app; nothing is started at boot.
     val permissions = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
-        if (config.reportingEnabled) TrackerService.start(context)
+        TrackerService.start(context)
     }
     LaunchedEffect(Unit) {
         if (!context.granted(Manifest.permission.ACCESS_FINE_LOCATION)) permissions.launch(foregroundPermissions())
-        else if (config.reportingEnabled) TrackerService.start(context)
+        else TrackerService.start(context)
     }
 
     Box(modifier = Modifier.background(colors.background).fillMaxSize().padding(5.dp)) {
@@ -198,7 +199,7 @@ private fun StatusIcons(config: TrackerConfig) {
         Endpoint.MULTICAST in endpoints -> R.drawable.multicast_connected
         else -> R.drawable.tak_server_disconnected
     }
-    val locationOn = running && config.reportingEnabled
+    val locationOn = running
 
     Box(modifier = Modifier.fillMaxWidth().height(70.dp), contentAlignment = Alignment.TopCenter) {
         Image(

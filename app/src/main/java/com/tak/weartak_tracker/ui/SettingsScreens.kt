@@ -1,9 +1,6 @@
 package com.tak.weartak_tracker.ui
 
-import android.Manifest
 import android.widget.Toast
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -20,6 +17,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.HorizontalDivider
@@ -59,6 +57,7 @@ import androidx.wear.compose.material.SwipeToRevealSecondaryAction
 import androidx.wear.compose.material.Text
 import androidx.wear.compose.navigation.composable
 import com.tak.weartak_tracker.R
+import com.tak.weartak_tracker.data.MULTICAST_PROTOCOLS
 import com.tak.weartak_tracker.data.ROLE_CATEGORIES
 import com.tak.weartak_tracker.data.SettingsRepository
 import com.tak.weartak_tracker.data.SitxState
@@ -82,6 +81,20 @@ private fun rememberUpdater(repo: SettingsRepository): ((TrackerConfig) -> Track
     return { transform -> scope.launch { repo.update(transform) } }
 }
 
+/** Reporting interval entries with CIV's titles and routes. */
+private enum class IntervalSetting(
+    val route: String,
+    val title: String,
+    val get: (TrackerConfig) -> Int,
+    val set: (TrackerConfig, Int) -> TrackerConfig,
+) {
+    CONSTANT("constant_reporting_interval_screen", "Constant Reporting Interval", { it.constantInterval }, { c, v -> c.copy(constantInterval = v) }),
+    STATIONARY("stationary_reporting_interval_screen", "Stationary Reporting Interval", { it.stationaryInterval }, { c, v -> c.copy(stationaryInterval = v) }),
+    ON_FOOT("on_foot_reporting_interval_screen", "On Foot Reporting Interval", { it.onFootInterval }, { c, v -> c.copy(onFootInterval = v) }),
+    VEHICLE("vehicle_reporting_interval_screen", "Vehicle Reporting Interval", { it.vehicleInterval }, { c, v -> c.copy(vehicleInterval = v) }),
+    WHILE_ALERTING("while_alerting_reporting_interval_screen", "While Alerting Reporting Interval", { it.alertingInterval }, { c, v -> c.copy(alertingInterval = v) }),
+}
+
 /** Settings routes mirroring WearTAK-CIV's WearTAKSettingsActivity, reduced to tracker settings. */
 fun NavGraphBuilder.settingsGraph(repo: SettingsRepository, config: TrackerConfig, go: Navigate, back: () -> Unit) {
     composable("settings_screen") {
@@ -92,44 +105,18 @@ fun NavGraphBuilder.settingsGraph(repo: SettingsRepository, config: TrackerConfi
     }
 
     composable("callsign_and_device_preferences") {
-        val update = rememberUpdater(repo)
-        val context = LocalContext.current
-        val backgroundPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
         WearTAKPageWithBackArrow("Callsign and Device Preferences", back) {
             item { WearTAKTitleChipWithState("My Callsign", config.callsign) { go("my_callsign") } }
             item { WearTAKTitleChipWithState("My Team", config.team) { go("my_team") } }
             item { WearTAKTitleChipWithState("My Role", config.role) { go("my_role") } }
-            item { HorizontalDivider(Modifier.padding(vertical = 5.dp), color = Color.DarkGray) }
             item {
-                WearTAKToggleChip(
-                    checked = config.reportingEnabled,
-                    onCheckedChange = { on ->
-                        update { it.copy(reportingEnabled = on) }
-                        if (on) TrackerService.start(context) else TrackerService.stop(context)
-                    },
-                    title = "Location Reporting",
-                    description = "Service ON/OFF",
+                HorizontalDivider(
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                    thickness = 1.dp,
+                    color = Color.White,
                 )
             }
-            item {
-                WearTAKTitleChipWithState(
-                    "Reporting Strategy",
-                    if (config.dynamicReporting) "Dynamic Reporting" else "Constant Reporting",
-                ) { go("reporting_strategy") }
-            }
-            item {
-                val granted = context.granted(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
-                WearTAKTitleChipWithState("Background Location", if (granted) "Allowed" else "Tap to allow (needed at boot)") {
-                    if (!granted) {
-                        if (context.granted(Manifest.permission.ACCESS_FINE_LOCATION)) {
-                            backgroundPermission.launch(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
-                        } else {
-                            Toast.makeText(context, "Allow location first", Toast.LENGTH_LONG).show()
-                        }
-                    }
-                }
-            }
-            item { Spacer(Modifier.height(10.dp)) }
+            item { WearTAKTitleChip("Reporting Strategy") { go("reporting_strategy") } }
         }
     }
 
@@ -137,7 +124,7 @@ fun NavGraphBuilder.settingsGraph(repo: SettingsRepository, config: TrackerConfi
         val update = rememberUpdater(repo)
         WearTAKStringEntryPage(
             item = config.callsign,
-            label = "My Callsign",
+            label = "Callsign",
             onBack = back,
             validate = { if (it.isBlank()) "Please enter a value" else null },
         ) { v -> update { it.copy(callsign = v.trim()) } }
@@ -154,12 +141,8 @@ fun NavGraphBuilder.settingsGraph(repo: SettingsRepository, config: TrackerConfi
     composable("my_role") {
         WearTAKPageWithBackArrow("My Role", back) {
             itemsIndexed(ROLE_CATEGORIES) { index, category ->
-                WearTAKTitleChipWithState(
-                    category.category,
-                    if (config.role in category.roles) config.role else "",
-                ) { go("role_category_screen/$index") }
+                WearTAKTitleChip(category.category) { go("role_category_screen/$index") }
             }
-            item { Spacer(Modifier.height(10.dp)) }
         }
     }
 
@@ -169,7 +152,7 @@ fun NavGraphBuilder.settingsGraph(repo: SettingsRepository, config: TrackerConfi
     ) { entry ->
         val update = rememberUpdater(repo)
         val category = ROLE_CATEGORIES.getOrNull(entry.arguments?.getInt("index") ?: 0) ?: ROLE_CATEGORIES.first()
-        WearTAKSelectionPage(category.category, category.roles, config.role, onBack = back) { role ->
+        WearTAKSelectionPage("Role-" + category.category, category.roles, config.role, onBack = back) { role ->
             update { it.copy(role = role) }
             back()
         }
@@ -183,15 +166,16 @@ fun NavGraphBuilder.settingsGraph(repo: SettingsRepository, config: TrackerConfi
                     if (config.dynamicReporting) "Dynamic Reporting" else "Constant Reporting",
                 ) { go("reporting_strategy_select") }
             }
+            item { Spacer(Modifier.height(5.dp)) }
             if (config.dynamicReporting) {
-                item { WearTAKTitleChipWithState("Stationary Reporting Interval", "${config.stationaryInterval}s") { go("interval/stationary") } }
-                item { WearTAKTitleChipWithState("On Foot Reporting Interval", "${config.onFootInterval}s") { go("interval/onfoot") } }
-                item { WearTAKTitleChipWithState("Vehicle Reporting Interval", "${config.vehicleInterval}s") { go("interval/vehicle") } }
-                item { WearTAKTitleChipWithState("While Alerting Reporting Interval", "${config.alertingInterval}s") { go("interval/alerting") } }
+                listOf(IntervalSetting.STATIONARY, IntervalSetting.ON_FOOT, IntervalSetting.VEHICLE, IntervalSetting.WHILE_ALERTING)
+                    .forEach { setting ->
+                        item { WearTAKTitleChipWithState(setting.title, setting.get(config).toString()) { go(setting.route) } }
+                    }
             } else {
-                item { WearTAKTitleChipWithState("Constant Reporting Interval", "${config.constantInterval}s") { go("interval/constant") } }
+                val setting = IntervalSetting.CONSTANT
+                item { WearTAKTitleChipWithState(setting.title, setting.get(config).toString()) { go(setting.route) } }
             }
-            item { Spacer(Modifier.height(10.dp)) }
         }
     }
 
@@ -209,25 +193,11 @@ fun NavGraphBuilder.settingsGraph(repo: SettingsRepository, config: TrackerConfi
         }
     }
 
-    composable("interval/{kind}") { entry ->
-        val update = rememberUpdater(repo)
-        val kind = entry.arguments?.getString("kind").orEmpty()
-        val (label, value) = when (kind) {
-            "stationary" -> "Stationary Reporting Interval" to config.stationaryInterval
-            "onfoot" -> "On Foot Reporting Interval" to config.onFootInterval
-            "vehicle" -> "Vehicle Reporting Interval" to config.vehicleInterval
-            "alerting" -> "While Alerting Reporting Interval" to config.alertingInterval
-            else -> "Constant Reporting Interval" to config.constantInterval
-        }
-        WearTAKIntEntryPage(value, label, INTERVAL_MIN, INTERVAL_MAX, back) { v ->
-            update {
-                when (kind) {
-                    "stationary" -> it.copy(stationaryInterval = v)
-                    "onfoot" -> it.copy(onFootInterval = v)
-                    "vehicle" -> it.copy(vehicleInterval = v)
-                    "alerting" -> it.copy(alertingInterval = v)
-                    else -> it.copy(constantInterval = v)
-                }
+    IntervalSetting.entries.forEach { setting ->
+        composable(setting.route) {
+            val update = rememberUpdater(repo)
+            WearTAKIntEntryPage(setting.get(config), setting.title, INTERVAL_MIN, INTERVAL_MAX, back) { v ->
+                update { setting.set(it, v) }
             }
         }
     }
@@ -278,6 +248,7 @@ fun NavGraphBuilder.settingsGraph(repo: SettingsRepository, config: TrackerConfi
                 )
             }
             item { WearTAKTitleChipWithState("Address", config.multicastAddress) { go("multicast_address") } }
+            item { WearTAKTitleChipWithState("Output Protocol", config.multicastProtocol) { go("multicast_protocol") } }
             item { WearTAKTitleChipWithState("Port", config.multicastPort.toString()) { go("multicast_port") } }
         }
     }
@@ -290,6 +261,14 @@ fun NavGraphBuilder.settingsGraph(repo: SettingsRepository, config: TrackerConfi
             onBack = back,
             validate = { if (isMulticastAddress(it.trim())) null else "Please enter a valid multicast address" },
         ) { v -> update { it.copy(multicastAddress = v.trim()) } }
+    }
+
+    composable("multicast_protocol") {
+        val update = rememberUpdater(repo)
+        WearTAKSelectionPage("Output Protocol", MULTICAST_PROTOCOLS, config.multicastProtocol, onBack = back) { protocol ->
+            update { it.copy(multicastProtocol = protocol) }
+            back()
+        }
     }
 
     composable("multicast_port") {
@@ -375,7 +354,7 @@ private fun TakServersPage(repo: SettingsRepository, config: TrackerConfig, go: 
                     checked = server.enabled,
                     onCheckedChange = { on ->
                         update { c -> c.copy(servers = c.servers.map { if (it.id == server.id) it.copy(enabled = on) else it }) }
-                        if (on && config.reportingEnabled) TrackerService.start(context)
+                        if (on) TrackerService.start(context)
                     },
                     onClick = { scope.launch { revealState.animateTo(RevealValue.Revealing) } },
                 )
@@ -420,7 +399,6 @@ private fun ServerFormPage(repo: SettingsRepository, title: String, initial: Tak
                 scope.launch {
                     repo.update { c ->
                         c.copy(
-                            reportingEnabled = true,
                             servers = if (isNew) c.servers + server else c.servers.map { if (it.id == server.id) server else it },
                         )
                     }
@@ -521,15 +499,13 @@ private fun SitxPage(repo: SettingsRepository, config: TrackerConfig, go: Naviga
     var confirmRemove by remember { mutableStateOf(false) }
     val groupName = groups.firstOrNull { it.flowTag == config.sitxGroup }?.name
         ?: config.sitxGroup.ifBlank { "No Group Selected" }
-    val hasConfig = config.sitxEnabled || config.sitxUrl.isNotBlank() || config.sitxClientId.isNotBlank() ||
-        config.sitxGroup.isNotBlank()
 
     WearTAKPageWithBackArrow("Sit(x) TAK", back) {
         item {
             WearTAKToggleChip(
                 checked = config.sitxEnabled,
                 onCheckedChange = { on ->
-                    update { it.copy(sitxEnabled = on, reportingEnabled = it.reportingEnabled || on) }
+                    update { it.copy(sitxEnabled = on) }
                     if (on) TrackerService.start(context)
                 },
                 title = "Sit(x) TAK",
@@ -557,8 +533,7 @@ private fun SitxPage(repo: SettingsRepository, config: TrackerConfig, go: Naviga
         item {
             Button(
                 onClick = { confirmRemove = true },
-                enabled = hasConfig,
-                contentPadding = PaddingValues(10.dp),
+                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = Color.Red, contentColor = Color.White),
             ) { Text(text = "Remove", color = Color.White) }
         }
@@ -568,13 +543,14 @@ private fun SitxPage(repo: SettingsRepository, config: TrackerConfig, go: Naviga
     WearTAKAlertDialog(
         show = confirmRemove,
         onDismissRequest = { confirmRemove = false },
-        title = { Text("Remove Sit(x)?", textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth()) },
+        icon = {
+            Icon(Icons.Default.Warning, modifier = Modifier.size(25.dp), contentDescription = null, tint = Color.LightGray)
+        },
         text = {
             Text(
-                "Clears the address, client ID, group and authorization",
+                "Remove the saved Sit(x) configuration and turn the service off? You can re-enable and configure it again later.",
                 textAlign = TextAlign.Center,
-                fontSize = 12.sp,
-                modifier = Modifier.fillMaxWidth(),
+                fontSize = 14.sp,
             )
         },
         confirmButton = {
@@ -585,11 +561,10 @@ private fun SitxPage(repo: SettingsRepository, config: TrackerConfig, go: Naviga
                     repo.update { it.copy(sitxEnabled = false, sitxUrl = "", sitxClientId = "", sitxGroup = "") }
                     repo.setSitxTokens(SitxTokens())
                     TrackerState.sitxGroups.value = emptyList()
-                    Toast.makeText(context, "Sit(x) configuration removed", Toast.LENGTH_SHORT).show()
                 }
             }
         },
-        dismissButton = { DialogButton("Cancel", Color.Gray, Color.White) { confirmRemove = false } },
+        dismissButton = { DialogButton("Dismiss", Color.Gray, Color.White) { confirmRemove = false } },
     )
 }
 

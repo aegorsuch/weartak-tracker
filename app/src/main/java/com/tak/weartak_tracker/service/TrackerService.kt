@@ -31,7 +31,6 @@ import com.tak.weartak_tracker.transport.NetworkMonitor
 import com.tak.weartak_tracker.transport.SitxClient
 import com.tak.weartak_tracker.transport.TakServerManager
 import com.tak.weartak_tracker.ui.MainActivity
-import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -62,7 +61,6 @@ class TrackerService : Service() {
     private lateinit var location: LocationEngine
     private lateinit var forwarder: AlertForwarder
 
-    private val restored = CompletableDeferred<Unit>()
     private val alertMutex = Mutex()
     private var forcedFlushJob: Job? = null
     private var config = TrackerConfig()
@@ -91,17 +89,9 @@ class TrackerService : Service() {
         location = LocationEngine(this, ::onLocation) { lastFix?.let { scope.launch { sendPli(it) } } }
         forwarder = AlertForwarder(
             send = ::sendAlert,
-            onChanged = { alerts, queue ->
-                TrackerState.alerts.value = alerts
-                scope.launch(Dispatchers.IO) { repo.saveAlertState(AlertForwarder.encode(alerts, queue)) }
-            },
+            onChanged = { alerts, _ -> TrackerState.alerts.value = alerts },
         )
-
-        scope.launch {
-            val (alerts, queue) = AlertForwarder.decode(repo.loadAlertState())
-            forwarder.restore(alerts, queue)
-            restored.complete(Unit)
-        }
+        TrackerState.alerts.value = emptyList()
 
         network.start()
         location.lastKnown { it?.let { loc -> if (lastFix == null) lastFix = loc.toFix() } }
@@ -109,10 +99,6 @@ class TrackerService : Service() {
         scope.launch {
             repo.config.collect { c ->
                 config = c
-                if (!c.reportingEnabled) {
-                    stopSelf()
-                    return@collect
-                }
                 tak.update(c.servers)
                 sitx.update(c)
                 configureMulticast()
@@ -164,13 +150,11 @@ class TrackerService : Service() {
                 val uid = intent.getStringExtra(EXTRA_UID)
                 val description = intent.getStringExtra(EXTRA_DESCRIPTION).orEmpty()
                 scope.launch {
-                    restored.await()
                     val alert = forwarder.newAlert(description).let { if (uid != null) it.copy(uid = uid) else it }
                     submit(alert)
                 }
             }
             ACTION_CANCEL_ALERT -> scope.launch {
-                restored.await()
                 val uid = intent.getStringExtra(EXTRA_UID)
                 val active = forwarder.alerts.filter { it.state == AlertState.ALERT }
                 val target = active.firstOrNull { it.uid == uid } ?: active.maxByOrNull { it.timeMillis }
@@ -179,7 +163,8 @@ class TrackerService : Service() {
             ACTION_SITX_REAUTHORIZE -> if (::sitx.isInitialized) sitx.reauthorize()
             ACTION_SITX_REFRESH_GROUPS -> if (::sitx.isInitialized) sitx.refreshGroups()
         }
-        return START_STICKY
+        // Never restarted by the system: reporting only runs after the user opens the app.
+        return START_NOT_STICKY
     }
 
     override fun onDestroy() {
@@ -241,7 +226,6 @@ class TrackerService : Service() {
     }
 
     private suspend fun onEndpointConnected() {
-        restored.await()
         if (forwarder.pending.isEmpty()) return
         if (isReady()) alertMutex.withLock { forwarder.flush() } else requestFixThenFlush()
     }
@@ -383,24 +367,6 @@ class TrackerService : Service() {
 
         fun stop(context: Context) {
             context.stopService(Intent(context, TrackerService::class.java))
-        }
-
-        /** Boot start: Android only allows a background location FGS with background location granted. */
-        fun startIfEnabled(context: Context, fromBoot: Boolean, onDone: () -> Unit = {}) {
-            if (fromBoot && ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_BACKGROUND_LOCATION) !=
-                PackageManager.PERMISSION_GRANTED
-            ) {
-                onDone()
-                return
-            }
-            val app = context.applicationContext as TrackerApp
-            CoroutineScope(Dispatchers.Default).launch {
-                try {
-                    if (app.settings.config.first().reportingEnabled) start(context)
-                } finally {
-                    onDone()
-                }
-            }
         }
     }
 }

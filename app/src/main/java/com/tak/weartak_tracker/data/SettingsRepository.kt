@@ -29,6 +29,10 @@ const val DEFAULT_MULTICAST_ADDRESS = "239.2.3.1"
 const val DEFAULT_MULTICAST_PORT = 6969
 const val DEFAULT_TAK_PORT = 8089
 
+/** Same output protocol options as WearTAK-CIV (UDP only). */
+val MULTICAST_PROTOCOLS = listOf("UDP")
+const val DEFAULT_MULTICAST_PROTOCOL = "UDP"
+
 val TEAMS = listOf(
     "White", "Yellow", "Orange", "Magenta", "Red", "Maroon", "Purple",
     "Dark Blue", "Blue", "Cyan", "Teal", "Green", "Dark Green", "Brown",
@@ -71,7 +75,6 @@ data class TakServerConfig(
 }
 
 data class TrackerConfig(
-    val reportingEnabled: Boolean = true,
     val callsign: String = "",
     val team: String = DEFAULT_TEAM,
     val role: String = DEFAULT_ROLE,
@@ -84,6 +87,7 @@ data class TrackerConfig(
     val multicastEnabled: Boolean = true,
     val multicastAddress: String = DEFAULT_MULTICAST_ADDRESS,
     val multicastPort: Int = DEFAULT_MULTICAST_PORT,
+    val multicastProtocol: String = DEFAULT_MULTICAST_PROTOCOL,
     val sitxEnabled: Boolean = false,
     val sitxUrl: String = "",
     val sitxClientId: String = "",
@@ -103,7 +107,6 @@ class SettingsRepository(private val context: Context) {
     private val store = context.trackerStore
 
     private object K {
-        val REPORTING = booleanPreferencesKey("reporting_enabled")
         val CALLSIGN = stringPreferencesKey("callsign")
         val TEAM = stringPreferencesKey("team")
         val ROLE = stringPreferencesKey("role")
@@ -116,13 +119,13 @@ class SettingsRepository(private val context: Context) {
         val MC_ENABLED = booleanPreferencesKey("enable_multicast")
         val MC_ADDRESS = stringPreferencesKey("multicast_address")
         val MC_PORT = intPreferencesKey("multicast_port")
+        val MC_PROTOCOL = stringPreferencesKey("multicast_protocol")
         val SITX_ENABLED = booleanPreferencesKey("sitx_enabled")
         val SITX_URL = stringPreferencesKey("sitx_url")
         val SITX_CLIENT_ID = stringPreferencesKey("sitx_client_id.enc")
         val SITX_GROUP = stringPreferencesKey("sitx_group.enc")
         val SITX_TOKENS = stringPreferencesKey("sitx_tokens.enc")
         val SERVERS = stringPreferencesKey("tak_servers.enc")
-        val ALERTS = stringPreferencesKey("alerts_state")
     }
 
     @SuppressLint("HardwareIds")
@@ -141,7 +144,6 @@ class SettingsRepository(private val context: Context) {
             val old = read(p)
             val n = transform(old)
             if (n == old) return@edit
-            p[K.REPORTING] = n.reportingEnabled
             p[K.CALLSIGN] = n.callsign.trim()
             p[K.TEAM] = n.team
             p[K.ROLE] = n.role
@@ -154,6 +156,7 @@ class SettingsRepository(private val context: Context) {
             p[K.MC_ENABLED] = n.multicastEnabled
             p[K.MC_ADDRESS] = n.multicastAddress.trim()
             p[K.MC_PORT] = n.multicastPort
+            p[K.MC_PROTOCOL] = n.multicastProtocol
             p[K.SITX_ENABLED] = n.sitxEnabled
             p[K.SITX_URL] = n.sitxUrl.trim()
             if (n.sitxClientId != old.sitxClientId) p[K.SITX_CLIENT_ID] = SecretBox.encrypt(n.sitxClientId.trim())
@@ -185,15 +188,8 @@ class SettingsRepository(private val context: Context) {
         store.edit { it[K.SITX_TOKENS] = SecretBox.encrypt(json) }
     }
 
-    suspend fun loadAlertState(): String? = store.data.first()[K.ALERTS]
-
-    suspend fun saveAlertState(json: String) {
-        store.edit { it[K.ALERTS] = json }
-    }
-
     private fun read(p: Preferences): TrackerConfig =
         TrackerConfig(
-            reportingEnabled = p[K.REPORTING] ?: true,
             callsign = p[K.CALLSIGN]?.takeIf { it.isNotBlank() } ?: defaultCallsign,
             team = p[K.TEAM] ?: DEFAULT_TEAM,
             role = p[K.ROLE] ?: DEFAULT_ROLE,
@@ -206,6 +202,7 @@ class SettingsRepository(private val context: Context) {
             multicastEnabled = p[K.MC_ENABLED] ?: true,
             multicastAddress = p[K.MC_ADDRESS] ?: DEFAULT_MULTICAST_ADDRESS,
             multicastPort = p[K.MC_PORT] ?: DEFAULT_MULTICAST_PORT,
+            multicastProtocol = p[K.MC_PROTOCOL]?.takeIf { it in MULTICAST_PROTOCOLS } ?: DEFAULT_MULTICAST_PROTOCOL,
             sitxEnabled = p[K.SITX_ENABLED] ?: false,
             sitxUrl = p[K.SITX_URL] ?: "",
             sitxClientId = SecretBox.decrypt(p[K.SITX_CLIENT_ID]) ?: "",

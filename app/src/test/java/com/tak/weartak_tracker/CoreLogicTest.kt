@@ -57,13 +57,4 @@ class CoreLogicTest {
         assertTrue(forwarder.alerts.isEmpty())
         assertTrue(forwarder.pending.isEmpty())
     }
-
-    @Test
-    fun alertStateRoundTrip() {
-        val a = AlertForwarder(send = { true }, onChanged = { _, _ -> }).newAlert("")
-        val (alerts, queue) = AlertForwarder.decode(AlertForwarder.encode(listOf(a), listOf(a)))
-        assertEquals(listOf(a), alerts)
-        assertEquals(listOf(a), queue)
-        assertEquals(AlertForwarder.DEFAULT_DESCRIPTION, a.description)
-    }
 }

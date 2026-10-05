@@ -365,6 +365,7 @@ fun WearTAKLoadingDialog(show: Boolean, secondaryText: String) {
 fun WearTAKAlertDialog(
     show: Boolean,
     onDismissRequest: () -> Unit,
+    icon: @Composable () -> Unit = {},
     title: @Composable () -> Unit = {},
     text: @Composable () -> Unit = {},
     confirmButton: @Composable () -> Unit,
@@ -375,6 +376,7 @@ fun WearTAKAlertDialog(
         containerColor = colors.background,
         modifier = Modifier,
         onDismissRequest = onDismissRequest,
+        icon = { icon() },
         title = { title() },
         text = { text() },
         confirmButton = { confirmButton() },

@@ -96,13 +96,9 @@ fun SosScreen(repo: SettingsRepository, exit: () -> Unit) {
         pendingCancel = cancel
         pendingType = displayType(description)
         pendingUid = uid
-        scope.launch {
-            // Alerts are handled by the tracking service, so sending one also resumes reporting.
-            repo.update { it.copy(reportingEnabled = true) }
-            TrackerService.start(context, if (cancel) TrackerService.ACTION_CANCEL_ALERT else TrackerService.ACTION_RAISE_ALERT) {
-                putExtra(TrackerService.EXTRA_UID, uid)
-                putExtra(TrackerService.EXTRA_DESCRIPTION, description)
-            }
+        TrackerService.start(context, if (cancel) TrackerService.ACTION_CANCEL_ALERT else TrackerService.ACTION_RAISE_ALERT) {
+            putExtra(TrackerService.EXTRA_UID, uid)
+            putExtra(TrackerService.EXTRA_DESCRIPTION, description)
         }
     }
 
