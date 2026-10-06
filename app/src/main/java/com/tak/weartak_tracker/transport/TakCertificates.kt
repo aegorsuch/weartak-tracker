@@ -22,6 +22,7 @@ import javax.net.ssl.KeyManagerFactory
 import javax.net.ssl.SSLContext
 import javax.net.ssl.SSLSocketFactory
 import javax.net.ssl.TrustManagerFactory
+import javax.net.ssl.X509TrustManager
 
 class EnrollmentException(message: String, cause: Throwable? = null) : Exception(message, cause)
 
@@ -51,7 +52,9 @@ object TakCertificates {
         val cached = cachedFile(context, server)
         loadCached(cached)?.let { return it }
         if (server.username.isBlank() || server.password.isEmpty()) {
-            throw EnrollmentException("No certificate: add username/password or sideload certs/${server.address.trim()}.p12")
+            throw EnrollmentException(
+                "No certificate: add username/password or sideload certs/${server.address.trim()}.p12 (see README)",
+            )
         }
         onEnrolling()
         val ks = enroll(server, deviceUid)
@@ -65,8 +68,17 @@ object TakCertificates {
         return Credentials(ks, STORE_PASSWORD.toCharArray(), "enrolled")
     }
 
+    private fun sideloadDir(context: Context): File? = context.getExternalFilesDir(null)?.let { File(it, "certs") }
+
+    /** True when `certs/<address>.p12` or `.p12.b64` exists, so the server can connect without enrollment. */
+    fun hasSideloaded(context: Context, address: String): Boolean {
+        val dir = sideloadDir(context) ?: return false
+        val a = address.trim()
+        return a.isNotEmpty() && (File(dir, "$a.p12").isFile || File(dir, "$a.p12.b64").isFile)
+    }
+
     private fun loadSideloaded(context: Context, server: TakServerConfig): Credentials? {
-        val dir = File(context.getExternalFilesDir(null) ?: return null, "certs")
+        val dir = sideloadDir(context) ?: return null
         val address = server.address.trim()
         val p12 = File(dir, "$address.p12")
         val b64 = File(dir, "$address.p12.b64")
@@ -128,7 +140,7 @@ object TakCertificates {
         return ks
     }
 
-    private fun parseSignResponse(body: String): Pair<X509Certificate, List<X509Certificate>> {
+    internal fun parseSignResponse(body: String): Pair<X509Certificate, List<X509Certificate>> {
         val trimmed = body.trim()
         val values: Map<String, String> = if (trimmed.startsWith("{")) {
             val o = JSONObject(trimmed)
@@ -147,7 +159,7 @@ object TakCertificates {
 
     private fun parseCert(text: String): X509Certificate {
         val b64 = text.replace(Regex("-----[A-Z ]+-----"), "").filterNot { it.isWhitespace() }
-        val der = Base64.decode(b64, Base64.DEFAULT)
+        val der = java.util.Base64.getDecoder().decode(b64)
         return CertificateFactory.getInstance("X.509").generateCertificate(ByteArrayInputStream(der)) as X509Certificate
     }
 
@@ -181,7 +193,16 @@ object TakCertificates {
         }
     }
 
-    fun socketFactory(credentials: Credentials): SSLSocketFactory {
+    /**
+     * Socket factory whose trust manager also requires the server certificate to be issued for [host]
+     * (or [savedName]); see [HostnameCheck.trustManager] for CA-scoped name discovery via [onDiscovered].
+     */
+    fun socketFactory(
+        credentials: Credentials,
+        host: String,
+        savedName: String? = null,
+        onDiscovered: ((String) -> Unit)? = null,
+    ): SSLSocketFactory {
         val kmf = KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm())
         kmf.init(credentials.keyStore, credentials.password)
 
@@ -199,7 +220,10 @@ object TakCertificates {
         tmf.init(if (anchors.isEmpty()) ks else trustStore)
 
         val ctx = SSLContext.getInstance("TLS")
-        ctx.init(kmf.keyManagers, tmf.trustManagers, null)
+        val trustManagers = tmf.trustManagers.map { tm ->
+            if (tm is X509TrustManager) HostnameCheck.trustManager(tm, host, savedName, onDiscovered) else tm
+        }.toTypedArray()
+        ctx.init(kmf.keyManagers, trustManagers, null)
         return ctx.socketFactory
     }
 }

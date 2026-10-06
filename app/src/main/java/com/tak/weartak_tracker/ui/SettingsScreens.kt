@@ -1,6 +1,11 @@
 package com.tak.weartak_tracker.ui
 
+import android.Manifest
+import android.hardware.Sensor
+import android.hardware.SensorManager
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -64,11 +69,16 @@ import com.tak.weartak_tracker.data.SitxState
 import com.tak.weartak_tracker.data.SitxTokens
 import com.tak.weartak_tracker.data.TEAMS
 import com.tak.weartak_tracker.data.TakServerConfig
+import com.tak.weartak_tracker.data.TakChannelStatus
+import com.tak.weartak_tracker.data.TakServerChannels
+import com.tak.weartak_tracker.data.TakServerState
 import com.tak.weartak_tracker.data.TakStatus
 import com.tak.weartak_tracker.data.TrackerConfig
 import com.tak.weartak_tracker.data.TrackerState
 import com.tak.weartak_tracker.service.TrackerService
 import com.tak.weartak_tracker.transport.SitxClient
+import com.tak.weartak_tracker.transport.TakCertificates
+import com.tak.weartak_tracker.data.takServerFormError
 import kotlinx.coroutines.launch
 
 private const val INTERVAL_MIN = 1
@@ -76,10 +86,8 @@ private const val INTERVAL_MAX = 1_000_000
 
 /** Config update helper used by all settings pages. */
 @Composable
-private fun rememberUpdater(repo: SettingsRepository): ((TrackerConfig) -> TrackerConfig) -> Unit {
-    val scope = rememberCoroutineScope()
-    return { transform -> scope.launch { repo.update(transform) } }
-}
+private fun rememberUpdater(repo: SettingsRepository): ((TrackerConfig) -> TrackerConfig) -> Unit =
+    remember(repo) { { transform -> repo.updateAsync(transform) } }
 
 /** Reporting interval entries with CIV's titles and routes. */
 private enum class IntervalSetting(
@@ -117,6 +125,7 @@ fun NavGraphBuilder.settingsGraph(repo: SettingsRepository, config: TrackerConfi
                 )
             }
             item { WearTAKTitleChip("Reporting Strategy") { go("reporting_strategy") } }
+            item { PhysioToggle(repo, config) }
         }
     }
 
@@ -205,6 +214,7 @@ fun NavGraphBuilder.settingsGraph(repo: SettingsRepository, config: TrackerConfi
     composable("network_preferences") {
         WearTAKPageWithBackArrow("Network Preferences", back) {
             item { WearTAKTitleChip("TAK Servers") { go("tak_servers") } }
+            item { WearTAKTitleChip("Channels") { go("tak_channels") } }
             item {
                 WearTAKTitleChipWithState("TAK SA Multicast", if (config.multicastEnabled) "Enabled" else "Disabled") {
                     go("tak_sa_multicast")
@@ -219,6 +229,20 @@ fun NavGraphBuilder.settingsGraph(repo: SettingsRepository, config: TrackerConfi
     }
 
     composable("tak_servers") { TakServersPage(repo, config, go, back) }
+
+    composable("tak_channels") { ChannelServersPage(config, go, back) }
+
+    composable(
+        "tak_channels/{id}",
+        arguments = listOf(navArgument("id") { type = NavType.StringType }),
+    ) { entry ->
+        val server = config.servers.firstOrNull { it.id == entry.arguments?.getString("id") }
+        if (server == null) {
+            LaunchedEffect(Unit) { back() }
+        } else {
+            ChannelsPage(server, back)
+        }
+    }
 
     composable("new_server_screen") {
         ServerFormPage(repo, "New Server", TakServerConfig(), isNew = true, back = back)
@@ -297,11 +321,136 @@ fun NavGraphBuilder.settingsGraph(repo: SettingsRepository, config: TrackerConfi
     composable("sitx_status_authorization_screen") { SitxStatusPage(back) }
 }
 
+/** CIV's "Physiological Monitoring" switch; turning it on asks for BODY_SENSORS first. */
+@Composable
+private fun PhysioToggle(repo: SettingsRepository, config: TrackerConfig) {
+    val context = LocalContext.current
+    val update = rememberUpdater(repo)
+    val bpm by TrackerState.heartRate.collectAsStateWithLifecycle()
+    val skinF by TrackerState.skinTempF.collectAsStateWithLifecycle()
+    val enable = {
+        update { it.copy(physioMonitoring = true) }
+        TrackerService.start(context)
+    }
+    val request = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) enable()
+        else Toast.makeText(context, "Body sensor permission is required for physio monitoring", Toast.LENGTH_LONG).show()
+    }
+    val hasSensor = remember {
+        context.getSystemService(SensorManager::class.java)?.getDefaultSensor(Sensor.TYPE_HEART_RATE) != null
+    }
+    WearTAKToggleChip(
+        checked = config.physioMonitoring,
+        onCheckedChange = { on ->
+            when {
+                !on -> update { it.copy(physioMonitoring = false) }
+                !hasSensor -> Toast.makeText(context, "This watch has no heart rate sensor", Toast.LENGTH_LONG).show()
+                context.granted(Manifest.permission.BODY_SENSORS) -> enable()
+                else -> request.launch(Manifest.permission.BODY_SENSORS)
+            }
+        },
+        title = "Physiological Monitoring",
+        description = if (!config.physioMonitoring) "Off" else {
+            val hr = if (bpm > 0) "$bpm" else "N/A"
+            val skin = skinF?.let { String.format(java.util.Locale.US, "%.1f°F", it) } ?: "N/A"
+            "On · HR $hr · Skin $skin"
+        },
+    )
+}
+
 private fun isMulticastAddress(s: String): Boolean {
     val parts = s.split(".")
     if (parts.size != 4) return false
     val octets = parts.map { it.toIntOrNull() ?: return false }
     return octets.all { it in 0..255 } && octets[0] in 224..239
+}
+
+private fun channelSummary(server: TakServerConfig, state: TakServerState?, channels: TakServerChannels?): String = when {
+    !server.enabled -> "Disabled"
+    state?.status != TakStatus.CONNECTED -> "Not connected"
+    channels == null -> "Not loaded"
+    else -> when (channels.status) {
+        TakChannelStatus.LOADING -> "Loading..."
+        TakChannelStatus.EMPTY -> "No channels assigned"
+        TakChannelStatus.UNSUPPORTED -> "Channels unsupported"
+        TakChannelStatus.ERROR -> channels.errorMessage ?: "Channel request failed"
+        TakChannelStatus.READY -> "${channels.channels.count { it.active }} of ${channels.channels.size} active"
+    }
+}
+
+/** Network Preferences > Channels: one entry per TAK Server, like WearTAK-CIV's channel layers menu. */
+@Composable
+private fun ChannelServersPage(config: TrackerConfig, go: Navigate, back: () -> Unit) {
+    val states by TrackerState.takServers.collectAsStateWithLifecycle()
+    val channels by TrackerState.takChannels.collectAsStateWithLifecycle()
+    WearTAKPageWithBackArrow("Channels", back) {
+        if (config.servers.isEmpty()) {
+            item { Text("Add a TAK Server first", textAlign = TextAlign.Center, color = Color.LightGray) }
+        }
+        itemsIndexed(config.servers, key = { _, s -> s.id }) { _, server ->
+            WearTAKTitleChipWithState(server.name, channelSummary(server, states[server.id], channels[server.id])) {
+                go("tak_channels/${server.id}")
+            }
+        }
+    }
+}
+
+@Composable
+private fun ChannelsPage(server: TakServerConfig, back: () -> Unit) {
+    val context = LocalContext.current
+    val states by TrackerState.takServers.collectAsStateWithLifecycle()
+    val all by TrackerState.takChannels.collectAsStateWithLifecycle()
+    val connected = server.enabled && states[server.id]?.status == TakStatus.CONNECTED
+    val channels = all[server.id]
+    val refresh = {
+        TrackerService.start(context, TrackerService.ACTION_TAK_CHANNELS_REFRESH) {
+            putExtra(TrackerService.EXTRA_SERVER_ID, server.id)
+        }
+    }
+    // Like CIV, opening a server's channel list fetches the current state from the server.
+    LaunchedEffect(server.id, connected) { if (connected) refresh() }
+    WearTAKPageWithBackArrow(server.name, back) {
+        val status = when {
+            !connected -> channelSummary(server, states[server.id], channels)
+            channels == null || channels.status == TakChannelStatus.READY -> null
+            else -> channelSummary(server, states[server.id], channels)
+        }
+        if (status != null) {
+            item {
+                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
+                    if (channels?.status == TakChannelStatus.LOADING) CircularProgressIndicator()
+                    Text(
+                        status,
+                        textAlign = TextAlign.Center,
+                        fontSize = 12.sp,
+                        color = if (channels?.status == TakChannelStatus.ERROR) Color.Red else Color.LightGray,
+                    )
+                }
+            }
+        }
+        if (connected) {
+            itemsIndexed(channels?.channels.orEmpty(), key = { _, c -> c.bitPosition }) { _, channel ->
+                WearTAKToggleChip(
+                    checked = channel.active,
+                    onCheckedChange = { on ->
+                        if (!channel.updating && channels?.status != TakChannelStatus.LOADING) {
+                            TrackerService.start(context, TrackerService.ACTION_TAK_CHANNEL_TOGGLE) {
+                                putExtra(TrackerService.EXTRA_SERVER_ID, server.id)
+                                putExtra(TrackerService.EXTRA_BIT_POSITION, channel.bitPosition)
+                                putExtra(TrackerService.EXTRA_ACTIVE, on)
+                            }
+                        }
+                    },
+                    title = channel.name,
+                    description = if (channel.updating) "Updating..." else if (channel.active) "Active" else "Inactive",
+                )
+            }
+            item {
+                Spacer(Modifier.height(6.dp))
+                WearTAKTitleChip("Refresh") { if (channels?.status != TakChannelStatus.LOADING) refresh() }
+            }
+        }
+    }
 }
 
 @OptIn(ExperimentalWearMaterialApi::class, ExperimentalWearFoundationApi::class)
@@ -388,14 +537,19 @@ private fun ServerFormPage(repo: SettingsRepository, title: String, initial: Tak
         title = title,
         onClickCancel = back,
         onClickConfirm = {
-            val p = port.trim().toIntOrNull()
-            if (name.isBlank() || address.isBlank() || p == null || p !in 1..65535 || username.isBlank() || password.isBlank()) {
-                Toast.makeText(context, "Please enter valid values for all fields", Toast.LENGTH_LONG).show()
+            val error = takServerFormError(
+                name, address, port, username, password,
+                hasSideloadedCert = TakCertificates.hasSideloaded(context, address),
+            )
+            if (error != null) {
+                Toast.makeText(context, error, Toast.LENGTH_LONG).show()
             } else {
+                val p = port.trim().toInt()
+                val moved = initial.endpointKey != TakServerConfig(address = address.trim(), port = p).endpointKey
                 val server = initial.copy(
                     name = name.trim(), address = address.trim(), port = p,
                     username = username.trim(), password = password, enabled = true,
-                )
+                ).let { if (moved) it.copy(tlsName = "", apiTlsName = "") else it }
                 scope.launch {
                     repo.update { c ->
                         c.copy(
@@ -464,6 +618,20 @@ private fun ServerFormPage(repo: SettingsRepository, title: String, initial: Tak
         item { WearTAKOutlinedTextField(port, { port = it }, "Port", KeyboardType.Number) }
         item { WearTAKOutlinedTextField(username, { username = it }, "Username", KeyboardType.Text) }
         item { WearTAKOutlinedTextField(password, { password = it }, "Password", KeyboardType.Password, password = true) }
+        val names = listOfNotNull(
+            initial.tlsName.takeIf { it.isNotBlank() }?.let { "TLS name: $it" },
+            initial.apiTlsName.takeIf { it.isNotBlank() && it != initial.tlsName }?.let { "API TLS name: $it" },
+        )
+        if (names.isNotEmpty()) {
+            item {
+                Text(
+                    names.joinToString("\n") + "\nDiscovered from the server certificate; cleared if address or port change.",
+                    fontSize = 10.sp,
+                    color = Color.LightGray,
+                    textAlign = TextAlign.Center,
+                )
+            }
+        }
         item { Spacer(Modifier.height(10.dp)) }
     }
 }

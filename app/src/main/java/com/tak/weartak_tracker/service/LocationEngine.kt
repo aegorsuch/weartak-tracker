@@ -14,7 +14,7 @@ import com.google.android.gms.location.LocationCallback
 import com.google.android.gms.location.LocationRequest
 import com.google.android.gms.location.LocationResult
 import com.google.android.gms.location.LocationServices
-import com.google.android.gms.location.Priority
+import com.tak.weartak_tracker.data.LocationAccess
 
 /**
  * GPS scheduling as in WearTAK-CIV's LocationService: short intervals (<10 s) use a periodic request;
@@ -38,6 +38,7 @@ class LocationEngine(
     private var wakeLock: PowerManager.WakeLock? = null
     private var intervalSecs = 0
     private var periodic = false
+    private var access = LocationAccess.NONE
 
     private val periodicCallback = object : LocationCallback() {
         override fun onLocationResult(result: LocationResult) {
@@ -65,10 +66,11 @@ class LocationEngine(
     fun start(intervalSecs: Int) {
         stop()
         this.intervalSecs = intervalSecs
+        access = LocationAccess.current(context)
         periodic = intervalSecs < PERIODIC_THRESHOLD_SECS
         if (periodic) {
             val ms = intervalSecs * 1000L
-            val request = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, ms)
+            val request = LocationRequest.Builder(access.priority, ms)
                 .setMinUpdateIntervalMillis(ms)
                 .build()
             requestUpdates(request, periodicCallback)
@@ -89,18 +91,24 @@ class LocationEngine(
         scheduleAlarm()
     }
 
+    /** Re-applies the current interval when the user switched between precise and approximate location. */
+    fun refreshAccess() {
+        if (intervalSecs > 0 && LocationAccess.current(context) != access) start(intervalSecs)
+    }
+
     /** Extra fix used by the alert store-and-forward path when the current position is stale. */
     fun requestSingleFix() {
         releaseWakeLock()
         wakeLock = power.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "WearTAKTracker:gps").apply {
             acquire(WAKELOCK_MS)
         }
-        val request = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 1000)
+        val current = LocationAccess.current(context)
+        val request = LocationRequest.Builder(current.priority, 1000)
             .setMaxUpdates(1)
             .setMinUpdateIntervalMillis(0)
             .setMaxUpdateAgeMillis(0)
             .setMaxUpdateDelayMillis(1000)
-            .setWaitForAccurateLocation(true)
+            .setWaitForAccurateLocation(current == LocationAccess.PRECISE)
             .build()
         fused.removeLocationUpdates(oneShotCallback)
         requestUpdates(request, oneShotCallback)

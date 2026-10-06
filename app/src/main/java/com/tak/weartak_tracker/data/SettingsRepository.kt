@@ -10,11 +10,14 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
-import org.json.JSONArray
+import kotlinx.coroutines.launch
 import org.json.JSONObject
 import java.util.UUID
 
@@ -40,7 +43,7 @@ val TEAMS = listOf(
 
 data class RoleCategory(val category: String, val roles: List<String>)
 
-/** Same default role categories as WearTAK-CIV (res/raw/roles_json_config). */
+/** WearTAK-CIV's default role categories (res/raw/roles_json_config) without FES. */
 val ROLE_CATEGORIES = listOf(
     RoleCategory("MIL", listOf("Forward Observer", "HQ", "K9", "Medic", "RTO", "Sniper", "Team Lead", "Team Member")),
     RoleCategory(
@@ -48,13 +51,6 @@ val ROLE_CATEGORIES = listOf(
         listOf(
             "Armed Surveillance", "Assistant Team Leader", "Aviation", "Bomb Tech", "Command Post",
             "Critical Response", "Hazards", "Negotiator", "Surveillance", "Tactical Communicator", "TOC",
-        ),
-    ),
-    RoleCategory(
-        "FES",
-        listOf(
-            "Assistant Chief", "Battalion Chief", "Captain", "Deputy Chief", "District Chief", "Engineer",
-            "Fire Chief", "Firefighter", "Lieutenant", "Safety Officer",
         ),
     ),
 )
@@ -70,9 +66,18 @@ data class TakServerConfig(
     val enabled: Boolean = true,
     val username: String = "",
     val password: String = "",
+    /** Discovered certificate name for the CoT stream (validation + SNI); cleared when address/port change. */
+    val tlsName: String = "",
+    /** Discovered certificate name for the HTTPS API on [TAK_API_PORT] (validation only). */
+    val apiTlsName: String = "",
 ) {
     val endpointKey: String get() = "${address.trim().lowercase()}:$port"
+
+    /** Settings that require reconnecting; discovered TLS names are learned while connected. */
+    val connectionKey: TakServerConfig get() = copy(tlsName = "", apiTlsName = "")
 }
+
+const val TAK_API_PORT = 8443
 
 data class TrackerConfig(
     val callsign: String = "",
@@ -93,6 +98,8 @@ data class TrackerConfig(
     val sitxClientId: String = "",
     val sitxGroup: String = "",
     val servers: List<TakServerConfig> = emptyList(),
+    /** WearTAK-CIV's "Physiological Monitoring": adds heart rate to PLI (needs BODY_SENSORS). */
+    val physioMonitoring: Boolean = false,
 )
 
 /** SITX OAuth device-flow state (persisted encrypted). */
@@ -126,6 +133,7 @@ class SettingsRepository(private val context: Context) {
         val SITX_GROUP = stringPreferencesKey("sitx_group.enc")
         val SITX_TOKENS = stringPreferencesKey("sitx_tokens.enc")
         val SERVERS = stringPreferencesKey("tak_servers.enc")
+        val PHYSIO = booleanPreferencesKey("enable_physiological_services")
     }
 
     @SuppressLint("HardwareIds")
@@ -138,6 +146,13 @@ class SettingsRepository(private val context: Context) {
         .distinctUntilChanged()
 
     suspend fun current(): TrackerConfig = config.first()
+
+    /** Applies [transform] in a repository-owned scope so the write completes even if the calling screen closes. */
+    fun updateAsync(transform: (TrackerConfig) -> TrackerConfig) {
+        writeScope.launch { update(transform) }
+    }
+
+    private val writeScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     suspend fun update(transform: (TrackerConfig) -> TrackerConfig) {
         store.edit { p ->
@@ -159,9 +174,10 @@ class SettingsRepository(private val context: Context) {
             p[K.MC_PROTOCOL] = n.multicastProtocol
             p[K.SITX_ENABLED] = n.sitxEnabled
             p[K.SITX_URL] = n.sitxUrl.trim()
+            p[K.PHYSIO] = n.physioMonitoring
             if (n.sitxClientId != old.sitxClientId) p[K.SITX_CLIENT_ID] = SecretBox.encrypt(n.sitxClientId.trim())
             if (n.sitxGroup != old.sitxGroup) p[K.SITX_GROUP] = SecretBox.encrypt(n.sitxGroup)
-            if (n.servers != old.servers) p[K.SERVERS] = SecretBox.encrypt(serializeServers(n.servers))
+            if (n.servers != old.servers) p[K.SERVERS] = SecretBox.encrypt(ServerListCodec.encode(n.servers))
         }
     }
 
@@ -192,7 +208,7 @@ class SettingsRepository(private val context: Context) {
         TrackerConfig(
             callsign = p[K.CALLSIGN]?.takeIf { it.isNotBlank() } ?: defaultCallsign,
             team = p[K.TEAM] ?: DEFAULT_TEAM,
-            role = p[K.ROLE] ?: DEFAULT_ROLE,
+            role = p[K.ROLE]?.takeIf { r -> ROLE_CATEGORIES.any { r in it.roles } } ?: DEFAULT_ROLE,
             dynamicReporting = p[K.DYNAMIC] ?: true,
             constantInterval = p[K.CONSTANT] ?: DEFAULT_CONSTANT_REPORTING_INTERVAL,
             alertingInterval = p[K.ALERTING] ?: DEFAULT_WHILE_ALERTING_REPORTING_INTERVAL,
@@ -207,35 +223,7 @@ class SettingsRepository(private val context: Context) {
             sitxUrl = p[K.SITX_URL] ?: "",
             sitxClientId = SecretBox.decrypt(p[K.SITX_CLIENT_ID]) ?: "",
             sitxGroup = SecretBox.decrypt(p[K.SITX_GROUP]) ?: "",
-            servers = parseServers(SecretBox.decrypt(p[K.SERVERS])),
+            servers = ServerListCodec.decode(SecretBox.decrypt(p[K.SERVERS])),
+            physioMonitoring = p[K.PHYSIO] ?: false,
         )
-
-    private fun parseServers(raw: String?): List<TakServerConfig> {
-        if (raw.isNullOrBlank()) return emptyList()
-        return runCatching {
-            val arr = JSONArray(raw)
-            (0 until arr.length()).map { i ->
-                val o = arr.getJSONObject(i)
-                TakServerConfig(
-                    id = o.optString("id").ifBlank { UUID.randomUUID().toString() },
-                    name = o.optString("name"),
-                    address = o.optString("address"),
-                    port = o.optInt("port", DEFAULT_TAK_PORT),
-                    enabled = o.optBoolean("enabled", true),
-                    username = o.optString("username"),
-                    password = o.optString("password"),
-                )
-            }
-        }.getOrDefault(emptyList())
-    }
-
-    private fun serializeServers(servers: List<TakServerConfig>): String = JSONArray().apply {
-        servers.forEach { s ->
-            put(
-                JSONObject()
-                    .put("id", s.id).put("name", s.name).put("address", s.address.trim()).put("port", s.port)
-                    .put("enabled", s.enabled).put("username", s.username).put("password", s.password),
-            )
-        }
-    }.toString()
 }

@@ -59,6 +59,7 @@ import androidx.wear.compose.material.MaterialTheme.colors
 import androidx.wear.compose.material.Text
 import com.tak.weartak_tracker.R
 import com.tak.weartak_tracker.cot.AlertState
+import com.tak.weartak_tracker.data.LocationAccess
 import com.tak.weartak_tracker.data.SettingsRepository
 import com.tak.weartak_tracker.data.TrackerState
 import com.tak.weartak_tracker.service.AlertForwarder
@@ -89,7 +90,7 @@ fun SosScreen(repo: SettingsRepository, exit: () -> Unit) {
     val permissions = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {}
 
     fun request(cancel: Boolean, uid: String, description: String) {
-        if (!context.granted(Manifest.permission.ACCESS_FINE_LOCATION)) {
+        if (!LocationAccess.current(context).granted) {
             permissions.launch(foregroundPermissions())
             return
         }

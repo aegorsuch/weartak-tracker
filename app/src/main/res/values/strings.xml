@@ -4,4 +4,5 @@
     <string name="channel_name">Position reporting</string>
     <string name="notification_starting">Starting position reporting</string>
     <string name="notification_status">Reporting every %1$ds to %2$d endpoint(s)</string>
+    <string name="notification_approximate_suffix"> · approximate location</string>
 </resources>

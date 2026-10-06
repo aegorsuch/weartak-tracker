@@ -12,9 +12,9 @@ object ReportingStrategy {
     fun dynamicInterval(config: TrackerConfig, alerting: Boolean, activity: Activity): Int {
         if (alerting) return config.alertingInterval
         return when (activity) {
-            Activity.ON_FOOT, Activity.RUNNING, Activity.WALKING -> config.onFootInterval
+            Activity.ON_FOOT -> config.onFootInterval
             Activity.IN_VEHICLE -> config.vehicleInterval
-            Activity.TILTING, Activity.BICYCLING, Activity.UNKNOWN -> max(config.onFootInterval, config.vehicleInterval)
+            Activity.UNKNOWN -> max(config.onFootInterval, config.vehicleInterval)
             Activity.STILL -> config.stationaryInterval
         }
     }

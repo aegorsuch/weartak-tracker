@@ -4,6 +4,8 @@ plugins {
     id 'org.jetbrains.kotlin.plugin.compose'
 }
 
+def samsungHealthAar = file('libs/samsung-health-sensor-api-1.4.1.aar')
+
 android {
     namespace 'com.tak.weartak_tracker'
     compileSdk 35
@@ -17,11 +19,27 @@ android {
         setProperty("archivesBaseName", "WearTAK-Tracker-${versionName}")
     }
 
+    signingConfigs {
+        // Optional: create signing.properties (git-ignored) to sign release builds; see README.
+        def signingFile = rootProject.file('signing.properties')
+        if (signingFile.exists()) {
+            def props = new Properties()
+            signingFile.withInputStream { props.load(it) }
+            release {
+                storeFile rootProject.file(props['storeFile'])
+                storePassword props['storePassword']
+                keyAlias props['keyAlias']
+                keyPassword props['keyPassword']
+            }
+        }
+    }
+
     buildTypes {
         release {
             minifyEnabled true
             shrinkResources true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            if (rootProject.file('signing.properties').exists()) signingConfig signingConfigs.release
         }
     }
     compileOptions {
@@ -39,6 +57,11 @@ android {
         resources {
             excludes += ['/META-INF/{AL2.0,LGPL2.1}']
         }
+    }
+    // Skin temperature uses Samsung's proprietary SDK, which isn't committed. Without the AAR a stub
+    // SkinTempMonitor is compiled and skin temperature is sent as N/A.
+    sourceSets {
+        main.java.srcDirs += samsungHealthAar.exists() ? 'src/samsungHealth/java' : 'src/noSamsungHealth/java'
     }
 }
 
@@ -58,6 +81,8 @@ dependencies {
     implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1'
     implementation 'com.google.android.gms:play-services-location:21.3.0'
     implementation 'com.squareup.okhttp3:okhttp:4.12.0'
+    // Samsung Health Sensor SDK (same AAR as WearTAK-CIV) for skin temperature on Galaxy watches; optional.
+    if (samsungHealthAar.exists()) implementation files(samsungHealthAar)
 
     testImplementation 'junit:junit:4.13.2'
     testImplementation 'org.json:json:20231013'

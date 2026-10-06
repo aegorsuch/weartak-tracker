@@ -12,6 +12,9 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -64,6 +67,7 @@ import com.tak.weartak_tracker.R
 import com.tak.weartak_tracker.TrackerApp
 import com.tak.weartak_tracker.cot.AlertState
 import com.tak.weartak_tracker.data.Endpoint
+import com.tak.weartak_tracker.data.LocationAccess
 import com.tak.weartak_tracker.data.SettingsRepository
 import com.tak.weartak_tracker.data.SitxState
 import com.tak.weartak_tracker.data.TakStatus
@@ -90,7 +94,6 @@ fun Context.granted(permission: String) =
 fun foregroundPermissions(): Array<String> = buildList {
     add(Manifest.permission.ACCESS_FINE_LOCATION)
     add(Manifest.permission.ACCESS_COARSE_LOCATION)
-    add(Manifest.permission.ACTIVITY_RECOGNITION)
     if (Build.VERSION.SDK_INT >= 33) add(Manifest.permission.POST_NOTIFICATIONS)
 }.toTypedArray()
 
@@ -119,7 +122,7 @@ fun MainScreen(config: TrackerConfig, go: Navigate) {
         TrackerService.start(context)
     }
     LaunchedEffect(Unit) {
-        if (!context.granted(Manifest.permission.ACCESS_FINE_LOCATION)) permissions.launch(foregroundPermissions())
+        if (!LocationAccess.current(context).granted) permissions.launch(foregroundPermissions())
         else TrackerService.start(context)
     }
 
@@ -136,7 +139,11 @@ fun MainScreen(config: TrackerConfig, go: Navigate) {
                 Callsign(config.callsign) { go("settings_screen") }
             }
         }
-        StatusIcons(config)
+        StatusIcons(
+            config,
+            onNetworkClick = { go("network_preferences") },
+            onLocationClick = { go("reporting_strategy") },
+        )
         TimeWithSecondsAware()
     }
 }
@@ -179,13 +186,14 @@ fun Callsign(callsign: String, onClick: () -> Unit) {
     )
 }
 
-/** Connection (top-left) and location (top-right) icons, positioned like CIV's TroubleshootingIcons. */
+/** Connection/location (top) and network/battery (bottom) icons, positioned like CIV's TroubleshootingIcons. */
 @Composable
-private fun StatusIcons(config: TrackerConfig) {
+private fun StatusIcons(config: TrackerConfig, onNetworkClick: () -> Unit, onLocationClick: () -> Unit) {
     val endpoints by TrackerState.endpoints.collectAsStateWithLifecycle()
     val takStates by TrackerState.takServers.collectAsStateWithLifecycle()
     val sitx by TrackerState.sitx.collectAsStateWithLifecycle()
     val running by TrackerState.serviceRunning.collectAsStateWithLifecycle()
+    val access by TrackerState.locationAccess.collectAsStateWithLifecycle()
 
     val enabledServers = takStates.values.filter { it.status != TakStatus.DISABLED && it.status != TakStatus.DUPLICATE }
     val anyTakConnected = Endpoint.TAK_SERVER in endpoints
@@ -202,16 +210,46 @@ private fun StatusIcons(config: TrackerConfig) {
     val locationOn = running
 
     Box(modifier = Modifier.fillMaxWidth().height(70.dp), contentAlignment = Alignment.TopCenter) {
-        Image(
-            painter = painterResource(icon),
-            contentDescription = "Connection status",
-            modifier = Modifier.align(Alignment.CenterStart).offset(x = 40.dp, y = (-10).dp).size(25.dp),
-        )
+        // 40 dp touch targets centred where the 25/20 dp icons used to sit.
+        Box(
+            modifier = Modifier.align(Alignment.CenterStart).offset(x = 32.dp, y = (-10).dp).size(40.dp)
+                .clip(CircleShape).clickable(onClickLabel = "Network Preferences", onClick = onNetworkClick),
+            contentAlignment = Alignment.Center,
+        ) {
+            Image(painter = painterResource(icon), contentDescription = "Connection status", modifier = Modifier.size(25.dp))
+        }
+        val approximate = locationOn && access == LocationAccess.APPROXIMATE
+        Box(
+            modifier = Modifier.align(Alignment.CenterEnd).offset(x = (-30).dp, y = (-10).dp).size(40.dp)
+                .clip(CircleShape).clickable(onClickLabel = "Reporting Strategy", onClick = onLocationClick),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                painterResource(if (locationOn) R.drawable.location_on else R.drawable.location_off),
+                contentDescription = if (approximate) "Location reporting (approximate)" else "Location reporting",
+                modifier = Modifier.size(20.dp),
+                tint = when {
+                    approximate -> Color.Yellow
+                    locationOn -> Color.White
+                    else -> Color.DarkGray
+                },
+            )
+        }
+
+        val connectivity = rememberConnectivity()
+        val online = connectivity != Connectivity.NONE && connectivity != Connectivity.AIRPLANE
         Icon(
-            painterResource(if (locationOn) R.drawable.location_on else R.drawable.location_off),
-            contentDescription = "Location reporting",
-            modifier = Modifier.align(Alignment.CenterEnd).offset(x = (-40).dp, y = (-10).dp).size(20.dp),
-            tint = if (locationOn) Color.White else Color.DarkGray,
+            painterResource(connectivityIcon(connectivity)),
+            contentDescription = "Network: ${connectivity.name.lowercase()}",
+            modifier = Modifier.align(Alignment.CenterStart).offset(x = 15.dp, y = 10.dp).size(25.dp),
+            tint = if (online) Color.White else Color.Unspecified,
+        )
+        val battery = rememberBatteryPercent()
+        Icon(
+            painterResource(batteryIcon(battery)),
+            contentDescription = "Battery $battery%",
+            modifier = Modifier.align(Alignment.CenterEnd).offset(x = (-15).dp, y = 10.dp).size(20.dp),
+            tint = if (battery <= 20) Color.Red else Color.White,
         )
     }
 }

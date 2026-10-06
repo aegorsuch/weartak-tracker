@@ -27,7 +27,8 @@ sealed interface SitxState {
 
 data class SitxGroup(val flowTag: String, val name: String)
 
-enum class Activity { RUNNING, WALKING, TILTING, STILL, BICYCLING, IN_VEHICLE, ON_FOOT, UNKNOWN }
+/** Movement state used by dynamic reporting; UNKNOWN means moving or not yet classified. */
+enum class Activity { STILL, ON_FOOT, IN_VEHICLE, UNKNOWN }
 
 /** Manual (911) alert as shown on the watch; `enqueued` means it is waiting in the store-and-forward queue. */
 data class ManualAlert(
@@ -50,12 +51,19 @@ object TrackerState {
     }
 
     val takServers = MutableStateFlow<Map<String, TakServerState>>(emptyMap())
+    /** Channel lists keyed by TAK Server id; only servers that have connected appear here. */
+    val takChannels = MutableStateFlow<Map<String, TakServerChannels>>(emptyMap())
     val sitx = MutableStateFlow<SitxState>(SitxState.Disabled)
     val sitxGroups = MutableStateFlow<List<SitxGroup>>(emptyList())
     val lastFix = MutableStateFlow<Fix?>(null)
     val lastPliMillis = MutableStateFlow(0L)
     val reportingIntervalSecs = MutableStateFlow(DEFAULT_CONSTANT_REPORTING_INTERVAL)
     val activity = MutableStateFlow(Activity.UNKNOWN)
+    val locationAccess = MutableStateFlow(LocationAccess.NONE)
+    /** Latest heart rate for physio PLI; -1 when unavailable or physio monitoring is off. */
+    val heartRate = MutableStateFlow(-1)
+    /** Latest skin temperature in degrees F (Samsung watches only); null when unavailable or physio is off. */
+    val skinTempF = MutableStateFlow<Float?>(null)
     val alerts = MutableStateFlow<List<ManualAlert>>(emptyList())
     val serviceRunning = MutableStateFlow(false)
 

@@ -3,6 +3,7 @@ package com.tak.weartak_tracker
 import com.tak.weartak_tracker.cot.AlertState
 import com.tak.weartak_tracker.cot.CotBuilder
 import com.tak.weartak_tracker.cot.CotTime
+import com.tak.weartak_tracker.cot.Physio
 import com.tak.weartak_tracker.data.Activity
 import com.tak.weartak_tracker.data.ManualAlert
 import com.tak.weartak_tracker.data.TrackerConfig
@@ -24,7 +25,7 @@ class CoreLogicTest {
         assertEquals(30, ReportingStrategy.intervalSecs(config.copy(dynamicReporting = false), true, Activity.STILL))
         assertEquals(5, ReportingStrategy.intervalSecs(config, true, Activity.STILL))
         assertEquals(600, ReportingStrategy.intervalSecs(config, false, Activity.STILL))
-        assertEquals(20, ReportingStrategy.intervalSecs(config, false, Activity.WALKING))
+        assertEquals(20, ReportingStrategy.intervalSecs(config, false, Activity.ON_FOOT))
         assertEquals(40, ReportingStrategy.intervalSecs(config, false, Activity.IN_VEHICLE))
         assertEquals(40, ReportingStrategy.intervalSecs(config, false, Activity.UNKNOWN))
     }
@@ -37,6 +38,26 @@ class CoreLogicTest {
         assertTrue(pli.contains("type='a-f-G-U-C'"))
         val cancel = CotBuilder.emergency("a1", AlertState.CANCEL, "Manual Alert", "x", 1, "u1", "cs", null, time)
         assertTrue(cancel.contains("type='b-a-o-can'"))
+    }
+
+    @Test
+    fun pliPhysioMatchesCivAndIsOmittedWhenOff() {
+        val time = CotTime.now(30, 0)
+        assertFalse(CotBuilder.pli("u1", "cs", "Cyan", "HQ", 50, null, time).contains("biometrics"))
+        val on = CotBuilder.pli("u1", "cs", "Cyan", "HQ", 50, null, time, Physio(72))
+        assertTrue(on.contains("<remarks>Exert:N/A%;HR:72;SkinTemp:N/A</remarks>"))
+        assertTrue(
+            on.contains(
+                "<biometrics><device><model>WEAROS</model><uid>u1</uid><hr>72</hr><skt>N/A</skt><exert>N/A</exert></device></biometrics>",
+            ),
+        )
+        // Physio detail follows <status> and precedes <contact>, as in CIV.
+        assertTrue(on.indexOf("<status") < on.indexOf("<remarks>") && on.indexOf("</biometrics>") < on.indexOf("<contact"))
+        val noReading = CotBuilder.pli("u1", "cs", "Cyan", "HQ", 50, null, time, Physio(-1))
+        assertTrue(noReading.contains("HR:N/A;") && noReading.contains("<hr>N/A</hr>"))
+        val withSkin = CotBuilder.pli("u1", "cs", "Cyan", "HQ", 50, null, time, Physio(64, 91.26f))
+        assertTrue(withSkin.contains("<remarks>Exert:N/A%;HR:64;SkinTemp:91.3</remarks>"))
+        assertTrue(withSkin.contains("<skt>91.3</skt>"))
     }
 
     @Test

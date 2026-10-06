@@ -10,3 +10,6 @@ signing.properties
 *.p12
 *.apk
 *.aab
+
+# Samsung Health Sensor SDK is proprietary; copy it locally (see README).
+app/libs/samsung-health-sensor-api-*.aar
