@@ -31,6 +31,11 @@ const val DEFAULT_STATIONARY_REPORTING_INTERVAL = 3600
 const val DEFAULT_MULTICAST_ADDRESS = "239.2.3.1"
 const val DEFAULT_MULTICAST_PORT = 6969
 const val DEFAULT_TAK_PORT = 8089
+/** Public OAuth application identifier used by WearTAK-CIV; not a client secret. */
+const val DEFAULT_SITX_CLIENT_ID = "D4RTE81TJjccxlc8LPD7QQ"
+
+internal fun sitxClientIdOrDefault(value: String?): String =
+    value?.trim()?.takeIf { it.isNotEmpty() } ?: DEFAULT_SITX_CLIENT_ID
 
 /** Same output protocol options as WearTAK-CIV (UDP only). */
 val MULTICAST_PROTOCOLS = listOf("UDP")
@@ -95,7 +100,7 @@ data class TrackerConfig(
     val multicastProtocol: String = DEFAULT_MULTICAST_PROTOCOL,
     val sitxEnabled: Boolean = false,
     val sitxUrl: String = "",
-    val sitxClientId: String = "",
+    val sitxClientId: String = DEFAULT_SITX_CLIENT_ID,
     val sitxGroup: String = "",
     val servers: List<TakServerConfig> = emptyList(),
     /** WearTAK-CIV's "Physiological Monitoring": adds heart rate to PLI (needs BODY_SENSORS). */
@@ -183,7 +188,9 @@ class SettingsRepository(private val context: Context) {
             if (n.medicalProfile != old.medicalProfile) {
                 p[K.MEDICAL_PROFILE] = SecretBox.encrypt(MedicalProfileCodec.encode(n.medicalProfile))
             }
-            if (n.sitxClientId != old.sitxClientId) p[K.SITX_CLIENT_ID] = SecretBox.encrypt(n.sitxClientId.trim())
+            if (n.sitxClientId != old.sitxClientId) {
+                p[K.SITX_CLIENT_ID] = SecretBox.encrypt(sitxClientIdOrDefault(n.sitxClientId))
+            }
             if (n.sitxGroup != old.sitxGroup) p[K.SITX_GROUP] = SecretBox.encrypt(n.sitxGroup)
             if (n.servers != old.servers) p[K.SERVERS] = SecretBox.encrypt(ServerListCodec.encode(n.servers))
         }
@@ -229,7 +236,7 @@ class SettingsRepository(private val context: Context) {
             multicastProtocol = p[K.MC_PROTOCOL]?.takeIf { it in MULTICAST_PROTOCOLS } ?: DEFAULT_MULTICAST_PROTOCOL,
             sitxEnabled = p[K.SITX_ENABLED] ?: false,
             sitxUrl = p[K.SITX_URL] ?: "",
-            sitxClientId = SecretBox.decrypt(p[K.SITX_CLIENT_ID]) ?: "",
+            sitxClientId = sitxClientIdOrDefault(SecretBox.decrypt(p[K.SITX_CLIENT_ID])),
             sitxGroup = SecretBox.decrypt(p[K.SITX_GROUP]) ?: "",
             servers = ServerListCodec.decode(SecretBox.decrypt(p[K.SERVERS])),
             physioMonitoring = p[K.PHYSIO] ?: false,

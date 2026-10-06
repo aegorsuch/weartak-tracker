@@ -2,10 +2,14 @@ package com.tak.weartak_tracker
 
 import com.google.android.gms.location.Priority
 import com.tak.weartak_tracker.data.LocationAccess
+import com.tak.weartak_tracker.data.DEFAULT_SITX_CLIENT_ID
+import com.tak.weartak_tracker.data.TrackerConfig
+import com.tak.weartak_tracker.data.sitxClientIdOrDefault
 import com.tak.weartak_tracker.data.ServerListCodec
 import com.tak.weartak_tracker.data.TakServerConfig
 import com.tak.weartak_tracker.data.takServerFormError
 import com.tak.weartak_tracker.transport.SitxClient
+import com.tak.weartak_tracker.ui.sitxConfigurationLabel
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
@@ -13,6 +17,25 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SettingsTest {
+    @Test
+    fun sitxMenuShowsConfigurationSeparatelyFromConnectionState() {
+        assertEquals("Disabled", sitxConfigurationLabel(TrackerConfig()))
+        assertEquals("Enabled", sitxConfigurationLabel(TrackerConfig(sitxEnabled = true)))
+        val configured = TrackerConfig(sitxEnabled = true, sitxUrl = "acme", sitxGroup = "group")
+        assertEquals("Enabled", sitxConfigurationLabel(configured))
+        assertEquals("Enabled", sitxConfigurationLabel(configured.copy(sitxGroup = "")))
+        assertEquals("Disabled", sitxConfigurationLabel(configured.copy(sitxEnabled = false)))
+    }
+
+    @Test
+    fun sitxUsesCivDefaultUnlessCustomClientIdIsConfigured() {
+        assertEquals(DEFAULT_SITX_CLIENT_ID, TrackerConfig().sitxClientId)
+        listOf(null, "", "  ").forEach { value ->
+            assertEquals(DEFAULT_SITX_CLIENT_ID, sitxClientIdOrDefault(value))
+        }
+        assertEquals("custom-client", sitxClientIdOrDefault(" custom-client "))
+    }
+
     @Test
     fun serverListRoundTrips() {
         val servers = listOf(

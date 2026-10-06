@@ -39,6 +39,11 @@ The location icon is white while reporting with precise location, yellow with ap
 3. Tap the callsign chip > **Callsign and Device Preferences** to set callsign, team and role.
 4. Under **Network Preferences**, add a TAK Server, enable TAK SA Multicast, and/or configure Sit(x).
 
+### Sit(x) setup
+Enter your organization/address under **Network Preferences > Sit(x) TAK**, enable the service, and authorize the watch using the code/URL in **Sit(x) State**, then select a group. Tracker supplies the same default public OAuth client ID as WearTAK-CIV; there is no Client ID entry in the submenu. Previously saved custom IDs are preserved, and existing blank values use the default automatically.
+
+The Network Preferences entry shows **Enabled** or **Disabled**, matching WearTAK-CIV. This describes the service setting, not live connectivity; check **Sit(x) State** for authorization, connection, and errors. The submenu contains the **Sit(x) TAK** toggle, **Address**, **Group**, **Sit(x) State**, **Re-Auth**, and **Remove**.
+
 ### Permissions
 | Permission | Why |
 |---|---|

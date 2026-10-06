@@ -64,6 +64,7 @@ import androidx.wear.compose.navigation.composable
 import com.tak.weartak_tracker.R
 import com.tak.weartak_tracker.cot.calculateExertion
 import com.tak.weartak_tracker.data.MULTICAST_PROTOCOLS
+import com.tak.weartak_tracker.data.DEFAULT_SITX_CLIENT_ID
 import com.tak.weartak_tracker.data.ROLE_CATEGORIES
 import com.tak.weartak_tracker.data.SettingsRepository
 import com.tak.weartak_tracker.data.SitxState
@@ -225,6 +226,7 @@ fun NavGraphBuilder.settingsGraph(repo: SettingsRepository, config: TrackerConfi
     }
 
     composable("network_preferences") {
+        val currentConfig by repo.config.collectAsStateWithLifecycle(initialValue = config)
         WearTAKPageWithBackArrow("Network Preferences", back) {
             item { WearTAKTitleChip("TAK Servers") { go("tak_servers") } }
             item { WearTAKTitleChip("Channels") { go("tak_channels") } }
@@ -234,7 +236,7 @@ fun NavGraphBuilder.settingsGraph(repo: SettingsRepository, config: TrackerConfi
                 }
             }
             item {
-                WearTAKTitleChipWithState("Sit(x) TAK", if (config.sitxEnabled) "Enabled" else "Disabled") {
+                WearTAKTitleChipWithState("Sit(x) TAK", sitxConfigurationLabel(currentConfig)) {
                     go("sitx_tak_screen")
                 }
             }
@@ -318,19 +320,16 @@ fun NavGraphBuilder.settingsGraph(repo: SettingsRepository, config: TrackerConfi
 
     composable("sitx_tak_url_screen") {
         val update = rememberUpdater(repo)
-        WearTAKStringEntryPage(item = config.sitxUrl, label = "Address", onBack = back) { v ->
+        val currentConfig by repo.config.collectAsStateWithLifecycle(initialValue = config)
+        WearTAKStringEntryPage(item = currentConfig.sitxUrl, label = "Address", onBack = back) { v ->
             update { it.copy(sitxUrl = v.trim(), sitxGroup = "") }
         }
     }
 
-    composable("sitx_tak_client_id_screen") {
-        val update = rememberUpdater(repo)
-        WearTAKStringEntryPage(item = config.sitxClientId, label = "Client ID", onBack = back) { v ->
-            update { it.copy(sitxClientId = v.trim()) }
-        }
+    composable("sitx_tak_group_screen") {
+        val currentConfig by repo.config.collectAsStateWithLifecycle(initialValue = config)
+        SitxGroupPage(repo, currentConfig, back)
     }
-
-    composable("sitx_tak_group_screen") { SitxGroupPage(repo, config, back) }
 
     composable("sitx_status_authorization_screen") { SitxStatusPage(back) }
 }
@@ -676,7 +675,8 @@ private fun sitxStatusText(state: SitxState): String = when (state) {
 }
 
 @Composable
-private fun SitxPage(repo: SettingsRepository, config: TrackerConfig, go: Navigate, back: () -> Unit) {
+private fun SitxPage(repo: SettingsRepository, initialConfig: TrackerConfig, go: Navigate, back: () -> Unit) {
+    val config by repo.config.collectAsStateWithLifecycle(initialValue = initialConfig)
     val update = rememberUpdater(repo)
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -702,9 +702,6 @@ private fun SitxPage(repo: SettingsRepository, config: TrackerConfig, go: Naviga
             WearTAKTitleChipWithState("Address", SitxClient.baseUrl(config.sitxUrl).removePrefix("https://").ifBlank { "Not set" }) {
                 go("sitx_tak_url_screen")
             }
-        }
-        item {
-            WearTAKTitleChipWithState("Client ID", config.sitxClientId.ifBlank { "Not set" }) { go("sitx_tak_client_id_screen") }
         }
         item { WearTAKTitleChipWithState("Group", groupName) { go("sitx_tak_group_screen") } }
         item { WearTAKTitleChipWithState("Sit(x) State", sitxStatusText(sitx)) { go("sitx_status_authorization_screen") } }
@@ -744,7 +741,7 @@ private fun SitxPage(repo: SettingsRepository, config: TrackerConfig, go: Naviga
                 confirmRemove = false
                 scope.launch {
                     // Disable first so the running client stops before its tokens are wiped.
-                    repo.update { it.copy(sitxEnabled = false, sitxUrl = "", sitxClientId = "", sitxGroup = "") }
+                    repo.update { it.copy(sitxEnabled = false, sitxUrl = "", sitxClientId = DEFAULT_SITX_CLIENT_ID, sitxGroup = "") }
                     repo.setSitxTokens(SitxTokens())
                     TrackerState.sitxGroups.value = emptyList()
                 }
