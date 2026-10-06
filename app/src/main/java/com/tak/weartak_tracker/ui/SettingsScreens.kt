@@ -62,6 +62,7 @@ import androidx.wear.compose.material.SwipeToRevealSecondaryAction
 import androidx.wear.compose.material.Text
 import androidx.wear.compose.navigation.composable
 import com.tak.weartak_tracker.R
+import com.tak.weartak_tracker.cot.calculateExertion
 import com.tak.weartak_tracker.data.MULTICAST_PROTOCOLS
 import com.tak.weartak_tracker.data.ROLE_CATEGORIES
 import com.tak.weartak_tracker.data.SettingsRepository
@@ -117,6 +118,7 @@ fun NavGraphBuilder.settingsGraph(repo: SettingsRepository, config: TrackerConfi
             item { WearTAKTitleChipWithState("My Callsign", config.callsign) { go("my_callsign") } }
             item { WearTAKTitleChipWithState("My Team", config.team) { go("my_team") } }
             item { WearTAKTitleChipWithState("My Role", config.role) { go("my_role") } }
+            item { WearTAKTitleChip("My User Metrics") { go("my_user_metrics") } }
             item {
                 HorizontalDivider(
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
@@ -126,8 +128,19 @@ fun NavGraphBuilder.settingsGraph(repo: SettingsRepository, config: TrackerConfi
             }
             item { WearTAKTitleChip("Reporting Strategy") { go("reporting_strategy") } }
             item { PhysioToggle(repo, config) }
+            item {
+                val update = rememberUpdater(repo)
+                WearTAKToggleChip(
+                    checked = config.batdokEnabled,
+                    onCheckedChange = { on -> update { it.copy(batdokEnabled = on) } },
+                    title = "BATDOK",
+                    description = if (config.batdokEnabled) "On" else "Off",
+                )
+            }
         }
     }
+
+    medicalProfileGraph(repo, config, go, back)
 
     composable("my_callsign") {
         val update = rememberUpdater(repo)
@@ -245,7 +258,8 @@ fun NavGraphBuilder.settingsGraph(repo: SettingsRepository, config: TrackerConfi
     }
 
     composable("new_server_screen") {
-        ServerFormPage(repo, "New Server", TakServerConfig(), isNew = true, back = back)
+        val newId = rememberSaveable { java.util.UUID.randomUUID().toString() }
+        ServerFormPage(repo, "New Server", TakServerConfig(id = newId), isNew = true, back = back)
     }
 
     composable(
@@ -353,7 +367,9 @@ private fun PhysioToggle(repo: SettingsRepository, config: TrackerConfig) {
         description = if (!config.physioMonitoring) "Off" else {
             val hr = if (bpm > 0) "$bpm" else "N/A"
             val skin = skinF?.let { String.format(java.util.Locale.US, "%.1f°F", it) } ?: "N/A"
-            "On · HR $hr · Skin $skin"
+            val exertion = calculateExertion(bpm, config.medicalProfile.ageYears(), config.medicalProfile.restingHeartRateBpm)
+                ?.let { String.format(java.util.Locale.US, "%.0f%%", it * 100) } ?: "N/A"
+            "On · HR $hr · Skin $skin · Exert $exertion"
         },
     )
 }
@@ -552,8 +568,10 @@ private fun ServerFormPage(repo: SettingsRepository, title: String, initial: Tak
                 ).let { if (moved) it.copy(tlsName = "", apiTlsName = "") else it }
                 scope.launch {
                     repo.update { c ->
+                        // Upsert: the form stays open while registering, so Save can be pressed again for a new server.
+                        val exists = c.servers.any { it.id == server.id }
                         c.copy(
-                            servers = if (isNew) c.servers + server else c.servers.map { if (it.id == server.id) server else it },
+                            servers = if (exists) c.servers.map { if (it.id == server.id) server else it } else c.servers + server,
                         )
                     }
                     TrackerService.start(context)
@@ -795,4 +813,3 @@ private fun SitxStatusPage(back: () -> Unit) {
         }
     }
 }
-

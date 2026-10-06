@@ -36,7 +36,6 @@ import com.tak.weartak_tracker.transport.TakServerManager
 import com.tak.weartak_tracker.ui.MainActivity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
@@ -66,7 +65,6 @@ class TrackerService : Service() {
     private lateinit var forwarder: AlertForwarder
 
     private val alertMutex = Mutex()
-    private var forcedFlushJob: Job? = null
     private var config = TrackerConfig()
     private var lastFix: Fix? = null
     private var lastLocationElapsed = 0L
@@ -154,6 +152,7 @@ class TrackerService : Service() {
                 if (net != null) {
                     tak.reconnectAll()
                     sitx.onNetworkChanged()
+                    rebroadcastPli()
                 }
             }
         }
@@ -196,6 +195,7 @@ class TrackerService : Service() {
             applyPhysio()
         }
         when (intent?.action) {
+            ACTION_REBROADCAST_PLI -> scope.launch { rebroadcastPli() }
             ACTION_LOCATION_ALARM -> if (::location.isInitialized) location.onAlarm()
             ACTION_RAISE_ALERT -> {
                 val uid = intent.getStringExtra(EXTRA_UID)
@@ -267,7 +267,17 @@ class TrackerService : Service() {
             battery = battery(),
             fix = fix,
             time = CotTime.now(appliedInterval.coerceAtLeast(1) * CotBuilder.PLI_STALE_MULTIPLIER),
-            physio = if (physioActive) Physio(physio.bpm, physio.skinTempF) else null,
+            physio = if (physioActive) {
+                val bpm = physio.bpm
+                Physio(
+                    bpm, physio.skinTempF,
+                    com.tak.weartak_tracker.cot.calculateExertion(
+                        bpm, config.medicalProfile.ageYears(), config.medicalProfile.restingHeartRateBpm,
+                    ),
+                )
+            } else null,
+            includeBatdok = config.batdokEnabled,
+            ageYears = config.medicalProfile.ageYears(),
         )
         lastPliElapsed = SystemClock.elapsedRealtime()
         // Same routing as CIV: TAK when connected, SITX and multicast whenever available.
@@ -280,28 +290,23 @@ class TrackerService : Service() {
 
     // ---- Alerts ----
 
-    private fun isReady(): Boolean =
-        anyEndpoint && (lastLocationElapsed == 0L || SystemClock.elapsedRealtime() - lastLocationElapsed < FRESH_FIX_MS)
+    private fun isReady(): Boolean = anyEndpoint
 
     private suspend fun submit(item: ManualAlert) = alertMutex.withLock {
         val ready = isReady()
-        if (!ready && anyEndpoint) requestFixThenFlush()
+        location.requestSingleFix()
         forwarder.submit(item, ready)
     }
 
     private suspend fun onEndpointConnected() {
+        rebroadcastPli()
         if (forwarder.pending.isEmpty()) return
-        if (isReady()) alertMutex.withLock { forwarder.flush() } else requestFixThenFlush()
+        if (isReady()) alertMutex.withLock { forwarder.flush() }
     }
 
-    /** Ask for a fresh fix; the location callback flushes. If GPS cannot deliver, flush anyway after a timeout. */
-    private fun requestFixThenFlush() {
-        location.requestSingleFix()
-        forcedFlushJob?.cancel()
-        forcedFlushJob = scope.launch {
-            delay(FORCED_FLUSH_MS)
-            if (anyEndpoint) alertMutex.withLock { forwarder.flush() }
-        }
+    private suspend fun rebroadcastPli() {
+        val fix = lastFix
+        if (fix != null) sendPli(fix) else location.requestSingleFix()
     }
 
     private suspend fun sendAlert(alert: ManualAlert): Boolean {
@@ -407,11 +412,10 @@ class TrackerService : Service() {
     companion object {
         private const val TAG = "TrackerService"
         private const val NOTIFICATION_ID = 1
-        private const val FRESH_FIX_MS = 3_000L
-        private const val FORCED_FLUSH_MS = 10_000L
         private const val MAX_SPEED_ACCURACY_MPS = 2f
 
         const val ACTION_LOCATION_ALARM = "com.tak.weartak_tracker.LOCATION_ALARM"
+        const val ACTION_REBROADCAST_PLI = "com.tak.weartak_tracker.REBROADCAST_PLI"
         const val ACTION_RAISE_ALERT = "com.tak.weartak_tracker.RAISE_ALERT"
         const val ACTION_CANCEL_ALERT = "com.tak.weartak_tracker.CANCEL_ALERT"
         const val ACTION_SITX_REAUTHORIZE = "com.tak.weartak_tracker.SITX_REAUTHORIZE"

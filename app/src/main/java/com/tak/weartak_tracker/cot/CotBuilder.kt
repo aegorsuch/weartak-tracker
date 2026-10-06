@@ -1,6 +1,7 @@
 package com.tak.weartak_tracker.cot
 
 import java.text.SimpleDateFormat
+import java.time.Instant
 import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
@@ -30,7 +31,7 @@ data class Fix(
 enum class AlertState { ALERT, CANCEL }
 
 /** Physio values for PLI; null fields are sent as `N/A` like WearTAK-CIV. Skin temperature is in degrees F. */
-data class Physio(val heartRateBpm: Int?, val skinTempF: Float? = null)
+data class Physio(val heartRateBpm: Int?, val skinTempF: Float? = null, val exertion: Double? = null)
 
 /** Builds the same PLI and emergency CoT as WearTAK-CIV. */
 object CotBuilder {
@@ -40,7 +41,7 @@ object CotBuilder {
     const val ALERT_STALE_SECONDS = 15L * 60L
     private const val NA = "N/A"
 
-    /** [physio] is null when physio monitoring is off, which omits the physio remarks and biometrics. */
+    /** [physio] is null when monitoring is off. BATDOK gates only the `_atmist_` block. */
     fun pli(
         uid: String,
         callsign: String,
@@ -50,6 +51,8 @@ object CotBuilder {
         fix: Fix?,
         time: CotTime,
         physio: Physio? = null,
+        includeBatdok: Boolean = true,
+        ageYears: Int? = null,
     ): String {
         val ce = fix?.ce?.takeIf { !it.isNaN() }?.toInt() ?: 9999
         val le = fix?.le?.takeIf { !it.isNaN() }?.toInt() ?: 9999
@@ -61,7 +64,7 @@ object CotBuilder {
         )
         val detail =
             element("status", listOf("readiness" to "true", "battery" to battery)) +
-                (physio?.let { physioDetail(uid, it) } ?: "") +
+                (physio?.let { physioDetail(uid, it, time, includeBatdok, ageYears) } ?: "") +
                 element("contact", listOf("endpoint" to "*:-1:stcp", "callsign" to esc(callsign))) +
                 element("__group", listOf("role" to esc(role), "name" to esc(team))) +
                 element("track", listOf("course" to (fix?.course?.toInt() ?: 0), "speed" to (fix?.speed?.toInt() ?: 0))) +
@@ -125,17 +128,43 @@ object CotBuilder {
         )
     }
 
-    /** CIV's physio remarks plus `<biometrics>` device block (exertion isn't measured here). */
-    private fun physioDetail(uid: String, physio: Physio): String {
+    /** CIV's physio remarks plus BATDOK and `<biometrics>` device blocks. */
+    private fun physioDetail(uid: String, physio: Physio, time: CotTime, includeBatdok: Boolean, ageYears: Int?): String {
         val hr = physio.heartRateBpm?.takeIf { it > 0 }?.toString() ?: NA
-        val skt = physio.skinTempF?.takeIf { !it.isNaN() }?.let { String.format(java.util.Locale.US, "%.1f", it) } ?: NA
-        return element("remarks", content = "Exert:$NA%;HR:$hr;SkinTemp:$skt") +
+        val skinF = physio.skinTempF?.takeIf { it.isFinite() && it != -1f }
+        val skt = skinF?.let { String.format(Locale.US, "%.1f", it) } ?: NA
+        // CIV transmits a reserve fraction (0.5 means 50%), including in its legacy "%" remarks.
+        val exert = physio.exertion?.takeIf { hr != NA && it.isFinite() && it >= 0 }
+            ?.let { String.format(Locale.US, "%.2f", it) } ?: NA
+        val remarks = element("remarks", content = "Exert:$exert%;HR:$hr;SkinTemp:$skt")
+        val readings = buildList {
+            if (hr != NA) add("HR,$hr")
+            if (skinF != null) {
+                val celsius = String.format(Locale.US, "%.1f", (skinF - 32f) * 5f / 9f).removeSuffix(".0")
+                add("Temp,$skt (F) $celsius (C)")
+            }
+        }
+        val atmist = if (!includeBatdok || readings.isEmpty()) "" else element(
+            "_atmist_",
+            listOfNotNull(
+                ageYears?.takeIf { it >= 0 }?.let { "age" to it },
+                "timeOfIncident" to time.startCot,
+            ),
+            readings.mapIndexed { index, reading ->
+                // A vital sign is observed now, not at the PLI's future stale time.
+                element(
+                    "vitalSign", listOf("index" to index, "timestamp" to time.startCot),
+                    "($reading,${Instant.parse(time.startCot).toEpochMilli()})",
+                )
+            }.joinToString(""),
+        )
+        return remarks + atmist +
             element(
                 "biometrics",
                 content = element(
                     "device",
                     content = element("model", content = "WEAROS") + element("uid", content = esc(uid)) +
-                        element("hr", content = hr) + element("skt", content = skt) + element("exert", content = NA),
+                        element("hr", content = hr) + element("skt", content = skt) + element("exert", content = exert),
                 ),
             )
     }

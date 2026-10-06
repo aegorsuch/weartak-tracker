@@ -35,6 +35,13 @@ class SettingsTest {
     }
 
     @Test
+    fun serverListDropsRepeatedIdsKeepingLatest() {
+        val raw = """[{"id":"a","name":"one"},{"id":"b","name":"two"},{"id":"a","name":"one-edited"}]"""
+        val decoded = ServerListCodec.decode(raw)
+        assertEquals(listOf("b" to "two", "a" to "one-edited"), decoded.map { it.id to it.name })
+    }
+
+    @Test
     fun serverFormAllowsCertificateOnlySetup() {
         assertNull(takServerFormError("TAK", "tak", "8089", "", "", hasSideloadedCert = true))
         assertNull(takServerFormError("TAK", "tak", "8089", "user", "pw", hasSideloadedCert = false))

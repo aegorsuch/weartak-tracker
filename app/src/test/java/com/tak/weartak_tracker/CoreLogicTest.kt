@@ -61,6 +61,20 @@ class CoreLogicTest {
     }
 
     @Test
+    fun connectedAlertsAndCancelsSendImmediately() = runBlocking {
+        val sent = mutableListOf<ManualAlert>()
+        val forwarder = AlertForwarder(send = { sent += it; true }, onChanged = { _, _ -> })
+        val alert = forwarder.newAlert("Injury")
+        assertTrue(forwarder.submit(alert, ready = true))
+        assertFalse(forwarder.alerts.single().enqueued)
+        assertTrue(forwarder.pending.isEmpty())
+        assertTrue(forwarder.submit(forwarder.cancelForLast()!!, ready = true))
+        assertEquals(listOf(AlertState.ALERT, AlertState.CANCEL), sent.map { it.state })
+        assertTrue(forwarder.alerts.isEmpty())
+        assertTrue(forwarder.pending.isEmpty())
+    }
+
+    @Test
     fun storeAndForward() = runBlocking {
         var online = false
         val sent = mutableListOf<ManualAlert>()

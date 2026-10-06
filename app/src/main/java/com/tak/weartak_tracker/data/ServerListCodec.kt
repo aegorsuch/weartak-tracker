@@ -23,9 +23,12 @@ internal object ServerListCodec {
                     tlsName = o.optString("tlsName"),
                     apiTlsName = o.optString("apiTlsName"),
                 )
-            }
+            }.dedupeIds()
         }.getOrDefault(emptyList())
     }
+
+    /** Ids key the server list UI and connections; repeated ids (older builds could save one twice) keep the latest entry. */
+    fun List<TakServerConfig>.dedupeIds(): List<TakServerConfig> = asReversed().distinctBy { it.id }.asReversed()
 
     fun encode(servers: List<TakServerConfig>): String = JSONArray().apply {
         servers.forEach { s ->

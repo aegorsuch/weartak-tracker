@@ -2,23 +2,39 @@
 
 Extremely lightweight Wear OS position tracker modeled on WearTAK-CIV.
 
+## Downloads
+Download installable APKs from [GitHub Releases](https://github.com/aegorsuch/weartak-tracker/releases), or go directly to the [latest release](https://github.com/aegorsuch/weartak-tracker/releases/latest). Expand **Assets** and select `WearTAK-Tracker-<version>-debug.apk`; the source-code archives are not watch installers.
+
+Version **5.8.0.3** is distributed as a debug-signed APK, the same build used for watch testing, not a production release-signed build. Use `adb install -r` to update an existing installation signed with the same key while retaining settings. A different signing key requires uninstalling first, which removes app data.
+
+**Windows sideloading:** [Wear OS Windows Bridge](https://github.com/aegorsuch/wearos-windows-bridge) is a useful companion tool for pairing/connecting to your watch, installing downloaded APKs, capturing logs, and mirroring the screen. Enable Wireless Debugging on the watch and follow the bridge's setup instructions; the PC and watch need to be on the same Wi-Fi for these operations. Normal Tracker operation can use LTE afterward.
+
+## Design intent
+WearTAK-Tracker is intended primarily for standalone **LTE-connected watches**, with long-duration battery life as a core design goal. TAK Server and Sit(x) reporting over LTE are the primary use cases; Bluetooth/phone-relay and other connection-specific features are not a development priority. Existing network status indicators remain informational.
+
+For an LTE deployment, disable **TAK SA Multicast** under Network Preferences: it is a Wi-Fi-only option, not an LTE delivery route. Tune reporting intervals for the required position freshness and leave physiological monitoring off unless needed. Actual battery life depends on coverage, GPS use, reporting intervals, and enabled sensors.
+
 ## Features
 - Reports position (PLI) to one or more TAK Servers (TLS, enrollment on 8446), Sit(x) TAK, and TAK SA UDP multicast.
 - Constant or dynamic reporting (stationary / on foot / vehicle / while alerting intervals). Dynamic reporting classifies movement from GPS speed (like ATAK) and uses the significant-motion sensor to leave the stationary interval as soon as the wearer moves.
 - CIV manual alerts (quick-text selection, cancel last alert) with store-and-forward: alerts are queued in memory and sent in order when an endpoint reconnects. The queue does not survive the app process being killed.
+- Connected alerts and cancellations request a fresh GPS fix and send immediately using the latest known position, without waiting for that fix. A new fix triggers an updated PLI; the original alert is not resent. If no position is available, the existing unknown-position values are used. A failed send is queued for retry.
 - Reporting starts only when the app is opened; nothing starts automatically at boot.
+- Tracker has its own Recent Apps task. Swiping it away stops reporting, sensors, connections, and scheduled location alarms. Simply returning to the watch face leaves tracking running; reopen the app after closing its task to restart.
+- PLI is resent immediately using the latest known fix when a network changes, an endpoint reconnects, or the callsign/settings button is tapped. If no fix is available yet, a single fix is requested instead.
 - Optional physiological monitoring (off by default): heart rate and, on Samsung Galaxy watches, skin temperature are added to each PLI like CIV.
-- Settings: callsign, team, role (MIL/LEO), reporting strategy/intervals, TAK servers, multicast (address, output protocol, port), Sit(x) (with Re-Auth and Remove).
+- Settings: callsign, team, role (MIL/LEO), BATDOK/medical profile, reporting strategy/intervals, TAK servers, multicast (address, output protocol, port), Sit(x) (with Re-Auth and Remove).
   Menus follow CIV's hierarchy: WearTAK Preferences > Callsign and Device Preferences / Network Preferences.
 
 ## UI
 Main screen is kept minimal: alert button, callsign chip (opens settings), status icons in the corners, time at the bottom.
+Long callsigns are truncated with an ellipsis on the main screen; the saved and transmitted callsign remains unchanged.
 - Top left: TAK/Sit(x)/multicast connection (tap for Network Preferences). Top right: location (tap for Reporting Strategy).
 - Bottom left: watch network (Wi-Fi, cellular, Bluetooth via phone, airplane mode, or none). Bottom right: battery (red at 20% or below).
 The location icon is white while reporting with precise location, yellow with approximate location, and grey when stopped.
 
 ## Setup
-1. Install the APK on the watch (`adb install WearTAK-Tracker-<version>-debug.apk`).
+1. Download the APK from [GitHub Releases](https://github.com/aegorsuch/weartak-tracker/releases) and install it on the watch (`adb install -r WearTAK-Tracker-<version>-debug.apk`).
 2. Open the app and grant **location** (precise or approximate) and, on Wear OS 4+, **notifications**.
 3. Tap the callsign chip > **Callsign and Device Preferences** to set callsign, team and role.
 4. Under **Network Preferences**, add a TAK Server, enable TAK SA Multicast, and/or configure Sit(x).
@@ -33,10 +49,15 @@ The location icon is white while reporting with precise location, yellow with ap
 **Precise vs approximate:** both work. With approximate location the system coarsens every fix (TAK clients will see a large CE), the notification says "approximate location", and dynamic reporting cannot classify speed, so it stays on the "moving/unknown" interval (the larger of on-foot and vehicle). Grant precise location in system settings and reopen the app to switch; no restart is needed.
 
 ### Physiological monitoring
-Off by default (CIV defaults to on); enable it under **Callsign and Device Preferences** (the toggle shows the latest HR and skin temperature). When on, each PLI carries CIV's `<remarks>Exert:N/A%;HR:<bpm>;SkinTemp:<°F></remarks>` and `<biometrics>` block.
+Off by default (CIV defaults to on); enable it under **Callsign and Device Preferences** (the toggle shows the latest HR, skin temperature, and exertion). When on, each PLI carries physiological `<remarks>` and `<biometrics>`, regardless of the BATDOK setting. The separate **BATDOK** toggle controls only the `<_atmist_>` block.
 - **Heart rate** comes from the standard heart-rate sensor, using only high-accuracy samples, and is sent as N/A when the watch is off-wrist or no reading is newer than 5 minutes.
 - **Skin temperature** uses the Samsung Health Sensor SDK (same AAR as CIV), one reading per minute while worn, in °F. Other watches and the emulator report N/A. The SDK is proprietary and not committed: copy `samsung-health-sensor-api-1.4.1.aar` into `app/libs/` before building. Without it the build still succeeds and skin temperature is always N/A. Samsung partner approval is tied to the package name/signing key, so `com.tak.weartak_tracker` must be registered (or Health Platform developer mode enabled) for readings.
-- **Exertion** needs age and resting heart rate, which the tracker doesn't collect, so it is always N/A.
+- **Exertion** uses the same Karvonen heart-rate-reserve calculation as regular WearTAK: `max(0, HR - resting HR) / (208 - 0.7 × age - resting HR)`. Age comes from birth year; resting HR defaults to 60 bpm and is editable in Medical Profile. This is an estimate, not a measured resting baseline or medical assessment. Missing age/HR or an invalid reserve produces N/A. The settings toggle displays a percentage; CoT retains CIV's fraction format (`0.50` means 50%, including its legacy `Exert:0.50%` remarks). Values above the estimated maximum can exceed 100%, as in CIV.
+
+### BATDOK and medical profile
+**Callsign and Device Preferences > BATDOK** is on by default, matching WearTAK. It adds BATDOK-compatible `<_atmist_>` vital signs (heart rate and skin temperature in Fahrenheit/Celsius) to PLI while Physiological Monitoring is active. No vital sign is fabricated when a sensor reading is unavailable. Turning BATDOK off leaves the physio remarks, biometrics, and sensor collection on; turning Physiological Monitoring off omits all physiological PLI data. Manual-alert CoT is unchanged.
+
+Under **My User Metrics > Medical Profile (BATDOK)**, set birth year, height (feet/inches), weight (lbs), sex, blood type, allergies (multiple selections), user type, and resting heart rate. The profile persists across app restarts and is encrypted at rest. As in WearTAK's current CoT builder, only age (calculated from birth year) is included in the BATDOK block; the other profile fields are stored locally, not transmitted. Birth year and resting HR also drive the exertion value in remarks and biometrics. Unset birth year omits age rather than inventing one.
 
 On the emulator, set a heart rate with `adb emu sensor set heart-rate 72`.
 

@@ -100,6 +100,8 @@ data class TrackerConfig(
     val servers: List<TakServerConfig> = emptyList(),
     /** WearTAK-CIV's "Physiological Monitoring": adds heart rate to PLI (needs BODY_SENSORS). */
     val physioMonitoring: Boolean = false,
+    val batdokEnabled: Boolean = true,
+    val medicalProfile: MedicalProfile = MedicalProfile(),
 )
 
 /** SITX OAuth device-flow state (persisted encrypted). */
@@ -134,6 +136,8 @@ class SettingsRepository(private val context: Context) {
         val SITX_TOKENS = stringPreferencesKey("sitx_tokens.enc")
         val SERVERS = stringPreferencesKey("tak_servers.enc")
         val PHYSIO = booleanPreferencesKey("enable_physiological_services")
+        val BATDOK = booleanPreferencesKey("enable_batdok_cot")
+        val MEDICAL_PROFILE = stringPreferencesKey("medical_profile.enc")
     }
 
     @SuppressLint("HardwareIds")
@@ -175,6 +179,10 @@ class SettingsRepository(private val context: Context) {
             p[K.SITX_ENABLED] = n.sitxEnabled
             p[K.SITX_URL] = n.sitxUrl.trim()
             p[K.PHYSIO] = n.physioMonitoring
+            p[K.BATDOK] = n.batdokEnabled
+            if (n.medicalProfile != old.medicalProfile) {
+                p[K.MEDICAL_PROFILE] = SecretBox.encrypt(MedicalProfileCodec.encode(n.medicalProfile))
+            }
             if (n.sitxClientId != old.sitxClientId) p[K.SITX_CLIENT_ID] = SecretBox.encrypt(n.sitxClientId.trim())
             if (n.sitxGroup != old.sitxGroup) p[K.SITX_GROUP] = SecretBox.encrypt(n.sitxGroup)
             if (n.servers != old.servers) p[K.SERVERS] = SecretBox.encrypt(ServerListCodec.encode(n.servers))
@@ -225,5 +233,7 @@ class SettingsRepository(private val context: Context) {
             sitxGroup = SecretBox.decrypt(p[K.SITX_GROUP]) ?: "",
             servers = ServerListCodec.decode(SecretBox.decrypt(p[K.SERVERS])),
             physioMonitoring = p[K.PHYSIO] ?: false,
+            batdokEnabled = p[K.BATDOK] ?: true,
+            medicalProfile = MedicalProfileCodec.decode(SecretBox.decrypt(p[K.MEDICAL_PROFILE])),
         )
 }

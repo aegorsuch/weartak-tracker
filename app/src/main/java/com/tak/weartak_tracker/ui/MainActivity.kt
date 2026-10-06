@@ -136,7 +136,10 @@ fun MainScreen(config: TrackerConfig, go: Navigate) {
                 SOSButton(isAlerting) { go("sos_screen") }
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
-                Callsign(config.callsign) { go("settings_screen") }
+                Callsign(config.callsign) {
+                    TrackerService.start(context, TrackerService.ACTION_REBROADCAST_PLI)
+                    go("settings_screen")
+                }
             }
         }
         StatusIcons(
@@ -171,6 +174,7 @@ fun Callsign(callsign: String, onClick: () -> Unit) {
     val maxChar = 10
     AssistChip(
         onClick = onClick,
+        modifier = Modifier.fillMaxWidth(0.85f),
         leadingIcon = {
             Icon(painter = painterResource(R.drawable.settings), contentDescription = "Settings", modifier = Modifier.padding(0.dp))
         },
@@ -178,6 +182,7 @@ fun Callsign(callsign: String, onClick: () -> Unit) {
             Text(
                 callsign,
                 maxLines = 1,
+                modifier = Modifier.fillMaxWidth(),
                 overflow = TextOverflow.Ellipsis,
                 fontSize = if (callsign.length <= maxChar) 15.sp else 13.sp,
             )

@@ -55,8 +55,13 @@ internal class SkinTempMonitor(context: Context, private val onChanged: () -> Un
         override fun onFlushCompleted() = Unit
 
         override fun onError(error: HealthTracker.TrackerError) {
-            Log.w(TAG, "Skin temperature tracker error: $error")
             stopReading()
+            if (error == HealthTracker.TrackerError.SDK_POLICY_ERROR) {
+                // Samsung partner approval is per package; retrying won't help until this app id is approved.
+                Log.w(TAG, "Skin temperature blocked by Samsung SDK policy; app id not approved")
+                return
+            }
+            Log.w(TAG, "Skin temperature tracker error: $error")
             schedule()
         }
     }
