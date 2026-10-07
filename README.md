@@ -3,9 +3,9 @@
 Extremely lightweight Wear OS position tracker modeled on WearTAK-WearOS
 
 ## Downloads
-Download installable APKs from [GitHub Releases](https://github.com/aegorsuch/weartak-tracker/releases), or go directly to the [latest release](https://github.com/aegorsuch/weartak-tracker/releases/latest). Expand **Assets** and select `WearTAK-Tracker-<version>-debug.apk`; the source-code archives are not watch installers.
+Download installable APKs from [GitHub Releases](https://github.com/aegorsuch/weartak-tracker/releases), or go directly to the [latest release](https://github.com/aegorsuch/weartak-tracker/releases/latest). Expand **Assets** and select `WearTAK-Tracker-<version>-release.apk`; the source-code archives are not watch installers.
 
-Version **5.8.0.3** is distributed as a debug-signed APK, the same build used for watch testing, not a production release-signed build. Use `adb install -r` to update an existing installation signed with the same key while retaining settings. A different signing key requires uninstalling first, which removes app data.
+Version **5.8.0.3** is now distributed as an optimized, non-debuggable APK signed with the permanent Tracker release key. This replaces the earlier debug-signed build of the same version. Moving from that debug build requires uninstalling first (`adb uninstall com.tak.weartak_tracker`), which removes app data and settings, then installing the release APK. Subsequent releases signed with the same release key can use `adb install -r` while retaining settings. The version name and code remain **5.8.0.3 / 583**.
 
 **Updated 5.8.0.3 build:** PLI expires after twice the active reporting interval plus 15 seconds. CIV-style developer mode adds read-only diagnostics and a persistent Network Settings Lock covering all network settings and the main-screen shortcut.
 
@@ -37,7 +37,7 @@ Long callsigns are truncated with an ellipsis on the main screen; the saved and 
 The location icon is white while reporting with precise location, yellow with approximate location, and grey when stopped.
 
 ## Setup
-1. Download the APK from [GitHub Releases](https://github.com/aegorsuch/weartak-tracker/releases) and install it on the watch (`adb install -r WearTAK-Tracker-<version>-debug.apk`).
+1. Download the APK from [GitHub Releases](https://github.com/aegorsuch/weartak-tracker/releases) and install it on the watch (`adb install -r WearTAK-Tracker-<version>-release.apk`). Uninstall the old debug-signed app first if migrating to the release key; this clears settings.
 2. Open the app and grant **location** (precise or approximate) and, on Wear OS 4+, **notifications**.
 3. Tap the callsign chip > **Callsign and Device Preferences** to set callsign, team and role.
 4. Under **Network Preferences**, add a TAK Server, enable TAK SA Multicast, and/or configure Sit(x).
@@ -145,3 +145,5 @@ keyAlias=weartak-tracker
 keyPassword=...
 ```
 Create a key once with `keytool -genkeypair -v -keystore release.jks -alias weartak-tracker -keyalg RSA -keysize 4096 -validity 10000`, keep it backed up (updates must be signed with the same key), then run `.\gradlew.bat :app:assembleRelease`. Without the file, `assembleRelease` produces an unsigned APK.
+
+The published release key is configured locally in `release.jks` and `signing.properties`; neither file is committed. Back up both securely together. Losing the key prevents in-place updates to installed release builds. Debug builds and CI APK artifacts remain development-only and use a different signing key.
