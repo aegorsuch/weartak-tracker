@@ -75,7 +75,7 @@ Each precise fix with a reliable GPS speed is classified as stationary (< 0.5 m/
 ### Developer mode and network admin lock
 In **WearTAK Preferences**, tap the version label eight times, with no more than 1.5 seconds between taps, to toggle developer mode (matching CIV). The version turns red and shows the build code. **Dev Debug Tools** displays read-only build, device, network, endpoint, and reporting information. Developer mode resets when the app process starts again.
 
-With developer mode enabled, open **Beta Features > Network Settings Lock**. The lock persists across app restarts and blocks Network Preferences, its subpages, and the main-screen network shortcut without stopping configured connections or reporting. To unlock, enable developer mode again and turn the same switch off. This is CIV's UI administration lock, not PIN authentication or an Android device-management policy.
+With developer mode enabled, open **Dev Debug Tools > Stay awake** to keep the screen, CPU, and Wi-Fi awake during Wireless debugging. It stops automatically when Wireless debugging is disabled or the app task ends; it can also be stopped from its notification. This uses extra battery and may heat the watch. Open **Beta Features > Network Settings Lock** to block Network Preferences, its subpages, and the main-screen network shortcut without stopping configured connections or reporting. The lock persists across app restarts. To unlock, enable developer mode again and turn the same switch off. This is CIV's UI administration lock, not PIN authentication or an Android device-management policy.
 
 ### TAK Server certificates
 The tracker connects with a client certificate obtained in one of three ways, in order:
