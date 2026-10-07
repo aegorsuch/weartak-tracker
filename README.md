@@ -1,6 +1,6 @@
 # WearTAK-Tracker
 
-Extremely lightweight Wear OS position tracker modeled on WearTAK-CIV.
+Extremely lightweight Wear OS position tracker modeled on WearTAK-WearOS
 
 ## Downloads
 Download installable APKs from [GitHub Releases](https://github.com/aegorsuch/weartak-tracker/releases), or go directly to the [latest release](https://github.com/aegorsuch/weartak-tracker/releases/latest). Expand **Assets** and select `WearTAK-Tracker-<version>-debug.apk`; the source-code archives are not watch installers.
