@@ -14,9 +14,10 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import org.json.JSONObject
 import java.util.UUID
@@ -107,6 +108,8 @@ data class TrackerConfig(
     val physioMonitoring: Boolean = false,
     val batdokEnabled: Boolean = true,
     val medicalProfile: MedicalProfile = MedicalProfile(),
+    val developerMode: Boolean = false,
+    val networkPreferencesLocked: Boolean = false,
 )
 
 /** SITX OAuth device-flow state (persisted encrypted). */
@@ -143,6 +146,7 @@ class SettingsRepository(private val context: Context) {
         val PHYSIO = booleanPreferencesKey("enable_physiological_services")
         val BATDOK = booleanPreferencesKey("enable_batdok_cot")
         val MEDICAL_PROFILE = stringPreferencesKey("medical_profile.enc")
+        val NETWORK_LOCKED = booleanPreferencesKey("network_preferences_locked")
     }
 
     @SuppressLint("HardwareIds")
@@ -151,7 +155,11 @@ class SettingsRepository(private val context: Context) {
 
     private val defaultCallsign = "WT-" + deviceUid.takeLast(4).uppercase()
 
-    val config: Flow<TrackerConfig> = store.data.map { read(it) }
+    // Like CIV, dev mode resets on process startup; the network lock does not.
+    private val developerMode = MutableStateFlow(false)
+    val config: Flow<TrackerConfig> = combine(store.data, developerMode) { p, dev ->
+        read(p).copy(developerMode = dev)
+    }
         .distinctUntilChanged()
 
     suspend fun current(): TrackerConfig = config.first()
@@ -165,9 +173,11 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun update(transform: (TrackerConfig) -> TrackerConfig) {
         store.edit { p ->
-            val old = read(p)
+            val old = read(p).copy(developerMode = developerMode.value)
             val n = transform(old)
             if (n == old) return@edit
+            developerMode.value = n.developerMode
+            p[K.NETWORK_LOCKED] = n.networkPreferencesLocked
             p[K.CALLSIGN] = n.callsign.trim()
             p[K.TEAM] = n.team
             p[K.ROLE] = n.role
@@ -242,5 +252,6 @@ class SettingsRepository(private val context: Context) {
             physioMonitoring = p[K.PHYSIO] ?: false,
             batdokEnabled = p[K.BATDOK] ?: true,
             medicalProfile = MedicalProfileCodec.decode(SecretBox.decrypt(p[K.MEDICAL_PROFILE])),
+            networkPreferencesLocked = p[K.NETWORK_LOCKED] ?: false,
         )
 }

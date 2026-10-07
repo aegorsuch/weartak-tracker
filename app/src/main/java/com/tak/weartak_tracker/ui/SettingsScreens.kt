@@ -45,6 +45,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavGraphBuilder
+import androidx.navigation.NamedNavArgument
+import androidx.navigation.NavBackStackEntry
 import androidx.navigation.NavType
 import androidx.navigation.navArgument
 import androidx.wear.compose.foundation.ExperimentalWearFoundationApi
@@ -110,8 +112,48 @@ fun NavGraphBuilder.settingsGraph(repo: SettingsRepository, config: TrackerConfi
     composable("settings_screen") {
         WearTAKPageWithBackArrow("WearTAK Preferences", back) {
             item { WearTAKTitleChip("Callsign and Device Preferences") { go("callsign_and_device_preferences") } }
-            item { WearTAKTitleChip("Network Preferences") { go("network_preferences") } }
+            item {
+                if (config.networkPreferencesLocked) {
+                    val context = LocalContext.current
+                    WearTAKTitleChipWithState("Network Preferences", "Locked") {
+                        Toast.makeText(context, "Network settings are locked", Toast.LENGTH_SHORT).show()
+                    }
+                } else {
+                    WearTAKTitleChip("Network Preferences") { go("network_preferences") }
+                }
+            }
+            if (config.developerMode) {
+                item { WearTAKTitleChip("Beta Features") { go("beta_features") } }
+                item {
+                    WearTAKTitleChipWithState("Dev Debug Tools", "View network and build information") { go("debug_tools") }
+                }
+            }
+            item { DeveloperVersion(repo, config) }
         }
+    }
+
+    composable("beta_features") {
+        if (config.developerMode) {
+            WearTAKPageWithBackArrow("Beta Features", back) {
+                item {
+                    WearTAKToggleChip(
+                        checked = config.networkPreferencesLocked,
+                        onCheckedChange = { locked ->
+                            repo.updateAsync { if (it.developerMode) it.copy(networkPreferencesLocked = locked) else it }
+                        },
+                        title = "Network Settings Lock",
+                        description = "Prevent access to Network Preferences",
+                    )
+                }
+            }
+        } else {
+            LaunchedEffect(Unit) { back() }
+        }
+    }
+
+    composable("debug_tools") {
+        if (config.developerMode) DeveloperDebugPage(repo, back)
+        else LaunchedEffect(Unit) { back() }
     }
 
     composable("callsign_and_device_preferences") {
@@ -225,7 +267,7 @@ fun NavGraphBuilder.settingsGraph(repo: SettingsRepository, config: TrackerConfi
         }
     }
 
-    composable("network_preferences") {
+    networkComposable("network_preferences", config, back) {
         val currentConfig by repo.config.collectAsStateWithLifecycle(initialValue = config)
         WearTAKPageWithBackArrow("Network Preferences", back) {
             item { WearTAKTitleChip("TAK Servers") { go("tak_servers") } }
@@ -243,12 +285,13 @@ fun NavGraphBuilder.settingsGraph(repo: SettingsRepository, config: TrackerConfi
         }
     }
 
-    composable("tak_servers") { TakServersPage(repo, config, go, back) }
+    networkComposable("tak_servers", config, back) { TakServersPage(repo, config, go, back) }
 
-    composable("tak_channels") { ChannelServersPage(config, go, back) }
+    networkComposable("tak_channels", config, back) { ChannelServersPage(config, go, back) }
 
-    composable(
+    networkComposable(
         "tak_channels/{id}",
+        config, back,
         arguments = listOf(navArgument("id") { type = NavType.StringType }),
     ) { entry ->
         val server = config.servers.firstOrNull { it.id == entry.arguments?.getString("id") }
@@ -259,13 +302,14 @@ fun NavGraphBuilder.settingsGraph(repo: SettingsRepository, config: TrackerConfi
         }
     }
 
-    composable("new_server_screen") {
+    networkComposable("new_server_screen", config, back) {
         val newId = rememberSaveable { java.util.UUID.randomUUID().toString() }
         ServerFormPage(repo, "New Server", TakServerConfig(id = newId), isNew = true, back = back)
     }
 
-    composable(
+    networkComposable(
         "edit_server_screen/{id}",
+        config, back,
         arguments = listOf(navArgument("id") { type = NavType.StringType }),
     ) { entry ->
         val server = config.servers.firstOrNull { it.id == entry.arguments?.getString("id") }
@@ -276,7 +320,7 @@ fun NavGraphBuilder.settingsGraph(repo: SettingsRepository, config: TrackerConfi
         }
     }
 
-    composable("tak_sa_multicast") {
+    networkComposable("tak_sa_multicast", config, back) {
         val update = rememberUpdater(repo)
         WearTAKPageWithBackArrow("TAK SA Multicast", back) {
             item {
@@ -293,7 +337,7 @@ fun NavGraphBuilder.settingsGraph(repo: SettingsRepository, config: TrackerConfi
         }
     }
 
-    composable("multicast_address") {
+    networkComposable("multicast_address", config, back) {
         val update = rememberUpdater(repo)
         WearTAKStringEntryPage(
             item = config.multicastAddress,
@@ -303,7 +347,7 @@ fun NavGraphBuilder.settingsGraph(repo: SettingsRepository, config: TrackerConfi
         ) { v -> update { it.copy(multicastAddress = v.trim()) } }
     }
 
-    composable("multicast_protocol") {
+    networkComposable("multicast_protocol", config, back) {
         val update = rememberUpdater(repo)
         WearTAKSelectionPage("Output Protocol", MULTICAST_PROTOCOLS, config.multicastProtocol, onBack = back) { protocol ->
             update { it.copy(multicastProtocol = protocol) }
@@ -311,14 +355,14 @@ fun NavGraphBuilder.settingsGraph(repo: SettingsRepository, config: TrackerConfi
         }
     }
 
-    composable("multicast_port") {
+    networkComposable("multicast_port", config, back) {
         val update = rememberUpdater(repo)
         WearTAKIntEntryPage(config.multicastPort, "Port", 1, 65535, back) { v -> update { it.copy(multicastPort = v) } }
     }
 
-    composable("sitx_tak_screen") { SitxPage(repo, config, go, back) }
+    networkComposable("sitx_tak_screen", config, back) { SitxPage(repo, config, go, back) }
 
-    composable("sitx_tak_url_screen") {
+    networkComposable("sitx_tak_url_screen", config, back) {
         val update = rememberUpdater(repo)
         val currentConfig by repo.config.collectAsStateWithLifecycle(initialValue = config)
         WearTAKStringEntryPage(item = currentConfig.sitxUrl, label = "Address", onBack = back) { v ->
@@ -326,12 +370,30 @@ fun NavGraphBuilder.settingsGraph(repo: SettingsRepository, config: TrackerConfi
         }
     }
 
-    composable("sitx_tak_group_screen") {
+    networkComposable("sitx_tak_group_screen", config, back) {
         val currentConfig by repo.config.collectAsStateWithLifecycle(initialValue = config)
         SitxGroupPage(repo, currentConfig, back)
     }
 
-    composable("sitx_status_authorization_screen") { SitxStatusPage(back) }
+    networkComposable("sitx_status_authorization_screen", config, back) { SitxStatusPage(back) }
+}
+
+private fun NavGraphBuilder.networkComposable(
+    route: String,
+    config: TrackerConfig,
+    back: () -> Unit,
+    arguments: List<NamedNavArgument> = emptyList(),
+    content: @Composable (NavBackStackEntry) -> Unit,
+) {
+    composable(route, arguments = arguments) { entry ->
+        if (config.networkPreferencesLocked) {
+            WearTAKPageWithBackArrow("Network Preferences", back) {
+                item { Text("Network settings are locked", textAlign = TextAlign.Center) }
+            }
+        } else {
+            content(entry)
+        }
+    }
 }
 
 /** CIV's "Physiological Monitoring" switch; turning it on asks for BODY_SENSORS first. */

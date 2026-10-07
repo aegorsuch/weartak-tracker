@@ -266,7 +266,9 @@ class TrackerService : Service() {
             role = config.role,
             battery = battery(),
             fix = fix,
-            time = CotTime.now(appliedInterval.coerceAtLeast(1) * CotBuilder.PLI_STALE_MULTIPLIER),
+            time = CotTime.now(CotBuilder.pliStaleSeconds(
+                ReportingStrategy.intervalSecs(config, TrackerState.isAlerting, TrackerState.activity.value),
+            )),
             physio = if (physioActive) {
                 val bpm = physio.bpm
                 Physio(

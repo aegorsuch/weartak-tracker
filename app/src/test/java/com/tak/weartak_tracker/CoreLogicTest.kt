@@ -31,6 +31,30 @@ class CoreLogicTest {
     }
 
     @Test
+    fun pliExpiresAfterTwiceActiveIntervalPlusFifteenSeconds() {
+        val modes = listOf(
+            Triple(config.copy(dynamicReporting = false), false, Activity.STILL),
+            Triple(config, true, Activity.STILL),
+            Triple(config, false, Activity.STILL),
+            Triple(config, false, Activity.ON_FOOT),
+            Triple(config, false, Activity.IN_VEHICLE),
+            Triple(config, false, Activity.UNKNOWN),
+        )
+        modes.forEach { (c, alerting, activity) ->
+            val interval = ReportingStrategy.intervalSecs(c, alerting, activity)
+            val time = CotTime.now(CotBuilder.pliStaleSeconds(interval), 0)
+            val staleMillis = java.time.Instant.parse(time.staleCot).toEpochMilli()
+            assertEquals((2L * interval + 15L) * 1000L, staleMillis)
+            val pli = CotBuilder.pli("u1", "cs", "Cyan", "HQ", 50, null, time)
+            assertTrue(pli.contains("stale='${time.staleCot}'"))
+        }
+        assertEquals(135L, CotBuilder.pliStaleSeconds(60))
+        assertEquals(7215L, CotBuilder.pliStaleSeconds(3600))
+        assertEquals(17L, CotBuilder.pliStaleSeconds(0))
+        assertEquals(2L * Int.MAX_VALUE + 15, CotBuilder.pliStaleSeconds(Int.MAX_VALUE))
+    }
+
+    @Test
     fun cotEscapesAndTypes() {
         val time = CotTime.now(30, 0)
         val pli = CotBuilder.pli("u1", "A<&>", "Cyan", "HQ", 50, null, time)

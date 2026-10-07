@@ -7,6 +7,8 @@ Download installable APKs from [GitHub Releases](https://github.com/aegorsuch/we
 
 Version **5.8.0.3** is distributed as a debug-signed APK, the same build used for watch testing, not a production release-signed build. Use `adb install -r` to update an existing installation signed with the same key while retaining settings. A different signing key requires uninstalling first, which removes app data.
 
+**Updated 5.8.0.3 build:** PLI expires after twice the active reporting interval plus 15 seconds. CIV-style developer mode adds read-only diagnostics and a persistent Network Settings Lock covering all network settings and the main-screen shortcut.
+
 **Windows sideloading:** [Wear OS Windows Bridge](https://github.com/aegorsuch/wearos-windows-bridge) is a useful companion tool for pairing/connecting to your watch, installing downloaded APKs, capturing logs, and mirroring the screen. Enable Wireless Debugging on the watch and follow the bridge's setup instructions; the PC and watch need to be on the same Wi-Fi for these operations. Normal Tracker operation can use LTE afterward.
 
 ## Design intent
@@ -17,6 +19,7 @@ For an LTE deployment, disable **TAK SA Multicast** under Network Preferences: i
 ## Features
 - Reports position (PLI) to one or more TAK Servers (TLS, enrollment on 8446), Sit(x) TAK, and TAK SA UDP multicast.
 - Constant or dynamic reporting (stationary / on foot / vehicle / while alerting intervals). Dynamic reporting classifies movement from GPS speed (like ATAK) and uses the significant-motion sensor to leave the stationary interval as soon as the wearer moves.
+- PLI stale time is twice the active reporting interval plus 15 seconds (60-second reporting expires after 135 seconds). When reporting stops, the last transmitted PLI expires naturally; no immediate clear message is sent. Manual alerts retain their 15-minute stale time.
 - CIV manual alerts (quick-text selection, cancel last alert) with store-and-forward: alerts are queued in memory and sent in order when an endpoint reconnects. The queue does not survive the app process being killed.
 - Connected alerts and cancellations request a fresh GPS fix and send immediately using the latest known position, without waiting for that fix. A new fix triggers an updated PLI; the original alert is not resent. If no position is available, the existing unknown-position values are used. A failed send is queued for retry.
 - Reporting starts only when the app is opened; nothing starts automatically at boot.
@@ -68,6 +71,11 @@ On the emulator, set a heart rate with `adb emu sensor set heart-rate 72`.
 
 ### Dynamic reporting
 Each precise fix with a reliable GPS speed is classified as stationary (< 0.5 m/s), on foot (≤ 4.5 m/s) or vehicle. Switching state needs 2 consecutive fixes (3 to become stationary) so GPS noise or a stop at a light does not change the interval. While stationary, the significant-motion sensor is armed; When it fires, the tracker takes a fresh fix immediately. Watches without that sensor only leave stationary at the next stationary-interval fix.
+
+### Developer mode and network admin lock
+In **WearTAK Preferences**, tap the version label eight times, with no more than 1.5 seconds between taps, to toggle developer mode (matching CIV). The version turns red and shows the build code. **Dev Debug Tools** displays read-only build, device, network, endpoint, and reporting information. Developer mode resets when the app process starts again.
+
+With developer mode enabled, open **Beta Features > Network Settings Lock**. The lock persists across app restarts and blocks Network Preferences, its subpages, and the main-screen network shortcut without stopping configured connections or reporting. To unlock, enable developer mode again and turn the same switch off. This is CIV's UI administration lock, not PIN authentication or an Android device-management policy.
 
 ### TAK Server certificates
 The tracker connects with a client certificate obtained in one of three ways, in order:

@@ -37,7 +37,8 @@ data class Physio(val heartRateBpm: Int?, val skinTempF: Float? = null, val exer
 object CotBuilder {
     private const val DECLARATION = "<?xml version='1.0' encoding='UTF-8' standalone='yes'?>"
     const val SELF_TYPE = "a-f-G-U-C"
-    const val PLI_STALE_MULTIPLIER = 3L
+    fun pliStaleSeconds(reportingIntervalSeconds: Int): Long =
+        2L * reportingIntervalSeconds.coerceAtLeast(1) + 15L
     const val ALERT_STALE_SECONDS = 15L * 60L
     private const val NA = "N/A"
 

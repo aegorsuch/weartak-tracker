@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -100,8 +101,15 @@ fun foregroundPermissions(): Array<String> = buildList {
 @Composable
 private fun TrackerNav(repo: SettingsRepository) {
     val nav = rememberSwipeDismissableNavController()
+    val context = LocalContext.current
     val config = repo.config.collectAsStateWithLifecycle(initialValue = null).value ?: return
-    val go: Navigate = { nav.navigate(it) }
+    val go: Navigate = { route ->
+        if (config.networkPreferencesLocked && isNetworkSettingsRoute(route)) {
+            Toast.makeText(context, "Network settings are locked", Toast.LENGTH_SHORT).show()
+        } else {
+            nav.navigate(route)
+        }
+    }
     val back: () -> Unit = { nav.popBackStack() }
     val home: () -> Unit = { nav.popBackStack("main_screen", inclusive = false) }
     SwipeDismissableNavHost(navController = nav, startDestination = "main_screen") {
