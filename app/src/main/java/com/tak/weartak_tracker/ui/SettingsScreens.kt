@@ -115,7 +115,7 @@ private enum class IntervalSetting(
 fun NavGraphBuilder.settingsGraph(repo: SettingsRepository, configState: State<TrackerConfig>, go: Navigate, back: () -> Unit) {
     val config by configState
     composable("settings_screen") {
-        WearTAKPageWithBackArrow("WearTAK Preferences", back) {
+        WearTAKPageWithBackArrow("WearTAK-Tracker Preferences", back) {
             item { WearTAKTitleChip("Callsign and Device Preferences") { go("callsign_and_device_preferences") } }
             item {
                 if (config.networkPreferencesLocked) {

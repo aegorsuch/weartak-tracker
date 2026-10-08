@@ -29,7 +29,7 @@ For an LTE deployment, disable **TAK SA Multicast** under Network Preferences: i
 - Optional physiological monitoring (off by default): heart rate and, on Samsung Galaxy watches, skin temperature are added to each PLI like CIV.
 - Settings: callsign, team, role (MIL/LEO), BATDOK/medical profile, reporting strategy/intervals, TAK servers, multicast (address, output protocol, port), Sit(x) (with Re-Auth and Remove).
   TAK Server Connections and the Channels server picker display servers alphabetically by name, ignoring capitalization; saved order and connection behavior are unchanged.
-  Menus follow CIV's hierarchy: WearTAK Preferences > Callsign and Device Preferences / Network Preferences.
+  Menus follow CIV's hierarchy: WearTAK-Tracker Preferences > Callsign and Device Preferences / Network Preferences.
 
 ## UI
 Main screen is kept minimal: alert button, callsign chip (opens settings), status icons in the corners, time at the bottom.
@@ -77,7 +77,7 @@ On the emulator, set a heart rate with `adb emu sensor set heart-rate 72`.
 Each precise fix with a reliable GPS speed is classified as stationary (< 0.5 m/s), on foot (≤ 4.5 m/s) or vehicle. Switching state needs 2 consecutive fixes (3 to become stationary) so GPS noise or a stop at a light does not change the interval. While stationary, the significant-motion sensor is armed; When it fires, the tracker takes a fresh fix immediately. Watches without that sensor only leave stationary at the next stationary-interval fix.
 
 ### Developer mode and network admin lock
-In **WearTAK Preferences**, tap the version label eight times, with no more than 1.5 seconds between taps, to toggle developer mode (matching CIV). The version turns red and shows the build code. **Dev Debug Tools** displays read-only build, device, network, endpoint, and reporting information. Developer mode resets when the app process starts again.
+In **WearTAK-Tracker Preferences**, tap the version label eight times, with no more than 1.5 seconds between taps, to toggle developer mode (matching CIV). The version turns red and shows the build code. **Dev Debug Tools** displays read-only build, device, network, endpoint, and reporting information. Developer mode resets when the app process starts again.
 
 With developer mode enabled, open **Dev Debug Tools > Stay awake** to keep the screen, CPU, and Wi-Fi awake for development and demos. In addition to the Wi-Fi lock, it actively requests a Wi-Fi network without requiring internet access, keeping demand for Wear OS Wi-Fi while enabled without binding Tracker's default/LTE traffic to it. Wireless debugging is not required, and disabling it or dismissing the app's recent task does not stop Stay awake. The adjacent **Resume after update** checkbox opts in to restoring an explicitly enabled session after an in-place app update. Turning off Stay awake or using the notification's **Stop** action clears that session; no automatic resume happens after an ordinary process restart or watch reboot. Locks and the Wi-Fi request are released when the service is destroyed and reacquired only for an eligible update restore. There is no timed expiry. This uses extra battery and may heat the watch; it does not override manually disabled Wi-Fi, prevent an explicit screen-off action, or guarantee ADB delivery.
 
