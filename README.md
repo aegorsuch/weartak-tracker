@@ -25,6 +25,7 @@ For an LTE deployment, disable **TAK SA Multicast** under Network Preferences: i
 - Reporting starts only when the app is opened; nothing starts automatically at boot.
 - Tracker has its own Recent Apps task. Swiping it away stops reporting, sensors, connections, and scheduled location alarms. Simply returning to the watch face leaves tracking running; reopen the app after closing its task to restart.
 - PLI is resent immediately using the latest known fix when a network changes, an endpoint reconnects, or the callsign/settings button is tapped. If no fix is available yet, a single fix is requested instead.
+- Saving a changed callsign, team, or role requests a fresh location and immediately resends PLI with the new identity and latest known fix, without waiting for GPS. The fresh fix sends an updated PLI when it arrives. Unrelated settings changes do not trigger this extra request.
 - Optional physiological monitoring (off by default): heart rate and, on Samsung Galaxy watches, skin temperature are added to each PLI like CIV.
 - Settings: callsign, team, role (MIL/LEO), BATDOK/medical profile, reporting strategy/intervals, TAK servers, multicast (address, output protocol, port), Sit(x) (with Re-Auth and Remove).
   Menus follow CIV's hierarchy: WearTAK Preferences > Callsign and Device Preferences / Network Preferences.

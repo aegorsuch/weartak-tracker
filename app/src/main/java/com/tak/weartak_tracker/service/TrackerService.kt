@@ -131,13 +131,20 @@ class TrackerService : Service() {
         location.lastKnown { it?.let { loc -> if (lastFix == null) lastFix = loc.toFix() } }
 
         scope.launch {
+            var previous: TrackerConfig? = null
             repo.config.collect { c ->
+                val identityChanged = c.identityChangedFrom(previous)
+                previous = c
                 config = c
                 applyPhysio()
                 tak.update(c.servers)
                 channels.retain(c.servers.filter { it.enabled }.map { it.id }.toSet())
                 sitx.update(c)
                 configureMulticast()
+                if (identityChanged) {
+                    location.requestSingleFix()
+                    lastFix?.let { sendPli(it) }
+                }
             }
         }
         scope.launch {

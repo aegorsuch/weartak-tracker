@@ -96,7 +96,7 @@ class LocationEngine(
         if (intervalSecs > 0 && LocationAccess.current(context) != access) start(intervalSecs)
     }
 
-    /** Extra fix used by the alert store-and-forward path when the current position is stale. */
+    /** Extra fix for alerts and saved identity changes, without changing the reporting schedule. */
     fun requestSingleFix() {
         releaseWakeLock()
         wakeLock = power.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "WearTAKTracker:gps").apply {
