@@ -9,6 +9,7 @@ import com.tak.weartak_tracker.data.ManualAlert
 import com.tak.weartak_tracker.data.TrackerConfig
 import com.tak.weartak_tracker.service.AlertForwarder
 import com.tak.weartak_tracker.service.ReportingStrategy
+import com.tak.weartak_tracker.ui.MANUAL_ALERT_OPTIONS
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -82,6 +83,36 @@ class CoreLogicTest {
         val withSkin = CotBuilder.pli("u1", "cs", "Cyan", "HQ", 50, null, time, Physio(64, 91.26f))
         assertTrue(withSkin.contains("<remarks>Exert:N/A%;HR:64;SkinTemp:91.3</remarks>"))
         assertTrue(withSkin.contains("<skt>91.3</skt>"))
+    }
+
+    @Test
+    fun manualAlertPickerIncludesAllTypesInAlphabeticalOrder() {
+        assertEquals(
+            listOf(
+                "911 Alert", "Gate Runner", "Geofence Breached", "Gunshot", "Gunshot Injury",
+                "In Contact", "Injury", "Ring The Bell", "UAS", "Vehicle",
+            ),
+            MANUAL_ALERT_OPTIONS,
+        )
+    }
+
+    @Test
+    fun addedManualAlertTypesSendWithTheirSelectedDescriptions() = runBlocking {
+        val sent = mutableListOf<ManualAlert>()
+        val forwarder = AlertForwarder(send = { sent += it; true }, onChanged = { _, _ -> })
+        val descriptions = listOf("911 Alert", "Ring The Bell", "Geofence Breached", "In Contact")
+        descriptions.forEach { description ->
+            val alert = forwarder.newAlert(description)
+            assertTrue(forwarder.submit(alert, ready = true))
+            val xml = CotBuilder.emergency(
+                alert.uid, alert.state, alert.category, alert.description, alert.priority,
+                "u1", "cs", null, CotTime.now(CotBuilder.ALERT_STALE_SECONDS, 0),
+            )
+            assertTrue(xml.contains("alertDescription='$description'"))
+            assertTrue(xml.contains("<emergency type='$description'>cs</emergency>"))
+        }
+        assertEquals(descriptions, sent.map { it.description })
+        assertTrue(forwarder.pending.isEmpty())
     }
 
     @Test

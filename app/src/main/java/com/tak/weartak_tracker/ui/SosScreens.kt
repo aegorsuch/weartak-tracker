@@ -68,15 +68,25 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.util.UUID
 
-/** Same quick-text buttons as CIV's SosActivity.manualAlertOptions. */
-private val MANUAL_ALERT_OPTIONS = listOf("Gate Runner", "Gunshot", "Gunshot Injury", "Injury", "UAS", "Vehicle")
+internal val MANUAL_ALERT_OPTIONS = listOf(
+    "911 Alert",
+    "Gate Runner",
+    "Geofence Breached",
+    "Gunshot",
+    "Gunshot Injury",
+    "In Contact",
+    "Injury",
+    "Ring The Bell",
+    "UAS",
+    "Vehicle",
+).sorted()
 
 private fun displayType(description: String) =
     description.trim().takeUnless { it.isEmpty() || it == AlertForwarder.DEFAULT_DESCRIPTION }
 
 /**
- * Manual alert flow as in CIV's SosActivity: when not alerting show the text selection screen
- * (sent on confirm); when alerting ask to cancel the last alert. A result dialog follows.
+ * Preset selections send immediately; custom text sends on confirm. When alerting,
+ * ask to cancel the last alert. A result dialog follows.
  */
 @Composable
 fun SosScreen(repo: SettingsRepository, exit: () -> Unit) {
@@ -90,6 +100,7 @@ fun SosScreen(repo: SettingsRepository, exit: () -> Unit) {
     val permissions = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {}
 
     fun request(cancel: Boolean, uid: String, description: String) {
+        if (pendingUid != null) return
         if (!LocationAccess.current(context).granted) {
             permissions.launch(foregroundPermissions())
             return
@@ -149,7 +160,7 @@ fun SosScreen(repo: SettingsRepository, exit: () -> Unit) {
     }
 }
 
-/** CIV's TextSelectionScreen: text field with backspace, 2-column quick-text grid, X / check buttons. */
+/** Custom text with backspace and X / check buttons, plus a 2-column tap-to-send preset grid. */
 @Composable
 fun TextSelectionScreen(titleText: String, buttonOptions: List<String>, onConfirm: (String) -> Unit, onCancel: () -> Unit) {
     var value by rememberSaveable(stateSaver = TextFieldValue.Saver) { mutableStateOf(TextFieldValue("")) }
@@ -209,10 +220,7 @@ fun TextSelectionScreen(titleText: String, buttonOptions: List<String>, onConfir
                 ) {
                     row.forEach { option ->
                         Button(
-                            onClick = {
-                                val newText = value.text + " " + option
-                                value = TextFieldValue(text = newText, selection = TextRange(newText.length))
-                            },
+                            onClick = { onConfirm(option) },
                             colors = ButtonDefaults.buttonColors(containerColor = Color.DarkGray, contentColor = Color.White),
                             shape = RoundedCornerShape(size = 10.dp),
                             modifier = Modifier.weight(1f),
