@@ -6,9 +6,15 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import android.net.wifi.WifiManager
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import android.os.PowerManager
 import android.util.Log
 import android.widget.Toast
@@ -22,6 +28,7 @@ class DebugStayAwakeService : Service() {
     private var screenLock: PowerManager.WakeLock? = null
     private var cpuLock: PowerManager.WakeLock? = null
     private var wifiLock: WifiManager.WifiLock? = null
+    private var wifiCallback: ConnectivityManager.NetworkCallback? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -34,6 +41,7 @@ class DebugStayAwakeService : Service() {
         if (mutableActive.value) return START_NOT_STICKY
 
         try {
+            requestWifi()
             acquireLocks()
         } catch (error: SecurityException) {
             Log.e(TAG, "Cannot start debug stay awake", error)
@@ -44,6 +52,25 @@ class DebugStayAwakeService : Service() {
         mutableActive.value = true
         Log.i(TAG, "Debug stay awake enabled until manually stopped or the app process ends")
         return START_NOT_STICKY
+    }
+
+    private fun requestWifi() {
+        val manager = getSystemService(ConnectivityManager::class.java)
+        val request = NetworkRequest.Builder()
+            .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
+            .build()
+        val callback = object : ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: Network) {
+                Log.i(TAG, "Stay awake Wi-Fi available: $network")
+            }
+
+            override fun onLost(network: Network) {
+                Log.i(TAG, "Stay awake Wi-Fi lost: $network; waiting for Wi-Fi")
+            }
+        }
+        // A Wi-Fi lock alone does not count as demand for Wear OS Wi-Fi.
+        manager.requestNetwork(request, callback, Handler(Looper.getMainLooper()))
+        wifiCallback = callback
     }
 
     @Suppress("DEPRECATION")
@@ -102,6 +129,10 @@ class DebugStayAwakeService : Service() {
     }
 
     private fun releaseLocks() {
+        wifiCallback?.let {
+            getSystemService(ConnectivityManager::class.java).unregisterNetworkCallback(it)
+        }
+        wifiCallback = null
         wifiLock?.let { if (it.isHeld) it.release() }
         cpuLock?.let { if (it.isHeld) it.release() }
         screenLock?.let { if (it.isHeld) it.release() }

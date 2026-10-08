@@ -28,6 +28,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -108,7 +109,8 @@ private enum class IntervalSetting(
 }
 
 /** Settings routes mirroring WearTAK-CIV's WearTAKSettingsActivity, reduced to tracker settings. */
-fun NavGraphBuilder.settingsGraph(repo: SettingsRepository, config: TrackerConfig, go: Navigate, back: () -> Unit) {
+fun NavGraphBuilder.settingsGraph(repo: SettingsRepository, configState: State<TrackerConfig>, go: Navigate, back: () -> Unit) {
+    val config by configState
     composable("settings_screen") {
         WearTAKPageWithBackArrow("WearTAK Preferences", back) {
             item { WearTAKTitleChip("Callsign and Device Preferences") { go("callsign_and_device_preferences") } }
@@ -183,7 +185,7 @@ fun NavGraphBuilder.settingsGraph(repo: SettingsRepository, config: TrackerConfi
         }
     }
 
-    medicalProfileGraph(repo, config, go, back)
+    medicalProfileGraph(repo, configState, go, back)
 
     composable("my_callsign") {
         val update = rememberUpdater(repo)
@@ -267,7 +269,7 @@ fun NavGraphBuilder.settingsGraph(repo: SettingsRepository, config: TrackerConfi
         }
     }
 
-    networkComposable("network_preferences", config, back) {
+    networkComposable("network_preferences", configState, back) {
         val currentConfig by repo.config.collectAsStateWithLifecycle(initialValue = config)
         WearTAKPageWithBackArrow("Network Preferences", back) {
             item { WearTAKTitleChip("TAK Servers") { go("tak_servers") } }
@@ -285,13 +287,13 @@ fun NavGraphBuilder.settingsGraph(repo: SettingsRepository, config: TrackerConfi
         }
     }
 
-    networkComposable("tak_servers", config, back) { TakServersPage(repo, config, go, back) }
+    networkComposable("tak_servers", configState, back) { TakServersPage(repo, config, go, back) }
 
-    networkComposable("tak_channels", config, back) { ChannelServersPage(config, go, back) }
+    networkComposable("tak_channels", configState, back) { ChannelServersPage(config, go, back) }
 
     networkComposable(
         "tak_channels/{id}",
-        config, back,
+        configState, back,
         arguments = listOf(navArgument("id") { type = NavType.StringType }),
     ) { entry ->
         val server = config.servers.firstOrNull { it.id == entry.arguments?.getString("id") }
@@ -302,14 +304,14 @@ fun NavGraphBuilder.settingsGraph(repo: SettingsRepository, config: TrackerConfi
         }
     }
 
-    networkComposable("new_server_screen", config, back) {
+    networkComposable("new_server_screen", configState, back) {
         val newId = rememberSaveable { java.util.UUID.randomUUID().toString() }
         ServerFormPage(repo, "New Server", TakServerConfig(id = newId), isNew = true, back = back)
     }
 
     networkComposable(
         "edit_server_screen/{id}",
-        config, back,
+        configState, back,
         arguments = listOf(navArgument("id") { type = NavType.StringType }),
     ) { entry ->
         val server = config.servers.firstOrNull { it.id == entry.arguments?.getString("id") }
@@ -320,7 +322,7 @@ fun NavGraphBuilder.settingsGraph(repo: SettingsRepository, config: TrackerConfi
         }
     }
 
-    networkComposable("tak_sa_multicast", config, back) {
+    networkComposable("tak_sa_multicast", configState, back) {
         val update = rememberUpdater(repo)
         WearTAKPageWithBackArrow("TAK SA Multicast", back) {
             item {
@@ -337,7 +339,7 @@ fun NavGraphBuilder.settingsGraph(repo: SettingsRepository, config: TrackerConfi
         }
     }
 
-    networkComposable("multicast_address", config, back) {
+    networkComposable("multicast_address", configState, back) {
         val update = rememberUpdater(repo)
         WearTAKStringEntryPage(
             item = config.multicastAddress,
@@ -347,7 +349,7 @@ fun NavGraphBuilder.settingsGraph(repo: SettingsRepository, config: TrackerConfi
         ) { v -> update { it.copy(multicastAddress = v.trim()) } }
     }
 
-    networkComposable("multicast_protocol", config, back) {
+    networkComposable("multicast_protocol", configState, back) {
         val update = rememberUpdater(repo)
         WearTAKSelectionPage("Output Protocol", MULTICAST_PROTOCOLS, config.multicastProtocol, onBack = back) { protocol ->
             update { it.copy(multicastProtocol = protocol) }
@@ -355,14 +357,14 @@ fun NavGraphBuilder.settingsGraph(repo: SettingsRepository, config: TrackerConfi
         }
     }
 
-    networkComposable("multicast_port", config, back) {
+    networkComposable("multicast_port", configState, back) {
         val update = rememberUpdater(repo)
         WearTAKIntEntryPage(config.multicastPort, "Port", 1, 65535, back) { v -> update { it.copy(multicastPort = v) } }
     }
 
-    networkComposable("sitx_tak_screen", config, back) { SitxPage(repo, config, go, back) }
+    networkComposable("sitx_tak_screen", configState, back) { SitxPage(repo, config, go, back) }
 
-    networkComposable("sitx_tak_url_screen", config, back) {
+    networkComposable("sitx_tak_url_screen", configState, back) {
         val update = rememberUpdater(repo)
         val currentConfig by repo.config.collectAsStateWithLifecycle(initialValue = config)
         WearTAKStringEntryPage(item = currentConfig.sitxUrl, label = "Address", onBack = back) { v ->
@@ -370,23 +372,23 @@ fun NavGraphBuilder.settingsGraph(repo: SettingsRepository, config: TrackerConfi
         }
     }
 
-    networkComposable("sitx_tak_group_screen", config, back) {
+    networkComposable("sitx_tak_group_screen", configState, back) {
         val currentConfig by repo.config.collectAsStateWithLifecycle(initialValue = config)
         SitxGroupPage(repo, currentConfig, back)
     }
 
-    networkComposable("sitx_status_authorization_screen", config, back) { SitxStatusPage(back) }
+    networkComposable("sitx_status_authorization_screen", configState, back) { SitxStatusPage(back) }
 }
 
 private fun NavGraphBuilder.networkComposable(
     route: String,
-    config: TrackerConfig,
+    configState: State<TrackerConfig>,
     back: () -> Unit,
     arguments: List<NamedNavArgument> = emptyList(),
     content: @Composable (NavBackStackEntry) -> Unit,
 ) {
     composable(route, arguments = arguments) { entry ->
-        if (config.networkPreferencesLocked) {
+        if (configState.value.networkPreferencesLocked) {
             WearTAKPageWithBackArrow("Network Preferences", back) {
                 item { Text("Network settings are locked", textAlign = TextAlign.Center) }
             }
@@ -696,7 +698,7 @@ private fun ServerFormPage(repo: SettingsRepository, title: String, initial: Tak
         item { WearTAKOutlinedTextField(address, { address = it }, "Address/URL", KeyboardType.Uri) }
         item { WearTAKOutlinedTextField(port, { port = it }, "Port", KeyboardType.Number) }
         item { WearTAKOutlinedTextField(username, { username = it }, "Username", KeyboardType.Text) }
-        item { WearTAKOutlinedTextField(password, { password = it }, "Password", KeyboardType.Password, password = true) }
+        item { WearTAKOutlinedTextField(password, { password = it }, "Password", KeyboardType.Text) }
         val names = listOfNotNull(
             initial.tlsName.takeIf { it.isNotBlank() }?.let { "TLS name: $it" },
             initial.apiTlsName.takeIf { it.isNotBlank() && it != initial.tlsName }?.let { "API TLS name: $it" },

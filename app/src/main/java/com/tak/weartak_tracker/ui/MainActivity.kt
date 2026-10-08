@@ -37,6 +37,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -67,11 +68,8 @@ import androidx.wear.compose.navigation.rememberSwipeDismissableNavController
 import com.tak.weartak_tracker.R
 import com.tak.weartak_tracker.TrackerApp
 import com.tak.weartak_tracker.cot.AlertState
-import com.tak.weartak_tracker.data.Endpoint
 import com.tak.weartak_tracker.data.LocationAccess
 import com.tak.weartak_tracker.data.SettingsRepository
-import com.tak.weartak_tracker.data.SitxState
-import com.tak.weartak_tracker.data.TakStatus
 import com.tak.weartak_tracker.data.TrackerConfig
 import com.tak.weartak_tracker.data.TrackerState
 import com.tak.weartak_tracker.service.TrackerService
@@ -83,7 +81,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val repo = (application as TrackerApp).settings
-        setContent { MaterialTheme { TrackerNav(repo) } }
+        setContent { MaterialTheme { WearTAKTextSelection { TrackerNav(repo) } } }
     }
 }
 
@@ -103,8 +101,10 @@ private fun TrackerNav(repo: SettingsRepository) {
     val nav = rememberSwipeDismissableNavController()
     val context = LocalContext.current
     val config = repo.config.collectAsStateWithLifecycle(initialValue = null).value ?: return
+    // Navigation retains its graph callbacks; they must read the latest settings.
+    val currentConfig = rememberUpdatedState(config)
     val go: Navigate = { route ->
-        if (config.networkPreferencesLocked && isNetworkSettingsRoute(route)) {
+        if (currentConfig.value.networkPreferencesLocked && isNetworkSettingsRoute(route)) {
             Toast.makeText(context, "Network settings are locked", Toast.LENGTH_SHORT).show()
         } else {
             nav.navigate(route)
@@ -113,9 +113,9 @@ private fun TrackerNav(repo: SettingsRepository) {
     val back: () -> Unit = { nav.popBackStack() }
     val home: () -> Unit = { nav.popBackStack("main_screen", inclusive = false) }
     SwipeDismissableNavHost(navController = nav, startDestination = "main_screen") {
-        composable("main_screen") { MainScreen(config, go) }
+        composable("main_screen") { MainScreen(currentConfig.value, go) }
         composable("sos_screen") { SosScreen(repo, home) }
-        settingsGraph(repo, config, go, back)
+        settingsGraph(repo, currentConfig, go, back)
     }
 }
 
@@ -208,18 +208,7 @@ private fun StatusIcons(config: TrackerConfig, onNetworkClick: () -> Unit, onLoc
     val running by TrackerState.serviceRunning.collectAsStateWithLifecycle()
     val access by TrackerState.locationAccess.collectAsStateWithLifecycle()
 
-    val enabledServers = takStates.values.filter { it.status != TakStatus.DISABLED && it.status != TakStatus.DUPLICATE }
-    val anyTakConnected = Endpoint.TAK_SERVER in endpoints
-    val anyTakDisconnected = enabledServers.any { it.status != TakStatus.CONNECTED }
-    val connecting = enabledServers.any { it.status == TakStatus.CONNECTING || it.status == TakStatus.ENROLLING } ||
-        sitx is SitxState.AwaitingUser || sitx is SitxState.Connecting || sitx is SitxState.Authorized
-    val icon = when {
-        anyTakConnected && enabledServers.size > 1 && anyTakDisconnected -> R.drawable.tak_server_some_connected
-        (anyTakConnected && !anyTakDisconnected) || Endpoint.SITX in endpoints -> R.drawable.tak_server_connected
-        connecting -> R.drawable.tak_server_connecting
-        Endpoint.MULTICAST in endpoints -> R.drawable.multicast_connected
-        else -> R.drawable.tak_server_disconnected
-    }
+    val icon = connectionStatusIcon(config, takStates, endpoints, sitx)
     val locationOn = running
 
     Box(modifier = Modifier.fillMaxWidth().height(70.dp), contentAlignment = Alignment.TopCenter) {

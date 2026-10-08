@@ -1,6 +1,8 @@
 package com.tak.weartak_tracker.ui
 
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.State
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -41,8 +43,8 @@ private enum class MedicalChoice(
     USER("user_type", "User Type", MEDICAL_USER_TYPE_OPTIONS, { it.userType }, { p, v -> p.copy(userType = v) }),
 }
 
-fun NavGraphBuilder.medicalProfileGraph(repo: SettingsRepository, config: TrackerConfig, go: Navigate, back: () -> Unit) {
-    val profile = config.medicalProfile
+fun NavGraphBuilder.medicalProfileGraph(repo: SettingsRepository, configState: State<TrackerConfig>, go: Navigate, back: () -> Unit) {
+    val profile by derivedStateOf { configState.value.medicalProfile }
     fun update(transform: (MedicalProfile) -> MedicalProfile) =
         repo.updateAsync { it.copy(medicalProfile = transform(it.medicalProfile)) }
 

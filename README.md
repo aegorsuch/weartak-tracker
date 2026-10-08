@@ -32,7 +32,9 @@ For an LTE deployment, disable **TAK SA Multicast** under Network Preferences: i
 ## UI
 Main screen is kept minimal: alert button, callsign chip (opens settings), status icons in the corners, time at the bottom.
 Long callsigns are truncated with an ellipsis on the main screen; the saved and transmitted callsign remains unchanged.
+Settings refresh immediately after saving, including medical profile values and the physiological monitoring switch. TAK Server passwords are visible while editing, matching regular WearTAK. Long-press an editable text field to select text and open watch-sized Copy, Paste, Cut, and Select all actions when available; copied passwords enter the Android clipboard, so use care when screen sharing.
 - Top left: TAK/Sit(x)/multicast connection (tap for Network Preferences). Top right: location (tap for Reporting Strategy).
+The TAK icon is green when all enabled, distinct TAK Servers are connected and split red/green when only some are connected. Disabled and duplicate server entries do not count against it; servers still connecting or without runtime status count as not connected.
 - Bottom left: watch network (Wi-Fi, cellular, Bluetooth via phone, airplane mode, or none). Bottom right: battery (red at 20% or below).
 The location icon is white while reporting with precise location, yellow with approximate location, and grey when stopped.
 
@@ -75,7 +77,7 @@ Each precise fix with a reliable GPS speed is classified as stationary (< 0.5 m/
 ### Developer mode and network admin lock
 In **WearTAK Preferences**, tap the version label eight times, with no more than 1.5 seconds between taps, to toggle developer mode (matching CIV). The version turns red and shows the build code. **Dev Debug Tools** displays read-only build, device, network, endpoint, and reporting information. Developer mode resets when the app process starts again.
 
-With developer mode enabled, open **Dev Debug Tools > Stay awake** to keep the screen, CPU, and Wi-Fi awake for development and demos. Wireless debugging is not required, and disabling it or dismissing the app's recent task does not stop Stay awake. Use the switch or notification Stop action to release the locks; they are also released when the app process ends. There is no timed expiry, and it must be manually enabled again after a process restart or watch reboot. This uses extra battery and may heat the watch; it does not force Wi-Fi on, prevent an explicit screen-off action, or guarantee ADB delivery.
+With developer mode enabled, open **Dev Debug Tools > Stay awake** to keep the screen, CPU, and Wi-Fi awake for development and demos. In addition to the Wi-Fi lock, it actively requests a Wi-Fi network without requiring internet access, keeping demand for Wear OS Wi-Fi while enabled without binding Tracker's default/LTE traffic to it. Wireless debugging is not required, and disabling it or dismissing the app's recent task does not stop Stay awake. Use the switch or notification Stop action to release the locks and Wi-Fi request; they are also released when the app process ends. There is no timed expiry, and it must be manually enabled again after a process restart or watch reboot. This uses extra battery and may heat the watch; it does not override manually disabled Wi-Fi, prevent an explicit screen-off action, or guarantee ADB delivery.
 
 Open **Beta Features > Network Settings Lock** to block Network Preferences, its subpages, and the main-screen network shortcut without stopping configured connections or reporting. The lock persists across app restarts. To unlock, enable developer mode again and turn the same switch off. This is CIV's UI administration lock, not PIN authentication or an Android device-management policy.
 

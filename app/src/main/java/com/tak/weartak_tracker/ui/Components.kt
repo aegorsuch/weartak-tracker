@@ -42,9 +42,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.TextFieldValue
-import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -215,7 +213,6 @@ fun WearTAKOutlinedTextField(
     onValueChange: (String) -> Unit,
     label: String,
     keyboardType: KeyboardType = KeyboardType.Unspecified,
-    password: Boolean = false,
 ) {
     OutlinedTextField(
         value = value,
@@ -225,7 +222,6 @@ fun WearTAKOutlinedTextField(
         label = { Text(text = label, color = colors.primary) },
         placeholder = { Text(text = label, color = colors.primary) },
         textStyle = TextStyle(color = colors.primary),
-        visualTransformation = if (password) PasswordVisualTransformation() else VisualTransformation.None,
     )
 }
 

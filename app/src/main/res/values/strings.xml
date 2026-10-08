@@ -11,4 +11,9 @@
     <string name="debug_stay_awake_channel">Debug stay awake</string>
     <string name="debug_stay_awake_stop">Stop</string>
     <string name="debug_stay_awake_failed">Unable to start Stay awake. See WearTAK debug logs.</string>
+    <string name="text_actions">Text actions</string>
+    <string name="text_copy">Copy</string>
+    <string name="text_paste">Paste</string>
+    <string name="text_cut">Cut</string>
+    <string name="text_select_all">Select all</string>
 </resources>
