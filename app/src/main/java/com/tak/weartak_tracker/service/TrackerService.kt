@@ -75,8 +75,6 @@ class TrackerService : Service() {
     private lateinit var physio: PhysioMonitor
     private var physioActive = false
 
-    private val anyEndpoint: Boolean get() = TrackerState.endpoints.value.isNotEmpty()
-
     override fun onBind(intent: Intent?): IBinder? = null
 
     /** Persists a discovered TLS name unless one is already saved (saved names are never replaced). */
@@ -214,12 +212,23 @@ class TrackerService : Service() {
             }
             ACTION_CANCEL_ALERT -> scope.launch {
                 val uid = intent.getStringExtra(EXTRA_UID)
-                val active = forwarder.alerts.filter { it.state == AlertState.ALERT }
-                val target = active.firstOrNull { it.uid == uid } ?: active.maxByOrNull { it.timeMillis }
-                target?.let { submit(it.copy(state = AlertState.CANCEL, enqueued = false)) }
+                alertMutex.withLock {
+                    val active = forwarder.alerts.filter { it.state == AlertState.ALERT }
+                    val target = active.firstOrNull { it.uid == uid } ?: active.maxByOrNull { it.timeMillis }
+                    target?.let { submitLocked(it.copy(state = AlertState.CANCEL, enqueued = false)) }
+                }
             }
             ACTION_SITX_REAUTHORIZE -> if (::sitx.isInitialized) sitx.reauthorize()
             ACTION_SITX_REFRESH_GROUPS -> if (::sitx.isInitialized) sitx.refreshGroups()
+            ACTION_TAK_SERVER_RETRY -> intent.getStringExtra(EXTRA_SERVER_ID)?.let { id ->
+                scope.launch {
+                    val saved = repo.config.first()
+                    tak.update(saved.servers)
+                    if (!tak.retry(id)) {
+                        Log.w(TAG, "Cannot retry TAK Server: missing, disabled, invalid, or duplicate configuration")
+                    }
+                }
+            }
             ACTION_TAK_CHANNELS_REFRESH -> intent.getStringExtra(EXTRA_SERVER_ID)?.let { id ->
                 if (::channels.isInitialized) channels.refresh(id)
             }
@@ -299,18 +308,22 @@ class TrackerService : Service() {
 
     // ---- Alerts ----
 
-    private fun isReady(): Boolean = anyEndpoint
+    private fun isReady(): Boolean =
+        tak.anyConnected || multicast.running || (config.sitxEnabled && sitx.connected)
 
     private suspend fun submit(item: ManualAlert) = alertMutex.withLock {
+        submitLocked(item)
+    }
+
+    private suspend fun submitLocked(item: ManualAlert) {
         val ready = isReady()
         location.requestSingleFix()
         forwarder.submit(item, ready)
     }
 
     private suspend fun onEndpointConnected() {
+        alertMutex.withLock { if (isReady()) forwarder.flush() }
         rebroadcastPli()
-        if (forwarder.pending.isEmpty()) return
-        if (isReady()) alertMutex.withLock { forwarder.flush() }
     }
 
     private suspend fun rebroadcastPli() {
@@ -429,6 +442,7 @@ class TrackerService : Service() {
         const val ACTION_CANCEL_ALERT = "com.tak.weartak_tracker.CANCEL_ALERT"
         const val ACTION_SITX_REAUTHORIZE = "com.tak.weartak_tracker.SITX_REAUTHORIZE"
         const val ACTION_SITX_REFRESH_GROUPS = "com.tak.weartak_tracker.SITX_REFRESH_GROUPS"
+        const val ACTION_TAK_SERVER_RETRY = "com.tak.weartak_tracker.TAK_SERVER_RETRY"
         const val ACTION_TAK_CHANNELS_REFRESH = "com.tak.weartak_tracker.TAK_CHANNELS_REFRESH"
         const val ACTION_TAK_CHANNEL_TOGGLE = "com.tak.weartak_tracker.TAK_CHANNEL_TOGGLE"
         const val EXTRA_SERVER_ID = "server_id"

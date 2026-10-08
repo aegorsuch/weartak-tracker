@@ -40,6 +40,8 @@ object CotBuilder {
     fun pliStaleSeconds(reportingIntervalSeconds: Int): Long =
         2L * reportingIntervalSeconds.coerceAtLeast(1) + 15L
     const val ALERT_STALE_SECONDS = 15L * 60L
+    private const val FRESH_EMERGENCY_FIX_MILLIS = 3_000L
+    private const val UNKNOWN_LOCATION_ERROR_METERS = 9_999_999f
     private const val NA = "N/A"
 
     /** [physio] is null when monitoring is off. BATDOK gates only the `_atmist_` block. */
@@ -90,10 +92,17 @@ object CotBuilder {
         fix: Fix?,
         time: CotTime,
     ): String {
+        val eventMillis = Instant.parse(time.startCot).toEpochMilli()
+        val location = fix?.takeIf {
+            eventMillis - it.timeMillis in 0 until FRESH_EMERGENCY_FIX_MILLIS &&
+                it.lat.isFinite() && it.lat in -90.0..90.0 &&
+                it.lon.isFinite() && it.lon in -180.0..180.0
+        }
         val point = listOf(
-            "lat" to (fix?.lat ?: 0.0), "lon" to (fix?.lon ?: 0.0), "hae" to (fix?.hae ?: 0.0),
-            "ce" to (fix?.ce?.takeUnless { it.isNaN() } ?: 9_999_999f),
-            "le" to (fix?.le?.takeUnless { it.isNaN() } ?: 9_999_999f),
+            "lat" to (location?.lat ?: 0.0), "lon" to (location?.lon ?: 0.0),
+            "hae" to (location?.hae?.takeIf { it.isFinite() } ?: 0.0),
+            "ce" to (location?.ce?.takeIf { it.isFinite() && it >= 0f } ?: UNKNOWN_LOCATION_ERROR_METERS),
+            "le" to (location?.le?.takeIf { it.isFinite() && it >= 0f } ?: UNKNOWN_LOCATION_ERROR_METERS),
         )
         val biometrics = element(
             "biometrics",

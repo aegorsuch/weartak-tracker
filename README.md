@@ -21,7 +21,7 @@ For an LTE deployment, disable **TAK SA Multicast** under Network Preferences: i
 - Constant or dynamic reporting (stationary / on foot / vehicle / while alerting intervals). Dynamic reporting classifies movement from GPS speed (like ATAK) and uses the significant-motion sensor to leave the stationary interval as soon as the wearer moves.
 - PLI stale time is twice the active reporting interval plus 15 seconds (60-second reporting expires after 135 seconds). When reporting stops, the last transmitted PLI expires naturally; no immediate clear message is sent. Manual alerts retain their 15-minute stale time.
 - Manual alerts with an alphabetized, tap-to-send picker: 911 Alert, Gate Runner, Geofence Breached, Gunshot, Gunshot Injury, In Contact, Injury, Ring The Bell, UAS, and Vehicle. Selecting a preset sends it immediately without an extra confirmation; custom text still uses the confirm button. Cancel the last alert with confirmation. Store-and-forward queues alerts in memory and sends them in order when an endpoint reconnects; the queue does not survive the app process being killed. Incoming alerts are not displayed on the watch.
-- Connected alerts and cancellations request a fresh GPS fix and send immediately using the latest known position, without waiting for that fix. A new fix triggers an updated PLI; the original alert is not resent. If no position is available, the existing unknown-position values are used. A failed send is queued for retry.
+- Connected alerts and cancellations request a fresh GPS fix and send immediately without waiting for it. Only a valid position less than 3 seconds old is attached; missing, stale, future-dated, or invalid coordinates use unknown-position values. A new fix triggers an updated PLI; the original alert is not resent. Failed sends remain queued in order, and a usable TAK Server, Sit(x), or multicast route drains that queue before rebroadcasting PLI. Cancellation selection and queue changes are serialized together.
 - Reporting starts only when the app is opened; nothing starts automatically at boot.
 - Tracker has its own Recent Apps task. Swiping it away stops reporting, sensors, connections, and scheduled location alarms. Simply returning to the watch face leaves tracking running; reopen the app after closing its task to restart.
 - PLI is resent immediately using the latest known fix when a network changes, an endpoint reconnects, or the callsign/settings button is tapped. If no fix is available yet, a single fix is requested instead.
@@ -89,6 +89,8 @@ The tracker connects with a client certificate obtained in one of three ways, in
 2. **Cached enrollment** from a previous connection (renewed automatically 3 days before expiry).
 3. **Enrollment** with username/password against `https://<address>:8446`.
 
+Enrollment retains the watch's normal HTTPS trust and hostname validation. Certificate configuration must parse successfully before generating a CSR or requesting a signature. Signing responses accept JSON or namespace-aware XML, including PEM certificates, with a required `signedCert` and optional numbered `caN` certificates in numeric order. Errors identify the failed stage (configuration, request, signing, certificate, or connection) and distinguish HTTP 401, other HTTP failures, TLS, connectivity, and invalid certificate data. Saving waits for settings to persist; **Retry** starts a fresh attempt for that server even when settings have not changed. Rejected credentials still require correction; retry does not bypass authentication.
+
 #### Sideloading a certificate
 Copy files named after the exact address entered in the server form into the app's external files directory:
 ```
@@ -115,12 +117,14 @@ If the server form shows `TLS: Certificate is for [...], not <address>`, enter t
 | Symptom | Check |
 |---|---|
 | Location icon grey, no notification | Location permission denied. Grant it in system settings and reopen the app. |
-| `No certificate: add username/password or sideload ...` | Neither credentials nor a sideloaded P12 for that exact address. File names are case-sensitive. |
-| `Enrollment rejected: bad username/password` | Credentials are wrong or the user lacks enrollment rights on the TAK Server. |
-| `Enrollment failed: ...` on 8446 | Port 8446 unreachable or the enrollment certificate isn't trusted by the watch; sideload a P12 instead. |
+| `Client certificate: no client certificate...` | Neither credentials nor a sideloaded P12 for that exact address. File names are case-sensitive. |
+| `Certificate configuration/signing: authentication rejected (HTTP 401)...` | Credentials are wrong or the user lacks enrollment rights on the TAK Server. |
+| `Certificate signing: server rejected request (HTTP 403).` | The server denied enrollment; check server-side authorization. |
+| `Certificate configuration/signing: secure connection failed...` / `server unreachable...` | Check port 8446, network access, and the enrollment certificate's trust and hostname; sideload a P12 if needed. |
+| `Certificate configuration` / `Client certificate: invalid or missing certificate data.` | Server response is malformed or required certificate data is missing; check enrollment configuration. |
 | `TLS: Certificate is for [...]` | Address doesn't match the server certificate and discovery wasn't possible (see above). |
 | Channels: "Not connected" / error | The TAK Server must be connected, and port 8443 reachable with the same client certificate. |
-| `TLS: handshake failed` repeatedly | After 3 failures the cached enrollment is discarded and re-enrolled. Check the server's CA is in the P12. |
+| `TAK connection: secure connection failed...` repeatedly | After 3 TLS failures the cached enrollment is discarded and re-enrolled. Check the server's CA is in the P12. |
 | Multicast never shows connected | Multicast needs Wi-Fi (Bluetooth/LTE do not carry it). Check the address is 224.0.0.0–239.255.255.255. |
 | Reporting interval never drops to stationary | Approximate location, or GPS speed accuracy too poor indoors. |
 | Sit(x) stuck on "Authorize" | Open the verification URL on a phone and enter the code shown under Sit(x) State. |

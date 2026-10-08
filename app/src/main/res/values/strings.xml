@@ -17,4 +17,16 @@
     <string name="text_paste">Paste</string>
     <string name="text_cut">Cut</string>
     <string name="text_select_all">Select all</string>
+    <string name="tak_enrollment_failure">%1$s: %2$s</string>
+    <string name="tak_enrollment_stage_config">Certificate configuration</string>
+    <string name="tak_enrollment_stage_csr">Certificate request</string>
+    <string name="tak_enrollment_stage_sign">Certificate signing</string>
+    <string name="tak_enrollment_stage_certificate">Client certificate</string>
+    <string name="tak_enrollment_stage_connection">TAK connection</string>
+    <string name="tak_enrollment_authentication_failed">authentication rejected (HTTP 401). Check username/password.</string>
+    <string name="tak_enrollment_http_failed">server rejected request (HTTP %1$d).</string>
+    <string name="tak_enrollment_tls_failed">secure connection failed. Check server certificate and hostname.</string>
+    <string name="tak_enrollment_connectivity_failed">server unreachable. Check network and server address.</string>
+    <string name="tak_enrollment_certificate_failed">invalid or missing certificate data.</string>
+    <string name="tak_enrollment_credentials_missing">no client certificate. Add username/password or sideload a certificate.</string>
 </resources>

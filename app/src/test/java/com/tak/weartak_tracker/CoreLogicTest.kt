@@ -147,4 +147,44 @@ class CoreLogicTest {
         assertTrue(forwarder.alerts.isEmpty())
         assertTrue(forwarder.pending.isEmpty())
     }
+
+    @Test
+    fun queuedAlertsAndCancelsDrainInOrderBeforeANewOnlineAlert() = runBlocking {
+        val sent = mutableListOf<ManualAlert>()
+        val forwarder = AlertForwarder(send = { sent += it; true }, onChanged = { _, _ -> })
+        val offline = forwarder.newAlert("Injury")
+        assertFalse(forwarder.submit(offline, ready = false))
+        assertFalse(forwarder.submit(forwarder.cancelForLast()!!, ready = false))
+        assertTrue(sent.isEmpty())
+
+        val online = forwarder.newAlert("In Contact")
+        assertTrue(forwarder.submit(online, ready = true))
+        assertEquals(listOf(offline.uid, offline.uid, online.uid), sent.map { it.uid })
+        assertEquals(listOf(AlertState.ALERT, AlertState.CANCEL, AlertState.ALERT), sent.map { it.state })
+        assertEquals(listOf(online.uid), forwarder.alerts.map { it.uid })
+        assertTrue(forwarder.pending.isEmpty())
+    }
+
+    @Test
+    fun failedDrainRetainsQueueUntilRouteRecoveryWithoutDuplicatingSuccessfulSends() = runBlocking {
+        var available = true
+        val sent = mutableListOf<ManualAlert>()
+        val forwarder = AlertForwarder(
+            send = { if (available) { sent += it; available = false; true } else false },
+            onChanged = { _, _ -> },
+        )
+        val alert = forwarder.newAlert("Injury")
+        forwarder.submit(alert, ready = false)
+        forwarder.submit(forwarder.cancelForLast()!!, ready = false)
+        forwarder.flush()
+        assertEquals(listOf(AlertState.ALERT), sent.map { it.state })
+        assertEquals(listOf(AlertState.CANCEL), forwarder.pending.map { it.state })
+
+        available = true
+        forwarder.flush()
+        forwarder.flush()
+        assertEquals(listOf(AlertState.ALERT, AlertState.CANCEL), sent.map { it.state })
+        assertTrue(forwarder.alerts.isEmpty())
+        assertTrue(forwarder.pending.isEmpty())
+    }
 }

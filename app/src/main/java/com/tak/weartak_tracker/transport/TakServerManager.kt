@@ -85,6 +85,29 @@ class TakServerManager(
         publishEndpoint()
     }
 
+    /**
+     * Reconnects only [serverId] immediately, bypassing its reconnect backoff and clearing any previous
+     * failure. Returns false (leaving state untouched) unless it is a configured, enabled, non-duplicate
+     * server from the last [update].
+     */
+    fun retry(serverId: String): Boolean {
+        val index = servers.indexOfFirst { it.id == serverId }
+        if (index < 0) return false
+        val server = servers[index]
+        if (!isConnectable(server)) return false
+        // Same rule as update(): the first enabled server for an address:port wins.
+        if (servers.take(index).any { isConnectable(it) && it.endpointKey == server.endpointKey }) return false
+        connections.remove(serverId)?.let(::close)
+        // Synchronous, so the UI sees the fresh attempt before the coroutine runs; the superseded run can
+        // no longer publish because it is not the current connection (see setState(Connection, ...)).
+        TrackerState.takServers.update { it + (serverId to TakServerState(TakStatus.CONNECTING)) }
+        start(server)
+        publishEndpoint()
+        return true
+    }
+
+    private fun isConnectable(server: TakServerConfig) = server.enabled && server.address.isNotBlank()
+
     fun stop() {
         connections.values.forEach(::close)
         connections.clear()
@@ -146,11 +169,12 @@ class TakServerManager(
             val server = c.server
             var sslFailure = false
             try {
-                setState(server, TakStatus.CONNECTING)
+                setState(c, TakStatus.CONNECTING)
                 val creds = TakCertificates.obtain(context, server, deviceUid) {
-                    setState(server, TakStatus.ENROLLING)
+                    setState(c, TakStatus.ENROLLING)
                 }
-                setState(server, TakStatus.CONNECTING)
+                currentCoroutineContext().ensureActive()
+                setState(c, TakStatus.CONNECTING)
                 val host = server.address.trim()
                 val plain = Socket()
                 c.socket = plain
@@ -169,10 +193,11 @@ class TakServerManager(
                 val socket = factory.createSocket(plain, sniHost, server.port, true) as SSLSocket
                 c.socket = socket
                 socket.startHandshake()
+                currentCoroutineContext().ensureActive()
                 c.credentials = creds
                 c.output = socket.outputStream
                 attempt = 0
-                setState(server, TakStatus.CONNECTED, "Certificate: ${creds.source}")
+                setState(c, TakStatus.CONNECTED, "Certificate: ${creds.source}")
                 publishEndpoint()
                 onConnected()
                 onServerConnected(id)
@@ -191,22 +216,25 @@ class TakServerManager(
                         tail = text.takeLast(GROUP_CHANGE_TYPE.length - 1)
                     }
                 }
-                setState(server, TakStatus.DISCONNECTED, "Closed by server")
+                setState(c, TakStatus.DISCONNECTED, "Closed by server")
             } catch (e: EnrollmentException) {
-                setState(server, TakStatus.FAILED, e.message)
+                currentCoroutineContext().ensureActive()
+                setState(c, TakStatus.FAILED, e.failure.displayMessage(context))
             } catch (e: SSLException) {
                 currentCoroutineContext().ensureActive()
                 val mismatch = e.hostnameMismatch()
                 if (mismatch != null) {
                     // Not a client-certificate problem, so this must not discard the cached enrollment.
-                    setState(server, TakStatus.FAILED, "TLS: ${mismatch.message}")
+                    setState(c, TakStatus.FAILED, "TLS: ${mismatch.message}")
                 } else {
                     sslFailure = true
-                    setState(server, TakStatus.FAILED, "TLS: ${e.message ?: "handshake failed"}")
+                    Log.w(TAG, "TLS failure for ${server.endpointKey}", e)
+                    setState(c, TakStatus.FAILED, connectionFailure(e))
                 }
             } catch (e: Exception) {
                 currentCoroutineContext().ensureActive()
-                setState(server, TakStatus.FAILED, e.message ?: e.javaClass.simpleName)
+                Log.w(TAG, "Connection failure for ${server.endpointKey}", e)
+                setState(c, TakStatus.FAILED, connectionFailure(e))
             } finally {
                 c.output = null
                 c.credentials = null
@@ -221,8 +249,19 @@ class TakServerManager(
         }
     }
 
-    private fun setState(server: TakServerConfig, status: TakStatus, message: String? = null) {
-        TrackerState.takServers.update { it + (server.id to TakServerState(status, message)) }
+    private fun connectionFailure(e: Exception) =
+        EnrollmentFailure.from(EnrollmentStage.CONNECTION, e).displayMessage(context)
+
+    /**
+     * Publishes [status] only while [c] is still the server's current connection; a run replaced by
+     * retry/update/stop must not overwrite the newer attempt's state from its catch/finally path.
+     * The check runs inside the atomic update so a concurrent replacement forces a re-check.
+     */
+    private fun setState(c: Connection, status: TakStatus, message: String? = null) {
+        val id = c.server.id
+        TrackerState.takServers.update { states ->
+            if (connections[id] === c) states + (id to TakServerState(status, message)) else states
+        }
     }
 
     private fun publishEndpoint() = TrackerState.setEndpoint(Endpoint.TAK_SERVER, anyConnected)

@@ -640,7 +640,9 @@ private fun ServerFormPage(repo: SettingsRepository, title: String, initial: Tak
                             servers = if (exists) c.servers.map { if (it.id == server.id) server else it } else c.servers + server,
                         )
                     }
-                    TrackerService.start(context)
+                    TrackerService.start(context, TrackerService.ACTION_TAK_SERVER_RETRY) {
+                        putExtra(TrackerService.EXTRA_SERVER_ID, server.id)
+                    }
                     dismissed = false
                     savedId = server.id
                 }
@@ -687,7 +689,11 @@ private fun ServerFormPage(repo: SettingsRepository, title: String, initial: Tak
                         if (status == TakStatus.CONNECTED) {
                             DialogButton("Okay", colors.primary, Color.Black) { dismissed = true; back() }
                         } else {
-                            DialogButton("Retry", colors.primary, Color.Black) { dismissed = true }
+                            DialogButton("Retry", colors.primary, Color.Black) {
+                                TrackerService.start(context, TrackerService.ACTION_TAK_SERVER_RETRY) {
+                                    putExtra(TrackerService.EXTRA_SERVER_ID, id)
+                                }
+                            }
                         }
                     },
                     dismissButton = {
