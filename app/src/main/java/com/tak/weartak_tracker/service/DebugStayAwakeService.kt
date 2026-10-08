@@ -33,10 +33,29 @@ class DebugStayAwakeService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent == null || intent.action == ACTION_STOP) {
-            finishSession()
-            return START_NOT_STICKY
+        when (intent?.action) {
+            ACTION_STOP -> {
+                finishSession()
+                return START_NOT_STICKY
+            }
+            ACTION_START -> {
+                if (!DebugStayAwakeSession.explicitlyEnabled(this)) {
+                    stopSelf()
+                    return START_NOT_STICKY
+                }
+            }
+            ACTION_RESTORE_AFTER_UPDATE -> {
+                if (!DebugStayAwakeSession.isEligibleForUpdateResume(this)) {
+                    stopSelf()
+                    return START_NOT_STICKY
+                }
+            }
+            else -> {
+                finishSession()
+                return START_NOT_STICKY
+            }
         }
+
         showNotification()
         if (mutableActive.value) return START_NOT_STICKY
 
@@ -130,9 +149,13 @@ class DebugStayAwakeService : Service() {
 
     private fun releaseLocks() {
         wifiCallback?.let {
-            getSystemService(ConnectivityManager::class.java).unregisterNetworkCallback(it)
+            wifiCallback = null
+            try {
+                getSystemService(ConnectivityManager::class.java).unregisterNetworkCallback(it)
+            } catch (error: IllegalArgumentException) {
+                Log.w(TAG, "Debug stay awake Wi-Fi request was already released", error)
+            }
         }
-        wifiCallback = null
         wifiLock?.let { if (it.isHeld) it.release() }
         cpuLock?.let { if (it.isHeld) it.release() }
         screenLock?.let { if (it.isHeld) it.release() }
@@ -143,6 +166,7 @@ class DebugStayAwakeService : Service() {
     }
 
     private fun finishSession() {
+        DebugStayAwakeSession.setExplicitlyEnabled(this, false)
         releaseLocks()
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
@@ -156,7 +180,9 @@ class DebugStayAwakeService : Service() {
 
     companion object {
         private const val TAG = "WearTAK-DebugStayAwake"
+        const val ACTION_START = "com.tak.weartak_tracker.DEBUG_STAY_AWAKE_START"
         const val ACTION_STOP = "com.tak.weartak_tracker.DEBUG_STAY_AWAKE_STOP"
+        const val ACTION_RESTORE_AFTER_UPDATE = "com.tak.weartak_tracker.DEBUG_STAY_AWAKE_RESTORE_AFTER_UPDATE"
         private const val CHANNEL_ID = "debug_stay_awake"
         private const val NOTIFICATION_ID = 64_001
         private val mutableActive = MutableStateFlow(false)

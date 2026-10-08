@@ -3,6 +3,7 @@ package com.tak.weartak_tracker
 import com.tak.weartak_tracker.data.TrackerConfig
 import com.tak.weartak_tracker.ui.DeveloperModeTaps
 import com.tak.weartak_tracker.ui.isNetworkSettingsRoute
+import com.tak.weartak_tracker.service.DebugStayAwakeSession
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -14,6 +15,14 @@ class DeveloperSettingsTest {
         assertFalse(TrackerConfig().developerMode)
         assertFalse(TrackerConfig().networkPreferencesLocked)
         assertTrue(TrackerConfig(networkPreferencesLocked = true).copy(developerMode = false).networkPreferencesLocked)
+    }
+
+    @Test
+    fun stayAwakeResumesAfterUpdateOnlyWhenBothOptInAndSessionWereEnabled() {
+        assertTrue(DebugStayAwakeSession.shouldResumeAfterUpdate(explicitlyEnabled = true, resumeAfterUpdate = true))
+        assertFalse(DebugStayAwakeSession.shouldResumeAfterUpdate(explicitlyEnabled = false, resumeAfterUpdate = true))
+        assertFalse(DebugStayAwakeSession.shouldResumeAfterUpdate(explicitlyEnabled = true, resumeAfterUpdate = false))
+        assertFalse(DebugStayAwakeSession.shouldResumeAfterUpdate(explicitlyEnabled = false, resumeAfterUpdate = false))
     }
 
     @Test

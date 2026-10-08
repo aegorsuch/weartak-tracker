@@ -58,5 +58,13 @@
                 android:value="User-enabled screen, CPU and Wi-Fi locks for development and demo sessions" />
         </service>
 
+        <receiver
+            android:name=".service.DebugStayAwakeUpdateReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
+
     </application>
 </manifest>

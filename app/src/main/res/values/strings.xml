@@ -6,6 +6,7 @@
     <string name="notification_status">Reporting every %1$ds to %2$d endpoint(s)</string>
     <string name="notification_approximate_suffix"> · approximate location</string>
     <string name="debug_stay_awake">Stay awake</string>
+    <string name="debug_stay_awake_resume_after_update">Resume after update</string>
     <string name="debug_stay_awake_warning">Extra battery use. May heat watch.</string>
     <string name="debug_stay_awake_active">Active until manually stopped or the app process ends</string>
     <string name="debug_stay_awake_channel">Debug stay awake</string>
