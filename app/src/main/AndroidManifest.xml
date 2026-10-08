@@ -50,11 +50,11 @@
         <service
             android:name=".service.DebugStayAwakeService"
             android:exported="false"
-            android:stopWithTask="true"
+            android:stopWithTask="false"
             android:foregroundServiceType="specialUse">
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="User-enabled screen, CPU and Wi-Fi locks for wireless debugging sessions" />
+                android:value="User-enabled screen, CPU and Wi-Fi locks for development and demo sessions" />
         </service>
 
     </application>

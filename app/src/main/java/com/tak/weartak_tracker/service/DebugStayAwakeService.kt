@@ -6,14 +6,10 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Intent
 import android.content.pm.ServiceInfo
-import android.database.ContentObserver
 import android.net.wifi.WifiManager
 import android.os.Build
-import android.os.Handler
 import android.os.IBinder
-import android.os.Looper
 import android.os.PowerManager
-import android.provider.Settings
 import android.util.Log
 import android.widget.Toast
 import androidx.core.app.NotificationCompat
@@ -23,21 +19,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 class DebugStayAwakeService : Service() {
-    private val handler = Handler(Looper.getMainLooper())
     private var screenLock: PowerManager.WakeLock? = null
     private var cpuLock: PowerManager.WakeLock? = null
     private var wifiLock: WifiManager.WifiLock? = null
-    private var watching = false
-    private val observer = object : ContentObserver(handler) {
-        override fun onChange(selfChange: Boolean) {
-            checkWirelessDebugging()
-        }
-    }
-    private val watchdog = object : Runnable {
-        override fun run() {
-            if (checkWirelessDebugging()) handler.postDelayed(this, POLL_INTERVAL_MS)
-        }
-    }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -47,14 +31,9 @@ class DebugStayAwakeService : Service() {
             return START_NOT_STICKY
         }
         showNotification()
-        if (!checkWirelessDebugging()) return START_NOT_STICKY
         if (mutableActive.value) return START_NOT_STICKY
 
         try {
-            contentResolver.registerContentObserver(
-                Settings.Global.getUriFor(WIRELESS_DEBUGGING_SETTING), false, observer,
-            )
-            watching = true
             acquireLocks()
         } catch (error: SecurityException) {
             Log.e(TAG, "Cannot start debug stay awake", error)
@@ -63,31 +42,14 @@ class DebugStayAwakeService : Service() {
             return START_NOT_STICKY
         }
         mutableActive.value = true
-        handler.postDelayed(watchdog, POLL_INTERVAL_MS)
-        Log.i(TAG, "Debug stay awake enabled until Wireless debugging is disabled")
+        Log.i(TAG, "Debug stay awake enabled until manually stopped or the app process ends")
         return START_NOT_STICKY
-    }
-
-    private fun checkWirelessDebugging(): Boolean {
-        val enabled = try {
-            Settings.Global.getInt(contentResolver, WIRELESS_DEBUGGING_SETTING, 0) == 1
-        } catch (error: SecurityException) {
-            Log.e(TAG, "Cannot read Wireless debugging setting; disabling stay awake", error)
-            false
-        }
-        if (!enabled) {
-            Log.i(TAG, "Wireless debugging disabled or unavailable; releasing debug locks")
-            if (!mutableActive.value) {
-                Toast.makeText(this, R.string.debug_stay_awake_requires_wireless, Toast.LENGTH_LONG).show()
-            }
-            finishSession()
-        }
-        return enabled
     }
 
     @Suppress("DEPRECATION")
     private fun acquireLocks() {
         val power = getSystemService(PowerManager::class.java)
+        // A window flag cannot keep the display awake after leaving the app UI.
         screenLock = power.newWakeLock(PowerManager.SCREEN_BRIGHT_WAKE_LOCK, "$TAG:screen").apply {
             setReferenceCounted(false)
             acquire()
@@ -124,7 +86,10 @@ class DebugStayAwakeService : Service() {
             .setSmallIcon(R.drawable.location_on)
             .setContentTitle(getString(R.string.debug_stay_awake))
             .setContentText(getString(R.string.debug_stay_awake_active))
-            .setStyle(NotificationCompat.BigTextStyle().bigText(getString(R.string.debug_stay_awake_warning)))
+            .setStyle(NotificationCompat.BigTextStyle().bigText(
+                getString(R.string.debug_stay_awake_active) + "\n" +
+                    getString(R.string.debug_stay_awake_warning),
+            ))
             .setContentIntent(open)
             .addAction(0, getString(R.string.debug_stay_awake_stop), stop)
             .setOngoing(true)
@@ -137,11 +102,6 @@ class DebugStayAwakeService : Service() {
     }
 
     private fun releaseLocks() {
-        if (watching) {
-            contentResolver.unregisterContentObserver(observer)
-            watching = false
-        }
-        handler.removeCallbacks(watchdog)
         wifiLock?.let { if (it.isHeld) it.release() }
         cpuLock?.let { if (it.isHeld) it.release() }
         screenLock?.let { if (it.isHeld) it.release() }
@@ -165,8 +125,6 @@ class DebugStayAwakeService : Service() {
 
     companion object {
         private const val TAG = "WearTAK-DebugStayAwake"
-        private const val WIRELESS_DEBUGGING_SETTING = "adb_wifi_enabled"
-        private const val POLL_INTERVAL_MS = 2_000L
         const val ACTION_STOP = "com.tak.weartak_tracker.DEBUG_STAY_AWAKE_STOP"
         private const val CHANNEL_ID = "debug_stay_awake"
         private const val NOTIFICATION_ID = 64_001
