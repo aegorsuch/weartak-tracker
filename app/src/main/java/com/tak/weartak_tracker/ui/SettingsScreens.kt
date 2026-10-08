@@ -89,6 +89,9 @@ import kotlinx.coroutines.launch
 private const val INTERVAL_MIN = 1
 private const val INTERVAL_MAX = 1_000_000
 
+internal fun serversAlphabetically(servers: List<TakServerConfig>): List<TakServerConfig> =
+    servers.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.name })
+
 /** Config update helper used by all settings pages. */
 @Composable
 private fun rememberUpdater(repo: SettingsRepository): ((TrackerConfig) -> TrackerConfig) -> Unit =
@@ -466,7 +469,7 @@ private fun ChannelServersPage(config: TrackerConfig, go: Navigate, back: () -> 
         if (config.servers.isEmpty()) {
             item { Text("Add a TAK Server first", textAlign = TextAlign.Center, color = Color.LightGray) }
         }
-        itemsIndexed(config.servers, key = { _, s -> s.id }) { _, server ->
+        itemsIndexed(serversAlphabetically(config.servers), key = { _, s -> s.id }) { _, server ->
             WearTAKTitleChipWithState(server.name, channelSummary(server, states[server.id], channels[server.id])) {
                 go("tak_channels/${server.id}")
             }
@@ -539,7 +542,7 @@ private fun TakServersPage(repo: SettingsRepository, config: TrackerConfig, go: 
     val context = LocalContext.current
     val states by TrackerState.takServers.collectAsStateWithLifecycle()
     WearTAKPageWithBackArrow("TAK Server Connections", back) {
-        itemsIndexed(config.servers, key = { _, s -> s.id }) { _, server ->
+        itemsIndexed(serversAlphabetically(config.servers), key = { _, s -> s.id }) { _, server ->
             val revealState = rememberRevealState()
             val scope = rememberCoroutineScope()
             val remove = { update { c -> c.copy(servers = c.servers.filterNot { it.id == server.id }) } }

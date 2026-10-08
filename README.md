@@ -28,6 +28,7 @@ For an LTE deployment, disable **TAK SA Multicast** under Network Preferences: i
 - Saving a changed callsign, team, or role requests a fresh location and immediately resends PLI with the new identity and latest known fix, without waiting for GPS. The fresh fix sends an updated PLI when it arrives. Unrelated settings changes do not trigger this extra request.
 - Optional physiological monitoring (off by default): heart rate and, on Samsung Galaxy watches, skin temperature are added to each PLI like CIV.
 - Settings: callsign, team, role (MIL/LEO), BATDOK/medical profile, reporting strategy/intervals, TAK servers, multicast (address, output protocol, port), Sit(x) (with Re-Auth and Remove).
+  TAK Server Connections and the Channels server picker display servers alphabetically by name, ignoring capitalization; saved order and connection behavior are unchanged.
   Menus follow CIV's hierarchy: WearTAK Preferences > Callsign and Device Preferences / Network Preferences.
 
 ## UI
