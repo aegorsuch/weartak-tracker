@@ -5,11 +5,13 @@ Extremely lightweight Wear OS position tracker modeled on WearTAK-WearOS
 ## Downloads
 Download installable APKs from [GitHub Releases](https://github.com/aegorsuch/weartak-tracker/releases), or go directly to the [latest release](https://github.com/aegorsuch/weartak-tracker/releases/latest). Expand **Assets** and select `WearTAK-Tracker-<version>-release.apk`; the source-code archives are not watch installers.
 
-Version **5.8.0.3 / 583** is distributed as an optimized, non-debuggable APK signed with the permanent Tracker release key. Updates from the release-signed 5.8.0.3 build can use `adb install -r` while retaining settings. Moving from an earlier debug-signed build requires uninstalling first (`adb uninstall com.tak.weartak_tracker`), which removes app data and settings, then installing the release APK.
+Version **5.8.0.4 / 584** is distributed as an optimized, non-debuggable APK signed with the permanent Tracker release key. Updates from the release-signed 5.8.0.3 build can use `adb install -r` while retaining settings. Moving from an earlier debug-signed build requires uninstalling first (`adb uninstall com.tak.weartak_tracker`), which removes app data and settings, then installing the release APK.
 
 **Updated 5.8.0.3 build:** The manual Alert picker adds 911 Alert, Ring The Bell, Geofence Breached, and In Contact, alphabetizes all presets, and sends immediately when a preset is tapped. Custom text and alert cancellation retain their confirmation buttons.
 
 **OpenTAKServer enrollment update:** The same-version 5.8.0.3 / 583 build now retains the unnumbered `ca` certificate returned by OpenTAKServer. TLS certificate validation and private-CA name discovery remain enabled.
+
+**Updated 5.8.0.4 build:** Physiological Monitoring now uses Wear OS 6's `READ_HEART_RATE` permission and the legacy `BODY_SENSORS` permission on earlier Wear OS versions. Startup requests heart-rate access if missing; granting it does not enable monitoring.
 
 **Windows sideloading:** [Wear OS Windows Bridge](https://github.com/aegorsuch/wearos-windows-bridge) is a useful companion tool for pairing/connecting to your watch, installing downloaded APKs, capturing logs, and mirroring the screen. Enable Wireless Debugging on the watch and follow the bridge's setup instructions; the PC and watch need to be on the same Wi-Fi for these operations. Normal Tracker operation can use LTE afterward.
 
@@ -44,7 +46,7 @@ The location icon is white while reporting with precise location, yellow with ap
 
 ## Setup
 1. Download the APK from [GitHub Releases](https://github.com/aegorsuch/weartak-tracker/releases) and install it on the watch (`adb install -r WearTAK-Tracker-<version>-release.apk`). Uninstall the old debug-signed app first if migrating to the release key; this clears settings.
-2. Open the app and grant **location** (precise or approximate) and, on Wear OS 4+, **notifications**.
+2. Open the app and grant **location** (precise or approximate) and, on Wear OS 4+, **notifications**. Startup also requests heart-rate access if missing; it is optional for position tracking and granting it does not turn Physiological Monitoring on.
 3. Tap the callsign chip > **Callsign and Device Preferences** to set callsign, team and role.
 4. Under **Network Preferences**, add a TAK Server, enable TAK SA Multicast, and/or configure Sit(x).
 
@@ -57,7 +59,7 @@ The Network Preferences entry shows **Enabled** or **Disabled**, matching WearTA
 | Permission | Why |
 |---|---|
 | Location (precise or approximate) | Required. Without either, the tracker does not start. |
-| Body sensors | Only when Physiological Monitoring is turned on. Needed to read heart rate (and skin temperature) from the foreground service. |
+| Heart rate / Fitness and wellness | Requested at startup if missing, and when enabling Physiological Monitoring. Uses `BODY_SENSORS` before Wear OS 6 and `READ_HEART_RATE` on Wear OS 6+; optional for position tracking. |
 | Notifications | Shows the ongoing "Reporting every Ns" notification required for a location foreground service. |
 
 **Precise vs approximate:** both work. With approximate location the system coarsens every fix (TAK clients will see a large CE), the notification says "approximate location", and dynamic reporting cannot classify speed, so it stays on the "moving/unknown" interval (the larger of on-foot and vehicle). Grant precise location in system settings and reopen the app to switch; no restart is needed.

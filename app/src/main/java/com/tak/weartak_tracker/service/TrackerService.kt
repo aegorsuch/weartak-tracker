@@ -196,7 +196,7 @@ class TrackerService : Service() {
         if (::location.isInitialized) {
             TrackerState.locationAccess.value = LocationAccess.current(this)
             location.refreshAccess()
-            // BODY_SENSORS may have just been granted from the physio toggle.
+            // Heart-rate access may have just been granted from the physio toggle.
             applyPhysio()
         }
         when (intent?.action) {
@@ -384,7 +384,7 @@ class TrackerService : Service() {
         }
     }
 
-    /** Health is added only while physio is on and BODY_SENSORS is granted (otherwise startForeground throws). */
+    /** Health is added only while physio is on and heart-rate access is granted. */
     private fun foregroundTypes(): Int {
         var types = ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
         if (Build.VERSION.SDK_INT >= 34 && config.physioMonitoring && ::physio.isInitialized && physio.permissionGranted()) {

@@ -8,14 +8,14 @@ def samsungHealthAar = file('libs/samsung-health-sensor-api-1.4.1.aar')
 
 android {
     namespace 'com.tak.weartak_tracker'
-    compileSdk 35
+    compileSdk 36
 
     defaultConfig {
         applicationId "com.tak.weartak_tracker"
         minSdk 30
         targetSdk 34
-        versionCode 583
-        versionName "5.8.0.3"
+        versionCode 584
+        versionName "5.8.0.4"
         setProperty("archivesBaseName", "WearTAK-Tracker-${versionName}")
     }
 

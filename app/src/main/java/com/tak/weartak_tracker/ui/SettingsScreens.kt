@@ -80,6 +80,7 @@ import com.tak.weartak_tracker.data.TakServerState
 import com.tak.weartak_tracker.data.TakStatus
 import com.tak.weartak_tracker.data.TrackerConfig
 import com.tak.weartak_tracker.data.TrackerState
+import com.tak.weartak_tracker.data.heartRatePermission
 import com.tak.weartak_tracker.service.TrackerService
 import com.tak.weartak_tracker.transport.SitxClient
 import com.tak.weartak_tracker.transport.TakCertificates
@@ -401,13 +402,14 @@ private fun NavGraphBuilder.networkComposable(
     }
 }
 
-/** CIV's "Physiological Monitoring" switch; turning it on asks for BODY_SENSORS first. */
+/** CIV's "Physiological Monitoring" switch; turning it on asks for heart-rate access first. */
 @Composable
 private fun PhysioToggle(repo: SettingsRepository, config: TrackerConfig) {
     val context = LocalContext.current
     val update = rememberUpdater(repo)
     val bpm by TrackerState.heartRate.collectAsStateWithLifecycle()
     val skinF by TrackerState.skinTempF.collectAsStateWithLifecycle()
+    val permission = heartRatePermission()
     val enable = {
         update { it.copy(physioMonitoring = true) }
         TrackerService.start(context)
@@ -425,8 +427,8 @@ private fun PhysioToggle(repo: SettingsRepository, config: TrackerConfig) {
             when {
                 !on -> update { it.copy(physioMonitoring = false) }
                 !hasSensor -> Toast.makeText(context, "This watch has no heart rate sensor", Toast.LENGTH_LONG).show()
-                context.granted(Manifest.permission.BODY_SENSORS) -> enable()
-                else -> request.launch(Manifest.permission.BODY_SENSORS)
+                context.granted(permission) -> enable()
+                else -> request.launch(permission)
             }
         },
         title = "Physiological Monitoring",

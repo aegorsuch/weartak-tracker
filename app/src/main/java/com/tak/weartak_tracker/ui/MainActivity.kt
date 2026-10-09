@@ -69,6 +69,7 @@ import com.tak.weartak_tracker.R
 import com.tak.weartak_tracker.TrackerApp
 import com.tak.weartak_tracker.cot.AlertState
 import com.tak.weartak_tracker.data.LocationAccess
+import com.tak.weartak_tracker.data.heartRatePermission
 import com.tak.weartak_tracker.data.SettingsRepository
 import com.tak.weartak_tracker.data.TrackerConfig
 import com.tak.weartak_tracker.data.TrackerState
@@ -101,6 +102,22 @@ private fun TrackerNav(repo: SettingsRepository) {
     val nav = rememberSwipeDismissableNavController()
     val context = LocalContext.current
     val config = repo.config.collectAsStateWithLifecycle(initialValue = null).value ?: return
+    val permissions = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
+        TrackerService.start(context)
+    }
+    LaunchedEffect(Unit) {
+        val missing = buildList {
+            if (!LocationAccess.current(context).granted) {
+                addAll(foregroundPermissions().filterNot(context::granted))
+            }
+            val heartRatePermission = heartRatePermission()
+            if (!context.granted(heartRatePermission)) {
+                add(heartRatePermission)
+            }
+        }
+        if (missing.isNotEmpty()) permissions.launch(missing.toTypedArray())
+        else TrackerService.start(context)
+    }
     // Navigation retains its graph callbacks; they must read the latest settings.
     val currentConfig = rememberUpdatedState(config)
     val go: Navigate = { route ->
@@ -124,15 +141,6 @@ fun MainScreen(config: TrackerConfig, go: Navigate) {
     val context = LocalContext.current
     val alerts by TrackerState.alerts.collectAsStateWithLifecycle()
     val isAlerting = alerts.any { it.state == AlertState.ALERT }
-
-    // Reporting starts only when the user opens the app; nothing is started at boot.
-    val permissions = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
-        TrackerService.start(context)
-    }
-    LaunchedEffect(Unit) {
-        if (!LocationAccess.current(context).granted) permissions.launch(foregroundPermissions())
-        else TrackerService.start(context)
-    }
 
     Box(modifier = Modifier.background(colors.background).fillMaxSize().padding(5.dp)) {
         Column(

@@ -8,6 +8,7 @@ import com.tak.weartak_tracker.data.sitxClientIdOrDefault
 import com.tak.weartak_tracker.data.ServerListCodec
 import com.tak.weartak_tracker.data.TakServerConfig
 import com.tak.weartak_tracker.data.takServerFormError
+import com.tak.weartak_tracker.data.heartRatePermission
 import com.tak.weartak_tracker.transport.SitxClient
 import com.tak.weartak_tracker.ui.sitxConfigurationLabel
 import org.junit.Assert.assertEquals
@@ -17,6 +18,12 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SettingsTest {
+    @Test
+    fun heartRatePermissionUsesWearOsVersionSpecificPermission() {
+        assertEquals("android.permission.BODY_SENSORS", heartRatePermission(35))
+        assertEquals("android.permission.health.READ_HEART_RATE", heartRatePermission(36))
+    }
+
     @Test
     fun sitxMenuShowsConfigurationSeparatelyFromConnectionState() {
         assertEquals("Disabled", sitxConfigurationLabel(TrackerConfig()))

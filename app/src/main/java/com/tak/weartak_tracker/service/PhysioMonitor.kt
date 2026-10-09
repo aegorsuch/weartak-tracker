@@ -1,8 +1,6 @@
 package com.tak.weartak_tracker.service
 
-import android.Manifest
 import android.content.Context
-import android.content.pm.PackageManager
 import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
@@ -10,6 +8,7 @@ import android.hardware.SensorManager
 import android.os.SystemClock
 import android.util.Log
 import com.tak.weartak_tracker.data.TrackerState
+import com.tak.weartak_tracker.data.heartRatePermission
 
 /**
  * Heart rate for physio PLI, read like WearTAK-CIV's HeartrateService: TYPE_HEART_RATE samples are used
@@ -64,7 +63,7 @@ class PhysioMonitor(private val context: Context) {
     }
 
     fun permissionGranted(): Boolean =
-        context.checkSelfPermission(Manifest.permission.BODY_SENSORS) == PackageManager.PERMISSION_GRANTED
+        context.checkSelfPermission(heartRatePermission()) == android.content.pm.PackageManager.PERMISSION_GRANTED
 
     /** Starts or stops sampling; returns whether heart rate is now being read. */
     fun setEnabled(enabled: Boolean): Boolean {
