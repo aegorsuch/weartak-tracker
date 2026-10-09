@@ -3,9 +3,12 @@ package com.tak.weartak_tracker.ui
 import android.Manifest
 import android.hardware.Sensor
 import android.hardware.SensorManager
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -20,12 +23,17 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
@@ -40,7 +48,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -72,6 +82,7 @@ import com.tak.weartak_tracker.data.ROLE_CATEGORIES
 import com.tak.weartak_tracker.data.SettingsRepository
 import com.tak.weartak_tracker.data.SitxState
 import com.tak.weartak_tracker.data.SitxTokens
+import com.tak.weartak_tracker.data.TrackerState
 import com.tak.weartak_tracker.data.TEAMS
 import com.tak.weartak_tracker.data.TakServerConfig
 import com.tak.weartak_tracker.data.TakChannelStatus
@@ -79,7 +90,9 @@ import com.tak.weartak_tracker.data.TakServerChannels
 import com.tak.weartak_tracker.data.TakServerState
 import com.tak.weartak_tracker.data.TakStatus
 import com.tak.weartak_tracker.data.TrackerConfig
-import com.tak.weartak_tracker.data.TrackerState
+import com.tak.weartak_tracker.data.formatSitxPairingCode
+import com.tak.weartak_tracker.data.isValidSitxReauthPin
+import com.tak.weartak_tracker.data.sitxAccountValue
 import com.tak.weartak_tracker.data.heartRatePermission
 import com.tak.weartak_tracker.service.TrackerService
 import com.tak.weartak_tracker.transport.SitxClient
@@ -381,7 +394,12 @@ fun NavGraphBuilder.settingsGraph(repo: SettingsRepository, configState: State<T
         SitxGroupPage(repo, currentConfig, back)
     }
 
-    networkComposable("sitx_status_authorization_screen", configState, back) { SitxStatusPage(back) }
+    networkComposable("sitx_status_authorization_screen", configState, back) {
+        SitxStatusPage(configState.value, back)
+    }
+    networkComposable("sitx_device_authorization_screen", configState, back) {
+        SitxStatusPage(configState.value, back, autoDismissAfterAuthorization = true)
+    }
 }
 
 private fun NavGraphBuilder.networkComposable(
@@ -729,18 +747,30 @@ private fun ServerFormPage(repo: SettingsRepository, title: String, initial: Tak
 }
 
 @Composable
-private fun DialogButton(text: String, container: Color, content: Color, onClick: () -> Unit) {
+private fun DialogButton(
+    text: String,
+    container: Color,
+    content: Color,
+    enabled: Boolean = true,
+    onClick: () -> Unit,
+) {
     Button(
         onClick = onClick,
+        enabled = enabled,
         contentPadding = PaddingValues(0.dp),
-        colors = ButtonDefaults.buttonColors(containerColor = container, contentColor = content),
-    ) { Text(text, color = content) }
+        colors = ButtonDefaults.buttonColors(
+            containerColor = container,
+            contentColor = content,
+            disabledContainerColor = Color.DarkGray,
+            disabledContentColor = Color.Gray,
+        ),
+    ) { Text(text, color = if (enabled) content else Color.Gray) }
 }
 
 private fun sitxStatusText(state: SitxState): String = when (state) {
     SitxState.Disabled -> "Service not enabled"
     SitxState.Idle -> "Starting"
-    is SitxState.AwaitingUser -> "Authorize: ${state.userCode}"
+    is SitxState.AwaitingUser -> "Authorize: ${formatSitxPairingCode(state.userCode)}"
     SitxState.Authorized -> "Authorized"
     SitxState.NoGroups -> "No groups available"
     SitxState.NeedsGroup -> "Select a group"
@@ -756,10 +786,41 @@ private fun SitxPage(repo: SettingsRepository, initialConfig: TrackerConfig, go:
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val sitx by TrackerState.sitx.collectAsStateWithLifecycle()
+    val account by TrackerState.sitxAccount.collectAsStateWithLifecycle()
+    val authorized by TrackerState.sitxAuthorized.collectAsStateWithLifecycle()
+    val authorizationPromptOpen by TrackerState.sitxAuthorizationPromptOpen.collectAsStateWithLifecycle()
     val groups by TrackerState.sitxGroups.collectAsStateWithLifecycle()
+    val renewalMessage by TrackerState.sitxRenewalMessage.collectAsStateWithLifecycle()
+    val notAuthorizedText = stringResource(R.string.not_authorized)
+    val accountTitle = stringResource(if (account?.isNpe == true) R.string.npe_name else R.string.linked_account)
+    val accountValue = sitxAccountValue(authorized, account, notAuthorizedText)
+    val renewLabel = stringResource(R.string.renew_with_reauth_pin)
+    var showPinDialog by rememberSaveable { mutableStateOf(false) }
+    var pin by rememberSaveable { mutableStateOf("") }
+    var groupPromptedFor by rememberSaveable { mutableStateOf("") }
     var confirmRemove by remember { mutableStateOf(false) }
     val groupName = groups.firstOrNull { it.flowTag == config.sitxGroup }?.name
         ?: config.sitxGroup.ifBlank { "No Group Selected" }
+
+    LaunchedEffect(authorized, sitx, groups, authorizationPromptOpen, config.sitxGroup, config.networkPreferencesLocked) {
+        if (!authorized || config.sitxGroup.isNotBlank()) groupPromptedFor = ""
+        val promptKey = "$authorized|$sitx|${groups.joinToString { it.flowTag }}"
+        if (
+            authorized && sitx !is SitxState.AwaitingUser && config.sitxGroup.isBlank() &&
+            groups.size > 1 && !authorizationPromptOpen && !config.networkPreferencesLocked &&
+            groupPromptedFor != promptKey
+        ) {
+            kotlinx.coroutines.delay(600)
+            groupPromptedFor = promptKey
+            go("sitx_tak_group_screen")
+        }
+    }
+    LaunchedEffect(sitx) {
+        if (sitx is SitxState.AwaitingUser && !TrackerState.sitxAuthorizationPromptOpen.value) {
+            TrackerState.sitxAuthorizationPromptOpen.value = true
+            go("sitx_device_authorization_screen")
+        }
+    }
 
     WearTAKPageWithBackArrow("Sit(x) TAK", back) {
         item {
@@ -780,13 +841,60 @@ private fun SitxPage(repo: SettingsRepository, initialConfig: TrackerConfig, go:
         }
         item { WearTAKTitleChipWithState("Group", groupName) { go("sitx_tak_group_screen") } }
         item { WearTAKTitleChipWithState("Sit(x) State", sitxStatusText(sitx)) { go("sitx_status_authorization_screen") } }
+        if (SitxClient.baseUrl(config.sitxUrl).isNotBlank()) {
+            item {
+                Column(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Text(accountTitle, fontSize = 14.sp, textAlign = TextAlign.Center)
+                    SelectionContainer {
+                        Text(accountValue, fontSize = 12.sp, color = Color.LightGray, textAlign = TextAlign.Center)
+                    }
+                }
+            }
+            if (authorized && account?.isNpe == true) {
+                item {
+                    WearTAKTitleChip(renewLabel) {
+                        pin = ""
+                        TrackerState.sitxRenewalMessage.value = ""
+                        showPinDialog = true
+                    }
+                }
+            }
+        }
+        if (renewalMessage.isNotBlank()) {
+            item { Text(renewalMessage, fontSize = 11.sp, textAlign = TextAlign.Center, color = Color.LightGray) }
+        }
         item {
+            val reauthEnabled = config.sitxEnabled && config.sitxUrl.isNotBlank() &&
+                !authorized && !config.networkPreferencesLocked
             Button(
-                onClick = { TrackerService.start(context, TrackerService.ACTION_SITX_REAUTHORIZE) },
-                enabled = config.sitxEnabled,
+                onClick = {
+                    if (reauthEnabled && !TrackerState.sitxAuthorized.value) {
+                        TrackerService.start(context, TrackerService.ACTION_SITX_REAUTHORIZE)
+                    }
+                },
+                enabled = reauthEnabled,
                 contentPadding = PaddingValues(10.dp),
-                colors = ButtonDefaults.buttonColors(colors.primary),
-            ) { Text(text = "Re-Auth", color = Color.Black) }
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = colors.primary,
+                    contentColor = Color.Black,
+                    disabledContainerColor = Color.DarkGray,
+                    disabledContentColor = Color.Gray,
+                ),
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        Icons.Default.Refresh,
+                        contentDescription = null,
+                        tint = if (reauthEnabled) Color.Black else Color.Gray,
+                        modifier = Modifier.size(16.dp),
+                    )
+                    Spacer(Modifier.width(5.dp))
+                    Text(text = "Re-Auth", color = if (reauthEnabled) Color.Black else Color.Gray)
+                }
+            }
         }
         item {
             Button(
@@ -818,12 +926,53 @@ private fun SitxPage(repo: SettingsRepository, initialConfig: TrackerConfig, go:
                     // Disable first so the running client stops before its tokens are wiped.
                     repo.update { it.copy(sitxEnabled = false, sitxUrl = "", sitxClientId = DEFAULT_SITX_CLIENT_ID, sitxGroup = "") }
                     repo.setSitxTokens(SitxTokens())
+                    TrackerState.sitxAccount.value = null
+                    TrackerState.sitxAuthorized.value = false
                     TrackerState.sitxGroups.value = emptyList()
                 }
             }
         },
         dismissButton = { DialogButton("Dismiss", Color.Gray, Color.White) { confirmRemove = false } },
     )
+
+    if (showPinDialog) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { showPinDialog = false },
+            title = { Text(stringResource(R.string.renew_with_reauth_pin)) },
+            text = {
+                Column {
+                    Text(stringResource(R.string.reauth_pin_explanation))
+                    OutlinedTextField(
+                        value = pin,
+                        onValueChange = { value ->
+                            if (value.length <= 6 && value.all { it in '0'..'9' }) pin = value
+                        },
+                        label = { Text(stringResource(R.string.reauth_pin_hint)) },
+                        singleLine = true,
+                        visualTransformation = PasswordVisualTransformation(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = isValidSitxReauthPin(pin),
+                    onClick = {
+                        val submittedPin = pin
+                        pin = ""
+                        TrackerState.sitxRenewalMessage.value = ""
+                        TrackerService.start(context, TrackerService.ACTION_SITX_RENEW_REAUTH_PIN) {
+                            putExtra(TrackerService.EXTRA_SITX_REAUTH_PIN, submittedPin)
+                        }
+                        showPinDialog = false
+                    },
+                ) { Text(stringResource(R.string.renew)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { pin = ""; showPinDialog = false }) { Text("Cancel") }
+            },
+        )
+    }
 }
 
 @Composable
@@ -848,39 +997,85 @@ private fun SitxGroupPage(repo: SettingsRepository, config: TrackerConfig, back:
             }
         }
     } else {
-        WearTAKSelectionPage(
-            "Sit(x) Group",
-            groups,
-            groups.firstOrNull { it.flowTag == config.sitxGroup },
-            label = { it.name },
-            onBack = back,
-        ) { group ->
-            update { it.copy(sitxGroup = group.flowTag) }
-            back()
+        WearTakScreenDimensions("Sit(x) Group", { WearTAKTitleChip("Cancel", onClick = back) }) {
+            itemsIndexed(groups) { _, group ->
+                WearTAKSelectableChip(
+                    selected = group.flowTag == config.sitxGroup,
+                    onClick = {
+                        update { it.copy(sitxGroup = group.flowTag) }
+                        back()
+                    },
+                    title = group.name,
+                    item = group,
+                    list = groups,
+                )
+            }
         }
     }
 }
 
 @Composable
-private fun SitxStatusPage(back: () -> Unit) {
+private fun SitxStatusPage(
+    config: TrackerConfig,
+    back: () -> Unit,
+    autoDismissAfterAuthorization: Boolean = false,
+) {
     val context = LocalContext.current
     val sitx by TrackerState.sitx.collectAsStateWithLifecycle()
+    val authorized by TrackerState.sitxAuthorized.collectAsStateWithLifecycle()
+    val close = {
+        if (autoDismissAfterAuthorization) TrackerState.sitxAuthorizationPromptOpen.value = false
+        back()
+    }
+    BackHandler(enabled = autoDismissAfterAuthorization, onBack = close)
+    LaunchedEffect(autoDismissAfterAuthorization, authorized, sitx) {
+        if (autoDismissAfterAuthorization && authorized && sitx !is SitxState.AwaitingUser) {
+            kotlinx.coroutines.delay(600)
+            TrackerState.sitxAuthorizationPromptOpen.value = false
+            back()
+        }
+    }
     val (title, code, secondary) = when (val s = sitx) {
         is SitxState.AwaitingUser -> Triple("Authorize Device", s.userCode, s.verificationUri)
         else -> Triple("Sit(x) State", "", sitxStatusText(s))
     }
+    val displayCode = formatSitxPairingCode(code)
     Box(Modifier.fillMaxSize().background(colors.background).padding(16.dp), contentAlignment = Alignment.Center) {
         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
             Text(title, textAlign = TextAlign.Center, fontSize = 15.sp)
-            if (code.isNotEmpty()) Text(code, fontSize = 25.sp, color = colors.primary, textAlign = TextAlign.Center)
+            if (code.isNotEmpty()) {
+                Text(
+                    displayCode,
+                    fontSize = 25.sp,
+                    color = colors.primary,
+                    textAlign = TextAlign.Center,
+                )
+            }
             Text(secondary, fontSize = 11.sp, textAlign = TextAlign.Center, color = Color.LightGray)
+            if (code.isNotEmpty()) {
+                DialogButton(stringResource(R.string.text_copy), colors.primary, Color.Black) {
+                    context.getSystemService(ClipboardManager::class.java)
+                        ?.setPrimaryClip(ClipData.newPlainText("Sit(x) pairing code", displayCode))
+                }
+            }
             Spacer(Modifier.height(10.dp))
             Row {
-                DialogButton("Dismiss", Color.Gray, Color.White, back)
+                DialogButton("Dismiss", Color.Gray, Color.White, onClick = close)
                 Spacer(Modifier.width(8.dp))
-                DialogButton(if (sitx is SitxState.AwaitingUser) "Authorize" else "Re-Auth", colors.primary, Color.Black) {
-                    TrackerService.start(context, TrackerService.ACTION_SITX_REAUTHORIZE)
-                }
+                val reauthEnabled = config.sitxEnabled && config.sitxUrl.isNotBlank() &&
+                    !authorized && !config.networkPreferencesLocked
+                DialogButton(
+                    if (sitx is SitxState.AwaitingUser) "Authorize" else "Re-Auth",
+                    if (reauthEnabled) colors.primary else Color.DarkGray,
+                    if (reauthEnabled) Color.Black else Color.Gray,
+                    onClick = {
+                        if (reauthEnabled && !TrackerState.sitxAuthorized.value) {
+                            TrackerService.start(context, TrackerService.ACTION_SITX_REAUTHORIZE)
+                            if (!autoDismissAfterAuthorization) close()
+                        }
+                    },
+                    enabled = reauthEnabled,
+                )
             }
         }
     }

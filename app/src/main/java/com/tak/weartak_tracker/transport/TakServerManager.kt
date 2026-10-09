@@ -22,6 +22,7 @@ import java.io.OutputStream
 import java.net.InetSocketAddress
 import java.net.Socket
 import java.util.concurrent.ConcurrentHashMap
+import kotlinx.coroutines.CancellationException
 import javax.net.ssl.SSLException
 import javax.net.ssl.SSLSocket
 
@@ -43,6 +44,7 @@ class TakServerManager(
         @Volatile var socket: Socket? = null
         @Volatile var output: OutputStream? = null
         @Volatile var credentials: TakCertificates.Credentials? = null
+        @Volatile var enrollmentInProgress = false
         val lock = Any()
     }
 
@@ -65,7 +67,7 @@ class TakServerManager(
             }
         }
         connections.keys.filter { id -> wanted[id]?.connectionKey != connections[id]?.server?.connectionKey }.forEach { id ->
-            connections.remove(id)?.let(::close)
+            connections.remove(id)?.let { close(it, "server editor closed or settings changed") }
         }
         // Newly discovered TLS names don't require reconnecting; just use them from the next attempt on.
         connections.forEach { (id, c) -> wanted[id]?.let { c.server = it } }
@@ -79,7 +81,7 @@ class TakServerManager(
     /** Called on network changes: drop sockets and reconnect immediately, resetting backoff. */
     fun reconnectAll() {
         val current = connections.values.map { it.server }
-        connections.values.forEach(::close)
+        connections.values.forEach { close(it, "network changed") }
         connections.clear()
         current.forEach(::start)
         publishEndpoint()
@@ -97,7 +99,7 @@ class TakServerManager(
         if (!isConnectable(server)) return false
         // Same rule as update(): the first enabled server for an address:port wins.
         if (servers.take(index).any { isConnectable(it) && it.endpointKey == server.endpointKey }) return false
-        connections.remove(serverId)?.let(::close)
+        connections.remove(serverId)?.let { close(it, "user requested retry") }
         // Synchronous, so the UI sees the fresh attempt before the coroutine runs; the superseded run can
         // no longer publish because it is not the current connection (see setState(Connection, ...)).
         TrackerState.takServers.update { it + (serverId to TakServerState(TakStatus.CONNECTING)) }
@@ -109,7 +111,7 @@ class TakServerManager(
     private fun isConnectable(server: TakServerConfig) = server.enabled && server.address.isNotBlank()
 
     fun stop() {
-        connections.values.forEach(::close)
+        connections.values.forEach { close(it, "service stopped after app backgrounding or shutdown") }
         connections.clear()
         TrackerState.takServers.value = emptyMap()
         publishEndpoint()
@@ -154,7 +156,10 @@ class TakServerManager(
         c.job = scope.launch(Dispatchers.IO) { run(c) }
     }
 
-    private fun close(c: Connection) {
+    private fun close(c: Connection, reason: String) {
+        if (c.enrollmentInProgress) {
+            Log.i(TAG, "Enrollment for ${c.server.endpointKey} cancelled because $reason")
+        }
         c.job?.cancel()
         c.output = null
         c.credentials = null
@@ -171,8 +176,10 @@ class TakServerManager(
             try {
                 setState(c, TakStatus.CONNECTING)
                 val creds = TakCertificates.obtain(context, server, deviceUid) {
+                    c.enrollmentInProgress = true
                     setState(c, TakStatus.ENROLLING)
                 }
+                c.enrollmentInProgress = false
                 currentCoroutineContext().ensureActive()
                 setState(c, TakStatus.CONNECTING)
                 val host = server.address.trim()
@@ -217,10 +224,20 @@ class TakServerManager(
                     }
                 }
                 setState(c, TakStatus.DISCONNECTED, "Closed by server")
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: EnrollmentException) {
+                c.enrollmentInProgress = false
                 currentCoroutineContext().ensureActive()
+                Log.w(
+                    TAG,
+                    "Enrollment failed for ${server.address.trim()}:${TakCertificates.ENROLLMENT_PORT} " +
+                        "during ${e.failure.stage.label}: ${e.failure.displayMessage()}",
+                    e,
+                )
                 setState(c, TakStatus.FAILED, e.failure.displayMessage(context))
             } catch (e: SSLException) {
+                c.enrollmentInProgress = false
                 currentCoroutineContext().ensureActive()
                 val mismatch = e.hostnameMismatch()
                 if (mismatch != null) {
@@ -232,6 +249,7 @@ class TakServerManager(
                     setState(c, TakStatus.FAILED, connectionFailure(e))
                 }
             } catch (e: Exception) {
+                c.enrollmentInProgress = false
                 currentCoroutineContext().ensureActive()
                 Log.w(TAG, "Connection failure for ${server.endpointKey}", e)
                 setState(c, TakStatus.FAILED, connectionFailure(e))

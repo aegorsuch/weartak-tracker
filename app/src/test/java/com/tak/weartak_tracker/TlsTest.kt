@@ -418,6 +418,21 @@ class TlsTest {
     }
 
     @Test
+    fun enrollmentTrustFailureKeepsItsCertificateReasonAndStage() {
+        val cause = CertificateException("Trust anchor for certification path not found.")
+        val error = SSLHandshakeException("handshake failed").apply { initCause(cause) }
+        val failure = EnrollmentFailure.from(EnrollmentStage.SIGN, error)
+
+        assertEquals(EnrollmentFailureCategory.TLS_TRUST, failure.category)
+        assertEquals(cause.message, failure.rejectionReason)
+        assertEquals(
+            "Enrollment certificate signing failed: the server certificate was rejected " +
+                "(Trust anchor for certification path not found.). Check the enrollment port and server CA.",
+            failure.displayMessage(),
+        )
+    }
+
+    @Test
     fun certificateChainsDoNotPromoteClientLeafToTrustAnchor() {
         val leaf = cert(sanCertBody)
         val keyStore = KeyStore.getInstance("PKCS12").apply {

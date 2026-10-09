@@ -8,6 +8,7 @@ import com.tak.weartak_tracker.data.SitxState
 import com.tak.weartak_tracker.data.SitxTokens
 import com.tak.weartak_tracker.data.TrackerConfig
 import com.tak.weartak_tracker.data.TrackerState
+import com.tak.weartak_tracker.data.decodeSitxAccount
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -16,6 +17,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import java.util.concurrent.ConcurrentHashMap
 import okhttp3.FormBody
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -46,7 +48,7 @@ class SitxClient(
         .pingInterval(30, TimeUnit.SECONDS)
         .build()
     private val mutex = Mutex()
-    private var job: Job? = null
+    private val jobs = ConcurrentHashMap.newKeySet<Job>()
     @Volatile private var socket: WebSocket? = null
     @Volatile private var socketOpen = false
     private var settings: Triple<String, String, String>? = null
@@ -72,11 +74,53 @@ class SitxClient(
     }
 
     fun reauthorize() = launch {
+        val (base, clientId, _) = settings ?: return@launch
+        if (base.isBlank() || clientId.isBlank()) return@launch
+        val tokens = repo.sitxTokens()
+        if (
+            tokens.refreshToken.isNotBlank() &&
+            tokens.refreshExpiresAtEpochSec > Instant.now().epochSecond + 30 &&
+            tokens.baseUrl == base && tokens.clientId == clientId
+        ) return@launch
         repo.setSitxTokens(SitxTokens())
+        TrackerState.sitxAuthorized.value = false
+        TrackerState.sitxAccount.value = null
         start()
     }
 
     fun refreshGroups() = launch { fetchGroupsAndConnect() }
+
+    fun renewWithReauthPin(pin: String, onResult: (String) -> Unit) = launch {
+        val (base, _, _) = settings ?: return@launch
+        if (base.isBlank() || pin.length != 6 || pin.any { it !in '0'..'9' }) return@launch
+        val tokens = repo.sitxTokens()
+        if (tokens.refreshToken.isBlank()) {
+            onResult(REAUTH_PIN_NOT_AUTHORIZED)
+            return@launch
+        }
+        val response = http.newCall(
+            Request.Builder().url("$base/api/v1/reauth/token")
+                .header("Authorization", bearer(tokens.refreshToken))
+                .post(JSONObject().put("pin", pin).toString().toRequestBody(JSON)).build(),
+        ).execute()
+        val body = response.use { r ->
+            if (r.code == 401 || r.code == 403) {
+                onResult(REAUTH_PIN_REJECTED)
+                return@launch
+            }
+            if (!r.isSuccessful) throw IOException("Reauth PIN renewal failed: HTTP ${r.code}")
+            JSONObject(r.body?.string().orEmpty())
+        }
+        val refreshToken = body.optString("refresh_token")
+        if (refreshToken.isBlank()) throw IOException("Reauth PIN renewal returned no refresh token")
+        repo.setSitxTokens(tokens.copy(refreshToken = refreshToken))
+        val expiresAtText = body.optString("refresh_token_expires_at")
+        val expiresAt = parseExpiry(expiresAtText) ?: throw IOException("Reauth PIN renewal returned an invalid expiry")
+        repo.setSitxTokens(tokens.copy(refreshToken = refreshToken, refreshExpiresAtEpochSec = expiresAt))
+        TrackerState.sitxAuthorized.value = true
+        TrackerState.sitxAccount.value = decodeSitxAccount(tokens.accessToken)
+        onResult(expiresAtText)
+    }
 
     fun onNetworkChanged() {
         if (settings == null || TrackerState.sitx.value is SitxState.AwaitingUser) return
@@ -88,8 +132,8 @@ class SitxClient(
     }
 
     fun stop() {
-        job?.cancel()
-        job = null
+        jobs.forEach(Job::cancel)
+        jobs.clear()
         closeSocket()
     }
 
@@ -99,8 +143,8 @@ class SitxClient(
     }
 
     private fun launch(block: suspend () -> Unit) {
-        job?.cancel()
-        job = scope.launch(Dispatchers.IO) {
+        lateinit var task: Job
+        task = scope.launch(Dispatchers.IO) {
             mutex.withLock {
                 try {
                     block()
@@ -112,6 +156,8 @@ class SitxClient(
                 }
             }
         }
+        jobs += task
+        task.invokeOnCompletion { jobs -= task }
     }
 
     private suspend fun start() {
@@ -125,12 +171,22 @@ class SitxClient(
         val valid = tokens.refreshToken.isNotBlank() &&
             tokens.refreshExpiresAtEpochSec > Instant.now().epochSecond + 30 &&
             tokens.baseUrl == base && tokens.clientId == clientId
-        if (!valid) deviceGrant(base, clientId)
+        if (!valid) {
+            repo.setSitxTokens(SitxTokens())
+            TrackerState.sitxAuthorized.value = false
+            TrackerState.sitxAccount.value = null
+            deviceGrant(base, clientId)
+        } else {
+            TrackerState.sitxAuthorized.value = true
+            TrackerState.sitxAccount.value = decodeSitxAccount(tokens.accessToken)
+        }
         fetchGroupsAndConnect()
     }
 
     private suspend fun deviceGrant(base: String, clientId: String) {
         TrackerState.sitx.value = SitxState.Idle
+        TrackerState.sitxAuthorized.value = false
+        TrackerState.sitxAccount.value = null
         val scopeValue = "role:org_user callsign:${callsign.replace(' ', '_')} device_name:$deviceUid device_id:$deviceUid"
         val body = JSONObject().put("scope", scopeValue).put("client_id", clientId).toString()
         val code = call(
@@ -160,6 +216,8 @@ class SitxClient(
             if (refresh.isNotBlank()) {
                 val expiresIn = json!!.optLong("expires_in", 0)
                 repo.setSitxTokens(SitxTokens(refresh, Instant.now().epochSecond + expiresIn, base, clientId))
+                TrackerState.sitxAuthorized.value = true
+                TrackerState.sitxAccount.value = null
                 TrackerState.sitx.value = SitxState.Authorized
                 return
             }
@@ -187,6 +245,8 @@ class SitxClient(
         val text = response.use { r ->
             if (r.code == 401) {
                 repo.setSitxTokens(SitxTokens())
+                TrackerState.sitxAuthorized.value = false
+                TrackerState.sitxAccount.value = null
                 throw IOException("SITX session expired - re-authorize")
             }
             if (!r.isSuccessful) throw IOException("Group list failed: HTTP ${r.code}")
@@ -197,6 +257,11 @@ class SitxClient(
             .map { SitxGroup(it.optString("flow_tag"), it.optString("name").ifBlank { it.optString("flow_tag") }) }
             .filter { it.flowTag.isNotBlank() }
         TrackerState.sitxGroups.value = groups
+        if (groups.size == 1 && settings?.third.isNullOrBlank()) {
+            val onlyGroup = groups.single()
+            repo.update { it.copy(sitxGroup = onlyGroup.flowTag) }
+            settings = Triple(base, settings?.second.orEmpty(), onlyGroup.flowTag)
+        }
         connectSelectedGroup()
     }
 
@@ -224,6 +289,8 @@ class SitxClient(
         var refreshToken = refreshed.optString("refresh_token").ifBlank { tokens.refreshToken }
         var refreshExpiry = parseExpiry(refreshed.optString("refresh_token_expires_at")) ?: tokens.refreshExpiresAtEpochSec
         repo.setSitxTokens(tokens.copy(refreshToken = refreshToken, refreshExpiresAtEpochSec = refreshExpiry))
+        TrackerState.sitxAuthorized.value = true
+        TrackerState.sitxAccount.value = decodeSitxAccount(tokens.accessToken)
 
         val access = call(
             Request.Builder().url("$base/api/v1/access/token")
@@ -236,11 +303,25 @@ class SitxClient(
         )
         access.optString("refresh_token").takeIf { it.isNotBlank() }?.let { refreshToken = it }
         parseExpiry(access.optString("refresh_token_expires_at"))?.let { refreshExpiry = it }
-        repo.setSitxTokens(tokens.copy(refreshToken = refreshToken, refreshExpiresAtEpochSec = refreshExpiry))
+        val accessToken = access.optString("access_token")
+        repo.setSitxTokens(
+            tokens.copy(
+                refreshToken = refreshToken,
+                refreshExpiresAtEpochSec = refreshExpiry,
+                accessToken = accessToken.ifBlank { tokens.accessToken },
+            ),
+        )
 
         val endPoint = access.optString("end_point")
-        val accessToken = access.optString("access_token")
         if (endPoint.isBlank() || accessToken.isBlank()) throw IOException("SITX did not return a TAK endpoint")
+        val updatedTokens = tokens.copy(
+            refreshToken = refreshToken,
+            refreshExpiresAtEpochSec = refreshExpiry,
+            accessToken = accessToken,
+        )
+        repo.setSitxTokens(updatedTokens)
+        TrackerState.sitxAuthorized.value = true
+        TrackerState.sitxAccount.value = decodeSitxAccount(accessToken)
         openSocket(endPoint, accessToken, selected)
     }
 
@@ -304,10 +385,8 @@ class SitxClient(
             val text = r.body?.string().orEmpty()
             if (r.code == 401) {
                 repo.setSitxTokens(SitxTokens())
-                throw SitxAuthException("SITX session expired - re-authorize")
-            }
-            if (r.code == 401) {
-                repo.setSitxTokens(SitxTokens())
+                TrackerState.sitxAuthorized.value = false
+                TrackerState.sitxAccount.value = null
                 throw SitxAuthException("SITX session expired - re-authorize")
             }
             if (!r.isSuccessful) throw IOException("${request.url.encodedPath} failed: HTTP ${r.code}")
@@ -317,6 +396,8 @@ class SitxClient(
 
     companion object {
         private const val TAG = "SitxClient"
+        const val REAUTH_PIN_REJECTED = "PIN_REJECTED"
+        const val REAUTH_PIN_NOT_AUTHORIZED = "PIN_NOT_AUTHORIZED"
         private val JSON = "application/json".toMediaType()
         private val OCTET = "application/octet-stream".toMediaType()
 

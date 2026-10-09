@@ -118,6 +118,7 @@ data class SitxTokens(
     val refreshExpiresAtEpochSec: Long = 0L,
     val baseUrl: String = "",
     val clientId: String = "",
+    val accessToken: String = "",
 )
 
 class SettingsRepository(private val context: Context) {
@@ -215,6 +216,7 @@ class SettingsRepository(private val context: Context) {
                 refreshExpiresAtEpochSec = o.optLong("refreshExpiresAtEpochSec"),
                 baseUrl = o.optString("baseUrl"),
                 clientId = o.optString("clientId"),
+                accessToken = o.optString("accessToken"),
             )
         }.getOrDefault(SitxTokens())
     }
@@ -225,6 +227,7 @@ class SettingsRepository(private val context: Context) {
             .put("refreshExpiresAtEpochSec", tokens.refreshExpiresAtEpochSec)
             .put("baseUrl", tokens.baseUrl)
             .put("clientId", tokens.clientId)
+            .put("accessToken", tokens.accessToken)
             .toString()
         store.edit { it[K.SITX_TOKENS] = SecretBox.encrypt(json) }
     }

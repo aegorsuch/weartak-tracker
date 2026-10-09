@@ -19,6 +19,7 @@ import java.security.KeyPairGenerator
 import java.security.KeyStore
 import java.security.MessageDigest
 import java.security.cert.CertificateFactory
+import java.security.cert.CertificateException
 import java.security.cert.X509Certificate
 import javax.net.ssl.SSLException
 import javax.net.ssl.HttpsURLConnection
@@ -42,12 +43,13 @@ enum class EnrollmentStage(val label: String) {
     CONNECTION("TAK connection"),
 }
 
-enum class EnrollmentFailureCategory { AUTHENTICATION, HTTP, TLS, CONNECTIVITY, CERTIFICATE, CREDENTIALS }
+enum class EnrollmentFailureCategory { AUTHENTICATION, HTTP, TLS, TLS_TRUST, CONNECTIVITY, CERTIFICATE, CREDENTIALS }
 
 data class EnrollmentFailure(
     val stage: EnrollmentStage,
     val category: EnrollmentFailureCategory,
     val httpCode: Int? = null,
+    val rejectionReason: String? = null,
 ) {
     /** Localized form of [displayMessage] for status shown in the UI. */
     fun displayMessage(context: Context): String {
@@ -60,10 +62,23 @@ data class EnrollmentFailure(
                 EnrollmentStage.CONNECTION -> R.string.tak_enrollment_stage_connection
             },
         )
+        if (category == EnrollmentFailureCategory.TLS_TRUST) {
+            val enrollmentStage = when (stage) {
+                EnrollmentStage.CONFIG -> context.getString(R.string.tak_enrollment_stage_enrollment_config)
+                EnrollmentStage.SIGN -> context.getString(R.string.tak_enrollment_stage_enrollment_sign)
+                else -> stage.label
+            }
+            return context.getString(
+                R.string.tak_enrollment_tls_trust_rejected,
+                enrollmentStage,
+                rejectionReason ?: "certificate trust check failed",
+            )
+        }
         val detail = when (category) {
             EnrollmentFailureCategory.AUTHENTICATION -> context.getString(R.string.tak_enrollment_authentication_failed)
             EnrollmentFailureCategory.HTTP -> context.getString(R.string.tak_enrollment_http_failed, httpCode ?: 0)
             EnrollmentFailureCategory.TLS -> context.getString(R.string.tak_enrollment_tls_failed)
+            EnrollmentFailureCategory.TLS_TRUST -> error("Handled above")
             EnrollmentFailureCategory.CONNECTIVITY -> context.getString(R.string.tak_enrollment_connectivity_failed)
             EnrollmentFailureCategory.CERTIFICATE -> context.getString(R.string.tak_enrollment_certificate_failed)
             EnrollmentFailureCategory.CREDENTIALS -> context.getString(R.string.tak_enrollment_credentials_missing)
@@ -71,11 +86,20 @@ data class EnrollmentFailure(
         return context.getString(R.string.tak_enrollment_failure, stageText, detail)
     }
 
-    fun displayMessage(): String = "${stage.label}: " + when (category) {
+    fun displayMessage(): String = if (category == EnrollmentFailureCategory.TLS_TRUST) {
+        val stageText = when (stage) {
+            EnrollmentStage.CONFIG -> "configuration"
+            EnrollmentStage.SIGN -> "certificate signing"
+            else -> stage.label.lowercase()
+        }
+        "Enrollment $stageText failed: the server certificate was rejected " +
+            "(${rejectionReason ?: "certificate trust check failed"}). Check the enrollment port and server CA."
+    } else "${stage.label}: " + when (category) {
         EnrollmentFailureCategory.AUTHENTICATION ->
             "authentication rejected (HTTP 401). Check username/password."
         EnrollmentFailureCategory.HTTP -> "server rejected request (HTTP $httpCode)."
         EnrollmentFailureCategory.TLS -> "secure connection failed. Check server certificate and hostname."
+        EnrollmentFailureCategory.TLS_TRUST -> error("Handled above")
         EnrollmentFailureCategory.CONNECTIVITY -> "server unreachable. Check network and server address."
         EnrollmentFailureCategory.CERTIFICATE -> "invalid or missing certificate data."
         EnrollmentFailureCategory.CREDENTIALS ->
@@ -87,12 +111,25 @@ data class EnrollmentFailure(
             val causes = generateSequence<Throwable>(error) { it.cause?.takeIf { cause -> cause !== it } }
                 .take(16)
                 .toList()
+            val isTlsFailure = causes.any { it is SSLException }
+            val trustFailure = causes.firstOrNull {
+                isTlsFailure &&
+                it is CertificateException && it !is HostnameMismatchException
+            }
+            val messageTrustFailure = causes.firstOrNull {
+                if (!isTlsFailure) return@firstOrNull false
+                val message = it.message.orEmpty().lowercase()
+                "trust anchor" in message || "certification path" in message || "certificate chain" in message
+            }
             val category = when {
-                causes.any { it is SSLException } -> EnrollmentFailureCategory.TLS
+                trustFailure != null || messageTrustFailure != null -> EnrollmentFailureCategory.TLS_TRUST
+                isTlsFailure -> EnrollmentFailureCategory.TLS
                 causes.any { it is IOException } -> EnrollmentFailureCategory.CONNECTIVITY
                 else -> EnrollmentFailureCategory.CERTIFICATE
             }
-            return EnrollmentFailure(stage, category)
+            val rejectionReason = (trustFailure ?: messageTrustFailure)?.message
+                ?.takeIf { it.isNotBlank() }
+            return EnrollmentFailure(stage, category, rejectionReason = rejectionReason)
         }
     }
 }
@@ -188,6 +225,7 @@ object TakCertificates {
 
     private fun enroll(server: TakServerConfig, deviceUid: String): KeyStore {
         val host = server.address.trim()
+        Log.i(TAG, "Starting certificate enrollment for $host:$ENROLLMENT_PORT")
         val auth = "Basic " + Base64.encodeToString(
             "${server.username}:${server.password}".toByteArray(), Base64.NO_WRAP,
         )
@@ -195,24 +233,31 @@ object TakCertificates {
         val (keyPair, response) = enrollmentSteps(
             config = {
                 withStage(EnrollmentStage.CONFIG) {
+                    Log.i(TAG, "Enrollment configuration started for $host:$ENROLLMENT_PORT")
                     val configXml = http("$endpoint/config", "GET", auth, null, null, EnrollmentStage.CONFIG)
+                    Log.i(TAG, "Enrollment configuration completed for $host:$ENROLLMENT_PORT")
                     mutableListOf("CN" to server.username).apply { addAll(parseConfig(configXml)) }
                 }
             },
             csr = { subject ->
                 withStage(EnrollmentStage.CSR) {
+                    Log.i(TAG, "Enrollment certificate request started for $host:$ENROLLMENT_PORT")
                     val keyPair = KeyPairGenerator.getInstance("RSA").apply { initialize(4096) }.generateKeyPair()
-                    keyPair to Base64.encodeToString(Csr.build(subject, keyPair), Base64.NO_WRAP)
+                    keyPair to Base64.encodeToString(Csr.build(subject, keyPair), Base64.NO_WRAP).also {
+                        Log.i(TAG, "Enrollment certificate request completed for $host:$ENROLLMENT_PORT")
+                    }
                 }
             },
             sign = { (keyPair, csr) ->
                 withStage(EnrollmentStage.SIGN) {
+                    Log.i(TAG, "Enrollment certificate signing started for $host:$ENROLLMENT_PORT")
                     val version = URLEncoder.encode("WearTAK-Tracker v${BuildConfig.VERSION_NAME}", "UTF-8")
                     val uid = URLEncoder.encode(deviceUid, "UTF-8")
                     val response = http(
                         "$endpoint/signClient/v2?clientUid=$uid&version=$version",
                         "POST", auth, csr, "text/plain", EnrollmentStage.SIGN,
                     )
+                    Log.i(TAG, "Enrollment certificate signing completed for $host:$ENROLLMENT_PORT")
                     keyPair to response
                 }
             },
@@ -370,6 +415,12 @@ object TakCertificates {
             val code = conn.responseCode
             requireHttpSuccess(code, stage)
             return conn.inputStream.bufferedReader().use { it.readText() }
+        } catch (e: SSLException) {
+            Log.w(TAG, "Enrollment TLS rejection for ${conn.url.host}:${conn.url.port} during ${stage.label}", e)
+            throw e
+        } catch (e: Exception) {
+            Log.w(TAG, "Enrollment request failed for ${conn.url.host}:${conn.url.port} during ${stage.label}", e)
+            throw e
         } finally {
             conn.disconnect()
         }

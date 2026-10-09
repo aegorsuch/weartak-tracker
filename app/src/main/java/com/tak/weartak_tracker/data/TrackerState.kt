@@ -54,6 +54,10 @@ object TrackerState {
     /** Channel lists keyed by TAK Server id; only servers that have connected appear here. */
     val takChannels = MutableStateFlow<Map<String, TakServerChannels>>(emptyMap())
     val sitx = MutableStateFlow<SitxState>(SitxState.Disabled)
+    val sitxAccount = MutableStateFlow<SitxAccount?>(null)
+    val sitxAuthorized = MutableStateFlow(false)
+    val sitxRenewalMessage = MutableStateFlow("")
+    val sitxAuthorizationPromptOpen = MutableStateFlow(false)
     val sitxGroups = MutableStateFlow<List<SitxGroup>>(emptyList())
     val lastFix = MutableStateFlow<Fix?>(null)
     val lastPliMillis = MutableStateFlow(0L)

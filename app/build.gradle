@@ -14,8 +14,8 @@ android {
         applicationId "com.tak.weartak_tracker"
         minSdk 30
         targetSdk 34
-        versionCode 584
-        versionName "5.8.0.3"
+        versionCode 585
+        versionName "5.8.3"
         setProperty("archivesBaseName", "WearTAK-Tracker-${versionName}")
     }
 

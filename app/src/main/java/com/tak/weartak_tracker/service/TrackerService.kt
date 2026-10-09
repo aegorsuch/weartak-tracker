@@ -220,6 +220,23 @@ class TrackerService : Service() {
             }
             ACTION_SITX_REAUTHORIZE -> if (::sitx.isInitialized) sitx.reauthorize()
             ACTION_SITX_REFRESH_GROUPS -> if (::sitx.isInitialized) sitx.refreshGroups()
+            ACTION_SITX_RENEW_REAUTH_PIN -> if (::sitx.isInitialized) {
+                val pin = intent.getStringExtra(EXTRA_SITX_REAUTH_PIN).orEmpty()
+                sitx.renewWithReauthPin(pin) { result ->
+                    TrackerState.sitxRenewalMessage.value = if (result == SitxClient.REAUTH_PIN_REJECTED) {
+                        getString(R.string.reauth_pin_rejected)
+                    } else if (result == SitxClient.REAUTH_PIN_NOT_AUTHORIZED) {
+                        getString(R.string.not_authorized)
+                    } else {
+                        val expiration = runCatching { java.time.Instant.parse(result).toEpochMilli() }.getOrNull()
+                        if (expiration == null) result
+                        else getString(
+                            R.string.renewed_until,
+                            android.text.format.DateFormat.getDateFormat(this).format(java.util.Date(expiration)),
+                        )
+                    }
+                }
+            }
             ACTION_TAK_SERVER_RETRY -> intent.getStringExtra(EXTRA_SERVER_ID)?.let { id ->
                 scope.launch {
                     val saved = repo.config.first()
@@ -442,6 +459,8 @@ class TrackerService : Service() {
         const val ACTION_CANCEL_ALERT = "com.tak.weartak_tracker.CANCEL_ALERT"
         const val ACTION_SITX_REAUTHORIZE = "com.tak.weartak_tracker.SITX_REAUTHORIZE"
         const val ACTION_SITX_REFRESH_GROUPS = "com.tak.weartak_tracker.SITX_REFRESH_GROUPS"
+        const val ACTION_SITX_RENEW_REAUTH_PIN = "com.tak.weartak_tracker.SITX_RENEW_REAUTH_PIN"
+        const val EXTRA_SITX_REAUTH_PIN = "sitx_reauth_pin"
         const val ACTION_TAK_SERVER_RETRY = "com.tak.weartak_tracker.TAK_SERVER_RETRY"
         const val ACTION_TAK_CHANNELS_REFRESH = "com.tak.weartak_tracker.TAK_CHANNELS_REFRESH"
         const val ACTION_TAK_CHANNEL_TOGGLE = "com.tak.weartak_tracker.TAK_CHANNEL_TOGGLE"
