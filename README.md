@@ -5,11 +5,11 @@ Extremely lightweight Wear OS position tracker modeled on WearTAK-WearOS
 ## Downloads
 Download installable APKs from [GitHub Releases](https://github.com/aegorsuch/weartak-tracker/releases), or go directly to the [latest release](https://github.com/aegorsuch/weartak-tracker/releases/latest). Expand **Assets** and select `WearTAK-Tracker-<version>-release.apk`; the source-code archives are not watch installers.
 
-Version **5.8.0.3 / 583** is distributed as an optimized, non-debuggable APK signed with the permanent Tracker release key. Updates from the release-signed 5.8.0.3 build can use `adb install -r` while retaining settings. Moving from an earlier debug-signed build requires uninstalling first (`adb uninstall com.tak.weartak_tracker`), which removes app data and settings, then installing the release APK.
+Version **5.8.0.3** is distributed as an optimized, non-debuggable APK signed with the permanent Tracker release key. Its Android update code is 584 so it can update the previously installed build without changing the displayed app version. Release-signed builds can use `adb install -r` while retaining settings. Moving from an earlier debug-signed build requires uninstalling first (`adb uninstall com.tak.weartak_tracker`), which removes app data and settings, then installing the release APK.
 
 **Updated 5.8.0.3 build:** The manual Alert picker adds 911 Alert, Ring The Bell, Geofence Breached, and In Contact, alphabetizes all presets, and sends immediately when a preset is tapped. Custom text and alert cancellation retain their confirmation buttons.
 
-**OpenTAKServer enrollment update:** The same-version 5.8.0.3 / 583 build now retains the unnumbered `ca` certificate returned by OpenTAKServer. TLS certificate validation and private-CA name discovery remain enabled.
+**OpenTAKServer enrollment update:** The 5.8.0.3 build retains the unnumbered `ca` certificate returned by OpenTAKServer. TLS certificate validation and private-CA name discovery remain enabled.
 
 **Updated 5.8.0.3 build:** Physiological Monitoring now uses Wear OS 6's `READ_HEART_RATE` permission and the legacy `BODY_SENSORS` permission on earlier Wear OS versions. Startup requests heart-rate access if missing; granting it does not enable monitoring.
 
