@@ -9,6 +9,8 @@ Version **5.8.0.3 / 583** is distributed as an optimized, non-debuggable APK sig
 
 **Updated 5.8.0.3 build:** The manual Alert picker adds 911 Alert, Ring The Bell, Geofence Breached, and In Contact, alphabetizes all presets, and sends immediately when a preset is tapped. Custom text and alert cancellation retain their confirmation buttons.
 
+**OpenTAKServer enrollment update:** The same-version 5.8.0.3 / 583 build now retains the unnumbered `ca` certificate returned by OpenTAKServer. TLS certificate validation and private-CA name discovery remain enabled.
+
 **Windows sideloading:** [Wear OS Windows Bridge](https://github.com/aegorsuch/wearos-windows-bridge) is a useful companion tool for pairing/connecting to your watch, installing downloaded APKs, capturing logs, and mirroring the screen. Enable Wireless Debugging on the watch and follow the bridge's setup instructions; the PC and watch need to be on the same Wi-Fi for these operations. Normal Tracker operation can use LTE afterward.
 
 ## Design intent
@@ -89,7 +91,7 @@ The tracker connects with a client certificate obtained in one of three ways, in
 2. **Cached enrollment** from a previous connection (renewed automatically 3 days before expiry).
 3. **Enrollment** with username/password against `https://<address>:8446`.
 
-Enrollment retains the watch's normal HTTPS trust and hostname validation. Certificate configuration must parse successfully before generating a CSR or requesting a signature. Signing responses accept JSON or namespace-aware XML, including PEM certificates, with a required `signedCert` and optional numbered `caN` certificates in numeric order. Errors identify the failed stage (configuration, request, signing, certificate, or connection) and distinguish HTTP 401, other HTTP failures, TLS, connectivity, and invalid certificate data. Saving waits for settings to persist; **Retry** starts a fresh attempt for that server even when settings have not changed. Rejected credentials still require correction; retry does not bypass authentication.
+Enrollment retains the watch's normal HTTPS trust and hostname validation. Certificate configuration must parse successfully before generating a CSR or requesting a signature. Signing responses accept JSON or namespace-aware XML, including PEM certificates, with a required `signedCert`, optional OpenTAKServer `ca`, and optional numbered `caN` certificates in numeric order (after `ca`). Errors identify the failed stage (configuration, request, signing, certificate, or connection) and distinguish HTTP 401, other HTTP failures, TLS, connectivity, and invalid certificate data. Saving waits for settings to persist; **Retry** starts a fresh attempt for that server even when settings have not changed. Rejected credentials still require correction; retry does not bypass authentication.
 
 #### Sideloading a certificate
 Copy files named after the exact address entered in the server form into the app's external files directory:

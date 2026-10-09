@@ -449,8 +449,15 @@ object TakCertificates {
         }
     }
 
-    private val CA_NAME = Regex("ca[0-9]+")
+    private val CA_NAME = Regex("ca[0-9]*")
     private val CA_NAME_COMPARATOR = Comparator<String> { first, second ->
+        if (first == "ca" || second == "ca") {
+            return@Comparator when {
+                first == second -> 0
+                first == "ca" -> -1
+                else -> 1
+            }
+        }
         val firstNumber = first.substring(2).trimStart('0').ifEmpty { "0" }
         val secondNumber = second.substring(2).trimStart('0').ifEmpty { "0" }
         compareValues(firstNumber.length, secondNumber.length)

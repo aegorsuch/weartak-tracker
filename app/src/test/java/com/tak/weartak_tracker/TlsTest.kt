@@ -275,6 +275,60 @@ class TlsTest {
     }
 
     @Test
+    fun openTakServerCaIsParsedAndRetainedAsTrustAnchor() {
+        val root = certPem(rootCaPem)
+        val responses = listOf(
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?><enrollment>" +
+                "<signedCert>$sanCertBody</signedCert><ca>$rootCaPem</ca></enrollment>",
+            org.json.JSONObject().put("signedCert", sanCertBody).put("ca", rootCaPem).toString(),
+            "<r:enrollment xmlns:r=\"urn:tak\"><r:signedCert>$sanCertBody</r:signedCert>" +
+                "<r:ca>$rootCaPem</r:ca></r:enrollment>",
+        )
+        responses.forEach { response ->
+            val (signed, cas) = TakCertificates.parseSignResponse(response)
+            assertEquals(cert(sanCertBody), signed)
+            assertEquals(listOf(root), cas)
+            val keyStore = KeyStore.getInstance("PKCS12").apply {
+                load(null, null)
+                cas.forEachIndexed { index, ca -> setCertificateEntry("ca$index", ca) }
+            }
+            assertEquals(listOf(root), TakCertificates.selectTrustAnchors(keyStore))
+        }
+    }
+
+    @Test
+    fun unnumberedCaSortsBeforeNumberedAuthorities() {
+        val response = org.json.JSONObject()
+            .put("signedCert", sanCertBody)
+            .put("ca10", sanCertBody)
+            .put("ca", rootCaPem)
+            .put("ca0", intermediateCaPem)
+            .put("ca2", cnCertBody)
+            .toString()
+        assertEquals(
+            listOf(certPem(rootCaPem), certPem(intermediateCaPem), cert(cnCertBody), cert(sanCertBody)),
+            TakCertificates.parseSignResponse(response).second,
+        )
+    }
+
+    @Test
+    fun malformedOpenTakServerCaFailsInsteadOfBeingIgnored() {
+        val responses = listOf(
+            org.json.JSONObject().put("signedCert", sanCertBody).put("ca", "!invalid!").toString(),
+            org.json.JSONObject().put("signedCert", sanCertBody).put("ca", 123).toString(),
+            "<enrollment><signedCert>$sanCertBody</signedCert><ca>!invalid!</ca></enrollment>",
+            "<enrollment><signedCert>$sanCertBody</signedCert>" +
+                "<ca>$rootCaPem</ca><ca>$rootCaPem</ca></enrollment>",
+        )
+        responses.forEach { response ->
+            val error = runCatching { TakCertificates.parseSignResponse(response) }.exceptionOrNull()
+            assertTrue(error is EnrollmentException)
+            assertEquals(EnrollmentStage.CERTIFICATE, (error as EnrollmentException).failure.stage)
+            assertEquals(EnrollmentFailureCategory.CERTIFICATE, error.failure.category)
+        }
+    }
+
+    @Test
     fun enrollmentXmlParsersAreNamespaceAwareAndHandleBom() {
         val config = " \n\uFEFF<tak:certificateConfig xmlns:tak=\"urn:tak\">" +
             "<tak:nameEntries><tak:nameEntry name=\"O\" value=\"Test &amp; Team\"/>" +
