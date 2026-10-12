@@ -316,13 +316,20 @@ fun NavGraphBuilder.settingsGraph(repo: SettingsRepository, configState: State<T
         val update = rememberUpdater(repo)
         WearTAKPageWithBackArrow("Plugins", back) {
             item {
-                WearTAKToggleChip(
+                WearTAKSplitToggleChip(
+                    appIcon = {},
+                    title = "Commands",
+                    label = if (config.chatCommandsEnabled) "Enabled" else "Disabled",
                     checked = config.chatCommandsEnabled,
                     onCheckedChange = { on -> update { it.copy(chatCommandsEnabled = on) } },
-                    title = "Commands",
-                    description = "Allow chat commands from listed callsigns",
+                    onClick = { go("chat_commands") },
                 )
             }
+        }
+    }
+
+    composable("chat_commands") {
+        WearTAKPageWithBackArrow("Commands", back) {
             item {
                 WearTAKTitleChipWithState(
                     "Allowed Callsigns",

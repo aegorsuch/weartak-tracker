@@ -46,7 +46,7 @@ The location icon is white while reporting with precise location, yellow with ap
 
 ## Chat commands (WEARTAK-130)
 
-Settings > Tool Preferences > Plugins > Commands (off by default). When on, a direct chat message to the tracker from an allow-listed callsign that starts with `#weartakcommand` is run, and the tracker replies in chat. Other senders are ignored silently, and nothing is parsed from the server stream while the setting is off.
+Settings > Tool Preferences > Plugins > Commands (off by default; the switch turns it on or off, and tapping the chip opens Allowed Callsigns). When on, a direct chat message to the tracker from an allow-listed callsign that starts with `#weartakcommand` is run, and the tracker replies in chat. Other senders are ignored silently, and nothing is parsed from the server stream while the setting is off.
 
 - `#weartakcommandsetcallsign callsign=ODIN`, `setteam team="Dark Green"`, `setrole role=K9`, `setprofile callsign=.. team=.. role=..`
 - `#weartakcommandloadprofile name=odin-weartak` applies `Android/data/<package>/files/presets/<name>.json` (`{"profile":{"team":"Blue"},"servers":[{"name","url","port","username","password"}]}`). Credentials come only from that file, never from chat. Servers already configured are skipped, and servers are not touched when network settings are locked.
