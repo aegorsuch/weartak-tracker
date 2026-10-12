@@ -148,6 +148,7 @@ fun NavGraphBuilder.settingsGraph(repo: SettingsRepository, configState: State<T
                     WearTAKTitleChipWithState("Dev Debug Tools", "View network and build information") { go("debug_tools") }
                 }
             }
+            item { WearTAKTitleChip("Tool Preferences") { go("tool_preferences") } }
             item { DeveloperVersion(repo, config) }
         }
     }
@@ -302,17 +303,18 @@ fun NavGraphBuilder.settingsGraph(repo: SettingsRepository, configState: State<T
                     go("sitx_tak_screen")
                 }
             }
-            item {
-                WearTAKTitleChipWithState("Commands", if (config.chatCommandsEnabled) "Enabled" else "Disabled") {
-                    go("chat_commands")
-                }
-            }
         }
     }
 
-    networkComposable("chat_commands", configState, back) {
+    composable("tool_preferences") {
+        WearTAKPageWithBackArrow("Tool Preferences", back) {
+            item { WearTAKTitleChip("Plugins") { go("plugins") } }
+        }
+    }
+
+    composable("plugins") {
         val update = rememberUpdater(repo)
-        WearTAKPageWithBackArrow("Commands", back) {
+        WearTAKPageWithBackArrow("Plugins", back) {
             item {
                 WearTAKToggleChip(
                     checked = config.chatCommandsEnabled,
@@ -330,7 +332,7 @@ fun NavGraphBuilder.settingsGraph(repo: SettingsRepository, configState: State<T
         }
     }
 
-    networkComposable("chat_command_callsigns", configState, back) {
+    composable("chat_command_callsigns") {
         val update = rememberUpdater(repo)
         WearTAKStringEntryPage(
             item = config.chatCommandCallsigns.joinToString(", "),
