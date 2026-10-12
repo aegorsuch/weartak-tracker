@@ -76,6 +76,7 @@ import androidx.wear.compose.material.Text
 import androidx.wear.compose.navigation.composable
 import com.tak.weartak_tracker.R
 import com.tak.weartak_tracker.cot.calculateExertion
+import com.tak.weartak_tracker.command.ChatCommandAuthorizer
 import com.tak.weartak_tracker.data.MULTICAST_PROTOCOLS
 import com.tak.weartak_tracker.data.DEFAULT_SITX_CLIENT_ID
 import com.tak.weartak_tracker.data.ROLE_CATEGORIES
@@ -301,9 +302,43 @@ fun NavGraphBuilder.settingsGraph(repo: SettingsRepository, configState: State<T
                     go("sitx_tak_screen")
                 }
             }
+            item {
+                WearTAKTitleChipWithState("Commands", if (config.chatCommandsEnabled) "Enabled" else "Disabled") {
+                    go("chat_commands")
+                }
+            }
         }
     }
 
+    networkComposable("chat_commands", configState, back) {
+        val update = rememberUpdater(repo)
+        WearTAKPageWithBackArrow("Commands", back) {
+            item {
+                WearTAKToggleChip(
+                    checked = config.chatCommandsEnabled,
+                    onCheckedChange = { on -> update { it.copy(chatCommandsEnabled = on) } },
+                    title = "Commands",
+                    description = "Allow chat commands from listed callsigns",
+                )
+            }
+            item {
+                WearTAKTitleChipWithState(
+                    "Allowed Callsigns",
+                    config.chatCommandCallsigns.joinToString(", ").ifEmpty { "None" },
+                ) { go("chat_command_callsigns") }
+            }
+        }
+    }
+
+    networkComposable("chat_command_callsigns", configState, back) {
+        val update = rememberUpdater(repo)
+        WearTAKStringEntryPage(
+            item = config.chatCommandCallsigns.joinToString(", "),
+            label = "Allowed callsigns (comma separated)",
+            onBack = back,
+            validate = { null },
+        ) { v -> update { it.copy(chatCommandCallsigns = ChatCommandAuthorizer.parseAllowList(v)) } }
+    }
     networkComposable("tak_servers", configState, back) { TakServersPage(repo, config, go, back) }
 
     networkComposable("tak_channels", configState, back) { ChannelServersPage(config, go, back) }

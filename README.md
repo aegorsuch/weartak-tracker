@@ -44,6 +44,14 @@ The TAK icon is green when all enabled, distinct TAK Servers are connected and s
 - Bottom left: watch network (Wi-Fi, cellular, Bluetooth via phone, airplane mode, or none). Bottom right: battery (red at 20% or below).
 The location icon is white while reporting with precise location, yellow with approximate location, and grey when stopped.
 
+## Chat commands (WEARTAK-130)
+
+Settings > Network Preferences > Commands (off by default). When on, a direct chat message to the tracker from an allow-listed callsign that starts with `#weartakcommand` is run, and the tracker replies in chat. Other senders are ignored silently, and nothing is parsed from the server stream while the setting is off.
+
+- `#weartakcommandsetcallsign callsign=ODIN`, `setteam team="Dark Green"`, `setrole role=K9`, `setprofile callsign=.. team=.. role=..`
+- `#weartakcommandloadprofile name=odin-weartak` applies `Android/data/<package>/files/presets/<name>.json` (`{"profile":{"team":"Blue"},"servers":[{"name","url","port","username","password"}]}`). Credentials come only from that file, never from chat. Servers already configured are skipped, and servers are not touched when network settings are locked.
+
+Callsigns are not authenticated, so only allow-list callsigns you trust on your servers.
 ## Setup
 1. Download the APK from [GitHub Releases](https://github.com/aegorsuch/weartak-tracker/releases) and install it on the watch (`adb install -r WearTAK-Tracker-<version>-release.apk`). Uninstall the old debug-signed app first if migrating to the release key; this clears settings.
 2. Open the app and grant **location** (precise or approximate) and, on Wear OS 4+, **notifications**. Startup also requests heart-rate access if missing; it is optional for position tracking and granting it does not turn Physiological Monitoring on.

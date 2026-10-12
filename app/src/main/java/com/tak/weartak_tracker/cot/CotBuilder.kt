@@ -179,6 +179,39 @@ object CotBuilder {
             )
     }
 
+    /** Direct GeoChat reply to [toUid], matching the WearTAK-CIV chat CoT. */
+    fun chat(
+        senderUid: String,
+        senderCallsign: String,
+        toUid: String,
+        toCallsign: String,
+        message: String,
+        messageId: String = java.util.UUID.randomUUID().toString(),
+        nowMillis: Long = System.currentTimeMillis(),
+    ): String {
+        val t = CotTime.now(60, nowMillis).startCot
+        val chatGroup = element("chatgrp", listOf("uid0" to esc(senderUid), "id" to esc(toUid), "uid1" to esc(toUid)))
+        val chat = element(
+            "__chat",
+            listOf(
+                "parent" to "RootContactGroup", "groupOwner" to "false", "messageId" to esc(messageId),
+                "chatroom" to esc(toCallsign), "id" to esc(toUid), "senderCallsign" to esc(senderCallsign),
+            ),
+            chatGroup,
+        )
+        val detail = chat +
+            element("link", listOf("uid" to esc(senderUid), "type" to SELF_TYPE, "relation" to "p-p")) +
+            element("remarks", listOf("source" to esc(senderUid), "to" to esc(toUid), "time" to t), esc(message)) +
+            element("marti", content = element("dest", listOf("uid" to esc(toUid))))
+        return event(
+            listOf(
+                "version" to "2.0", "uid" to esc("GeoChat.$senderUid.$toUid.$messageId"), "type" to "b-t-f",
+                "time" to t, "start" to t, "stale" to t, "how" to "h-g-i-g-o", "access" to "Undefined",
+            ),
+            listOf("lat" to "0.0", "lon" to "0.0", "hae" to "0.0", "ce" to 9999, "le" to 9999),
+            detail,
+        )
+    }
     private fun element(name: String, attributes: List<Pair<String, Any?>> = emptyList(), content: String? = null) =
         buildString {
             append('<').append(name)

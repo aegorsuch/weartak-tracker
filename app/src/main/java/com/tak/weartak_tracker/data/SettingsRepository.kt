@@ -110,6 +110,8 @@ data class TrackerConfig(
     val medicalProfile: MedicalProfile = MedicalProfile(),
     val developerMode: Boolean = false,
     val networkPreferencesLocked: Boolean = false,
+    val chatCommandsEnabled: Boolean = false,
+    val chatCommandCallsigns: List<String> = emptyList(),
 )
 
 /** SITX OAuth device-flow state (persisted encrypted). */
@@ -148,6 +150,8 @@ class SettingsRepository(private val context: Context) {
         val BATDOK = booleanPreferencesKey("enable_batdok_cot")
         val MEDICAL_PROFILE = stringPreferencesKey("medical_profile.enc")
         val NETWORK_LOCKED = booleanPreferencesKey("network_preferences_locked")
+        val CHAT_COMMANDS = booleanPreferencesKey("enable_chat_commands")
+        val CHAT_CALLSIGNS = stringPreferencesKey("chat_command_callsigns")
     }
 
     @SuppressLint("HardwareIds")
@@ -179,6 +183,8 @@ class SettingsRepository(private val context: Context) {
             if (n == old) return@edit
             developerMode.value = n.developerMode
             p[K.NETWORK_LOCKED] = n.networkPreferencesLocked
+            p[K.CHAT_COMMANDS] = n.chatCommandsEnabled
+            p[K.CHAT_CALLSIGNS] = n.chatCommandCallsigns.joinToString("\n")
             p[K.CALLSIGN] = n.callsign.trim()
             p[K.TEAM] = n.team
             p[K.ROLE] = n.role
@@ -256,5 +262,7 @@ class SettingsRepository(private val context: Context) {
             batdokEnabled = p[K.BATDOK] ?: true,
             medicalProfile = MedicalProfileCodec.decode(SecretBox.decrypt(p[K.MEDICAL_PROFILE])),
             networkPreferencesLocked = p[K.NETWORK_LOCKED] ?: false,
+            chatCommandsEnabled = p[K.CHAT_COMMANDS] ?: false,
+            chatCommandCallsigns = p[K.CHAT_CALLSIGNS]?.lines()?.filter { it.isNotBlank() } ?: emptyList(),
         )
 }

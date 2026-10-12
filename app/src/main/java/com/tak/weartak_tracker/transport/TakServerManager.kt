@@ -2,6 +2,7 @@ package com.tak.weartak_tracker.transport
 
 import android.content.Context
 import android.util.Log
+import com.tak.weartak_tracker.cot.CotEventFramer
 import com.tak.weartak_tracker.data.Endpoint
 import com.tak.weartak_tracker.data.TakServerConfig
 import com.tak.weartak_tracker.data.TakServerState
@@ -37,6 +38,9 @@ class TakServerManager(
     private val onServerConnected: (serverId: String) -> Unit = {},
     /** The server announced a group/channel membership change (`t-x-g-c`). */
     private val onChannelsChanged: (serverId: String) -> Unit = {},
+    /** Parse inbound events only while this returns true; they go to [onInboundEvent]. */
+    private val inboundEnabled: () -> Boolean = { false },
+    private val onInboundEvent: (serverId: String, xml: String) -> Unit = { _, _ -> },
 ) {
     private class Connection(@Volatile var server: TakServerConfig) {
         var job: Job? = null
@@ -211,10 +215,16 @@ class TakServerManager(
                 val input = socket.inputStream
                 val buf = ByteArray(8192)
                 var tail = ""
+                val framer = CotEventFramer()
                 while (true) {
                     val n = input.read(buf)
                     if (n < 0) break
                     // Inbound CoT is otherwise unused; only watch for the server's channel-change notice.
+                    if (inboundEnabled()) {
+                        framer.feed(String(buf, 0, n, Charsets.ISO_8859_1)).forEach { raw ->
+                            onInboundEvent(id, String(raw.toByteArray(Charsets.ISO_8859_1), Charsets.UTF_8))
+                        }
+                    } else framer.clear()
                     val text = tail + String(buf, 0, n, Charsets.ISO_8859_1)
                     if (text.contains(GROUP_CHANGE_TYPE)) {
                         onChannelsChanged(id)

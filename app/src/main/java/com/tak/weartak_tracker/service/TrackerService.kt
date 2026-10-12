@@ -15,10 +15,12 @@ import android.util.Log
 import androidx.core.content.ContextCompat
 import com.tak.weartak_tracker.R
 import com.tak.weartak_tracker.TrackerApp
+import com.tak.weartak_tracker.command.ChatCommandProcessor
 import com.tak.weartak_tracker.cot.AlertState
 import com.tak.weartak_tracker.cot.CotBuilder
 import com.tak.weartak_tracker.cot.CotTime
 import com.tak.weartak_tracker.cot.Fix
+import com.tak.weartak_tracker.cot.InboundChat
 import com.tak.weartak_tracker.cot.Physio
 import com.tak.weartak_tracker.data.Activity
 import com.tak.weartak_tracker.data.Endpoint
@@ -58,6 +60,7 @@ class TrackerService : Service() {
     private lateinit var repo: SettingsRepository
     private lateinit var network: NetworkMonitor
     private lateinit var tak: TakServerManager
+    private lateinit var chatCommands: ChatCommandProcessor
     private lateinit var channels: TakChannelManager
     private lateinit var sitx: SitxClient
     private lateinit var multicast: MulticastPublisher
@@ -105,12 +108,18 @@ class TrackerService : Service() {
         TrackerState.locationAccess.value = LocationAccess.current(this)
         repo = (application as TrackerApp).settings
         network = NetworkMonitor(this)
+        chatCommands = ChatCommandRuntime.create(this, repo) { tak }
         tak = TakServerManager(
             this, scope, repo.deviceUid,
             onConnected = { scope.launch { onEndpointConnected() } },
             onTlsNameDiscovered = ::saveTlsName,
             onServerConnected = { id -> channels.onConnected(id) },
             onChannelsChanged = { id -> channels.onServerNotice(id) },
+            inboundEnabled = { config.chatCommandsEnabled },
+            onInboundEvent = { id, xml ->
+                InboundChat.commandRequest(xml, repo.deviceUid, id, System.currentTimeMillis())
+                    ?.let { scope.launch { chatCommands.handle(it) } }
+            },
         )
         channels = TakChannelManager(scope, tak, repo.deviceUid)
         sitx = SitxClient(repo, scope, repo.deviceUid) { scope.launch { onEndpointConnected() } }
