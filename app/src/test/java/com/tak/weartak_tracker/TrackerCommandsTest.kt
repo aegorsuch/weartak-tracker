@@ -93,7 +93,7 @@ class TrackerCommandsTest {
 
     @Test
     fun builtChatReplyParsesAsDirectMessage() {
-        val xml = CotBuilder.chat("ME", "Tracker", "U1", "ODIN", "#weartakcommandsetteam team=Blue", "m9", 1_700_000_000_000)
+        val xml = CotBuilder.chat("ME", "Tracker", "U1", "ODIN", "#weartaktrackercommandsetteam team=Blue", "m9", 1_700_000_000_000)
         val parsed = InboundChat.commandRequest(xml.replace("senderCallsign='Tracker'", "senderCallsign='ODIN'")
             .replace("uid0='ME'", "uid0='U1'").replace("id='U1'", "id='ME'"), "ME", "srv", 5L)
         assertNotNull(parsed)
@@ -103,9 +103,9 @@ class TrackerCommandsTest {
 
     @Test
     fun inboundIgnoresOtherRoomsAndDoctype() {
-        val groupMsg = "<event><detail><__chat id='All Chat Rooms' senderCallsign='A' messageId='1'><chatgrp uid0='U1' id='All Chat Rooms'/></__chat><remarks>#weartakcommandsetteam team=Blue</remarks></detail></event>"
+        val groupMsg = "<event><detail><__chat id='All Chat Rooms' senderCallsign='A' messageId='1'><chatgrp uid0='U1' id='All Chat Rooms'/></__chat><remarks>#weartaktrackercommandsetteam team=Blue</remarks></detail></event>"
         assertNull(InboundChat.commandRequest(groupMsg, "ME", "s", 0))
-        val xxe = "<!DOCTYPE e [<!ENTITY x 'y'>]><event><__chat/>#weartakcommand</event>"
+        val xxe = "<!DOCTYPE e [<!ENTITY x 'y'>]><event><__chat/>#weartaktrackercommand</event>"
         assertNull(InboundChat.commandRequest(xxe, "ME", "s", 0))
     }
 }

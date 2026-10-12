@@ -17,7 +17,7 @@ fun interface ChatCommandHandler {
 }
 
 /**
- * Runs `#weartakcommand...` chat messages. Only direct messages from allow-listed callsigns are
+ * Runs `#weartaktrackercommand...` chat messages. Only direct messages from allow-listed callsigns are
  * acted on, and only when the Commands setting is on. Messages from other senders are swallowed
  * silently so the feature cannot be probed. Argument values are never logged or echoed.
  */

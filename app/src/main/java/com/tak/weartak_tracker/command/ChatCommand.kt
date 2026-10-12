@@ -1,6 +1,6 @@
 package com.tak.weartak_tracker.command
 
-/** A remote command sent as a chat message: `#weartakcommand<name> key=value key2="quoted value"`. */
+/** A remote command sent as a chat message: `#weartaktrackercommand<name> key=value key2="quoted value"`. */
 data class ChatCommand(val name: String, val args: Map<String, String>)
 
 sealed interface ChatCommandParse {
@@ -10,7 +10,7 @@ sealed interface ChatCommandParse {
 }
 
 object ChatCommandParser {
-    const val PREFIX = "#weartakcommand"
+    const val PREFIX = "#weartaktrackercommand"
     const val MAX_LENGTH = 768
     const val MAX_ARGS = 12
     const val MAX_VALUE_LENGTH = 128

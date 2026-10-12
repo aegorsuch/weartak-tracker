@@ -92,7 +92,7 @@ fun interface PresetServerSink {
 }
 
 /**
- * `#weartakcommandloadprofile name=odin-weartak` applies a preset stored on the device. Credentials
+ * `#weartaktrackercommandloadprofile name=odin-weartak` applies a preset stored on the device. Credentials
  * come from that file, never from chat, and nothing from it is logged or sent back.
  */
 class LoadProfileHandler(
