@@ -333,56 +333,74 @@ fun NavGraphBuilder.settingsGraph(repo: SettingsRepository, configState: State<T
             }
         }
         WearTAKPageWithBackArrow("Plugins", back) {
-            item {
-                WearTAKSplitToggleChip(
-                    appIcon = {},
-                    title = "Commands",
-                    label = if (config.chatCommandsEnabled) "Enabled" else "Disabled",
-                    checked = config.chatCommandsEnabled,
-                    onCheckedChange = { on -> update { it.copy(chatCommandsEnabled = on) } },
-                    onClick = { go("chat_commands") },
-                )
-            }
-            item {
-                WearTAKSplitToggleChip(
-                    appIcon = {},
-                    title = "Ditto",
-                    label = when (config.dittoPdlSource) {
-                        DittoPdlSource.COMMUNITY -> "Community"
-                        DittoPdlSource.CUSTOM -> config.dittoCustomPdl.ifBlank { "No custom PDL saved" }
-                    },
-                    checked = config.dittoEnabled,
-                    onCheckedChange = { on ->
-                        if (!on) {
-                            update { it.copy(dittoEnabled = false) }
-                            return@WearTAKSplitToggleChip
+            listOf("Commands", "Ditto", "Everywhere Comms", "Somewear Labs")
+                .sortedWith(String.CASE_INSENSITIVE_ORDER)
+                .forEach { title ->
+                    item {
+                        when (title) {
+                            "Commands" -> {
+                                WearTAKSplitToggleChip(
+                                    appIcon = {},
+                                    title = title,
+                                    label = if (config.chatCommandsEnabled) "Enabled" else "Disabled",
+                                    checked = config.chatCommandsEnabled,
+                                    onCheckedChange = { on -> update { it.copy(chatCommandsEnabled = on) } },
+                                    onClick = { go("chat_commands") },
+                                )
+                            }
+                            "Ditto" -> {
+                                WearTAKSplitToggleChip(
+                                    appIcon = {},
+                                    title = title,
+                                    label = when (config.dittoPdlSource) {
+                                        DittoPdlSource.COMMUNITY -> "Community"
+                                        DittoPdlSource.CUSTOM -> config.dittoCustomPdl.ifBlank { "No custom PDL saved" }
+                                    },
+                                    checked = config.dittoEnabled,
+                                    onCheckedChange = { on ->
+                                        if (!on) {
+                                            update { it.copy(dittoEnabled = false) }
+                                            return@WearTAKSplitToggleChip
+                                        }
+                                        val pdl = when (config.dittoPdlSource) {
+                                            DittoPdlSource.COMMUNITY -> BuildConfig.DITTO_COMMUNITY_IDENTITY
+                                            DittoPdlSource.CUSTOM -> config.dittoCustomPdl
+                                        }
+                                        val identityError = try {
+                                            val license = com.tak.weartak_tracker.service.DittoCommunityLicenseHelper.parse(pdl)
+                                            if (license.expiresAtMillis <= System.currentTimeMillis()) "Ditto identity has expired" else null
+                                        } catch (error: IllegalArgumentException) {
+                                            error.message ?: "Invalid Ditto identity"
+                                        }
+                                        if (identityError != null) {
+                                            Toast.makeText(context, identityError, Toast.LENGTH_LONG).show()
+                                            go("ditto_identity")
+                                            return@WearTAKSplitToggleChip
+                                        }
+                                        val missing = dittoRuntimePermissions(context)
+                                        if (missing.isEmpty()) {
+                                            update { it.copy(dittoEnabled = true) }
+                                            TrackerService.start(context)
+                                        } else {
+                                            dittoPermissions.launch(missing)
+                                        }
+                                    },
+                                    onClick = { go("ditto_identity") },
+                                )
+                            }
+                            else -> {
+                                WearTAKSplitToggleChip(
+                                    appIcon = {},
+                                    title = title,
+                                    label = "Unfunded Request",
+                                    checked = false,
+                                    onCheckedChange = {},
+                                    onClick = {},
+                                )
+                            }
                         }
-                        val pdl = when (config.dittoPdlSource) {
-                            DittoPdlSource.COMMUNITY -> BuildConfig.DITTO_COMMUNITY_IDENTITY
-                            DittoPdlSource.CUSTOM -> config.dittoCustomPdl
-                        }
-                        val identityError = try {
-                            val license = com.tak.weartak_tracker.service.DittoCommunityLicenseHelper.parse(pdl)
-                            if (license.expiresAtMillis <= System.currentTimeMillis()) "Ditto identity has expired" else null
-                        } catch (error: IllegalArgumentException) {
-                            error.message ?: "Invalid Ditto identity"
-                        }
-                        if (identityError != null) {
-                            Toast.makeText(context, identityError, Toast.LENGTH_LONG).show()
-                            go("ditto_identity")
-                            return@WearTAKSplitToggleChip
-                        }
-                        val missing = dittoRuntimePermissions(context)
-                        if (missing.isEmpty()) {
-                            update { it.copy(dittoEnabled = true) }
-                            TrackerService.start(context)
-                        } else {
-                            dittoPermissions.launch(missing)
-                        }
-                    },
-                    onClick = { go("ditto_identity") },
-                )
-            }
+                    }
+                }
         }
     }
 
