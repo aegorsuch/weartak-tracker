@@ -166,12 +166,24 @@ fun WearTAKToggleChip(checked: Boolean, onCheckedChange: (Boolean) -> Unit, titl
 }
 
 @Composable
-fun <T> WearTAKSelectableChip(selected: Boolean, onClick: () -> Unit, title: String, item: T, list: List<T>) {
+fun <T> WearTAKSelectableChip(
+    selected: Boolean,
+    onClick: () -> Unit,
+    title: String,
+    item: T,
+    list: List<T>,
+    secondaryTitle: String = "",
+) {
     SelectableChip(
         modifier = Modifier.fillMaxWidth(),
         selected = selected,
         onClick = { onClick() },
         label = { Text(title, maxLines = 3, overflow = TextOverflow.Ellipsis) },
+        secondaryLabel = {
+            if (secondaryTitle.isNotEmpty()) {
+                Text(secondaryTitle, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+        },
         shape = when {
             list.size == 1 -> MaterialTheme.shapes.large
             item == list.first() -> RoundedCornerShape(20.dp, 20.dp, 0.dp, 0.dp)

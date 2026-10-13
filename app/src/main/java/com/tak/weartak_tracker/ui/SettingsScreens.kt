@@ -22,13 +22,17 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
@@ -533,6 +537,7 @@ private fun DittoIdentityPage(
     val context = LocalContext.current
     val update = rememberUpdater(repo)
     val state by TrackerState.ditto.collectAsStateWithLifecycle()
+    var showPdlHelp by rememberSaveable { mutableStateOf(false) }
     val communityAvailable = BuildConfig.DITTO_COMMUNITY_IDENTITY.isNotBlank()
     val currentState = state
     WearTAKPageWithBackArrow("Ditto Identity", back) {
@@ -549,6 +554,7 @@ private fun DittoIdentityPage(
                 title = "Community PDL",
                 item = DittoPdlSource.COMMUNITY,
                 list = DittoPdlSource.entries,
+                secondaryTitle = "Community",
             )
         }
         if (!communityAvailable) {
@@ -568,6 +574,14 @@ private fun DittoIdentityPage(
                 title = "Custom PDL",
                 item = DittoPdlSource.CUSTOM,
                 list = DittoPdlSource.entries,
+                secondaryTitle = config.dittoCustomPdl.ifBlank { "No custom PDL saved" },
+            )
+        }
+        item {
+            WearTAKTitleChipWithState(
+                title = "PDL Help",
+                state = "How to copy and paste a custom PDL",
+                onClick = { showPdlHelp = true },
             )
         }
         item {
@@ -585,6 +599,39 @@ private fun DittoIdentityPage(
             )
         }
     }
+
+    WearTAKAlertDialog(
+        show = showPdlHelp,
+        onDismissRequest = { showPdlHelp = false },
+        icon = {
+            Icon(
+                Icons.Filled.Info,
+                modifier = Modifier.size(25.dp),
+                contentDescription = null,
+                tint = Color.LightGray,
+            )
+        },
+        title = { Text("PDL Help") },
+        text = {
+            Column(
+                modifier = Modifier
+                    .heightIn(max = 200.dp)
+                    .verticalScroll(rememberScrollState()),
+            ) {
+                Text(
+                    "1. Send only the PDL in a chat message. Do not add other text, spaces, or characters.\n\n" +
+                        "2. On the watch, press and hold the message, then release it. A toast confirms the PDL was copied.\n\n" +
+                        "3. Open Custom PDL. Before opening the keyboard, press and hold the text field, then tap Paste.",
+                    textAlign = TextAlign.Center,
+                    fontSize = 12.sp,
+                )
+            }
+        },
+        confirmButton = {
+            DialogButton("Dismiss", Color.Gray, Color.White) { showPdlHelp = false }
+        },
+        dismissButton = {},
+    )
 }
 
 private fun dittoRuntimePermissions(context: Context): Array<String> = buildList {
