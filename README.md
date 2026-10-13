@@ -164,6 +164,9 @@ Ditto defaults to the Community PDL. Provide `dittoCommunityIdentity` in the ign
 through Gradle properties, or with the `DITTO_COMMUNITY_IDENTITY` environment variable for builds that include the
 Community identity; keep the license out of source control. A custom PDL can also be entered on the watch under
 **Plugins > Ditto > Ditto Identity**.
+The Ditto plugin subtitle shows Community or the saved custom PDL (truncated to fit); the switch controls sync.
+PDL Help contains scrollable instructions for copying and pasting a custom identity. Turning Ditto off closes its
+database before it is reopened, so repeated off/on cycles release the previous instance's resources.
 
 ### Release signing
 Release builds are signed only when a `signing.properties` file exists in the project root (it is git-ignored, as are `*.jks`/`*.keystore`):

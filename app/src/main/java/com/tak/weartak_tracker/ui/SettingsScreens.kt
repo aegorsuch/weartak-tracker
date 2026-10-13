@@ -347,7 +347,10 @@ fun NavGraphBuilder.settingsGraph(repo: SettingsRepository, configState: State<T
                 WearTAKSplitToggleChip(
                     appIcon = {},
                     title = "Ditto",
-                    label = if (config.dittoEnabled) "Enabled" else "Disabled",
+                    label = when (config.dittoPdlSource) {
+                        DittoPdlSource.COMMUNITY -> "Community"
+                        DittoPdlSource.CUSTOM -> config.dittoCustomPdl.ifBlank { "No custom PDL saved" }
+                    },
                     checked = config.dittoEnabled,
                     onCheckedChange = { on ->
                         if (!on) {

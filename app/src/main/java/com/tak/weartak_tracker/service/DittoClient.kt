@@ -60,18 +60,13 @@ class DittoClient(context: Context) {
                 sharedKey = license.sharedKey,
             )
             val instance = Ditto(dependencies, identity)
+            ditto = instance
             instance.setOfflineOnlyLicenseToken(license.licenseToken)
             instance.deviceName = config.callsign
             instance.transportConfig = DittoTransportConfig().apply { enableAllPeerToPeer() }
             val subscription = instance.sync.registerSubscription("SELECT * FROM track")
-            try {
-                instance.startSync()
-            } catch (error: DittoError) {
-                subscription.close()
-                throw error
-            }
-            ditto = instance
             trackSubscription = subscription
+            instance.startSync()
             activePdl = pdl
             DittoState.Active
         } catch (error: DittoError) {
@@ -133,9 +128,10 @@ class DittoClient(context: Context) {
         trackSubscription = null
         ditto?.let { instance ->
             try {
-                instance.stopSync()
+                // stopSync leaves the database open; close releases it before the next identity is opened.
+                instance.close()
             } catch (error: DittoError) {
-                Log.e(TAG, "Ditto sync stop failed", error)
+                Log.e(TAG, "Ditto close failed", error)
             }
         }
         ditto = null
