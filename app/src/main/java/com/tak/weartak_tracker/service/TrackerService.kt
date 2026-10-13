@@ -64,6 +64,7 @@ class TrackerService : Service() {
     private lateinit var channels: TakChannelManager
     private lateinit var sitx: SitxClient
     private lateinit var multicast: MulticastPublisher
+    private lateinit var ditto: DittoClient
     private lateinit var location: LocationEngine
     private lateinit var forwarder: AlertForwarder
 
@@ -108,6 +109,7 @@ class TrackerService : Service() {
         TrackerState.locationAccess.value = LocationAccess.current(this)
         repo = (application as TrackerApp).settings
         network = NetworkMonitor(this)
+        ditto = DittoClient(this)
         chatCommands = ChatCommandRuntime.create(this, repo) { tak }
         tak = TakServerManager(
             this, scope, repo.deviceUid,
@@ -141,14 +143,25 @@ class TrackerService : Service() {
             var previous: TrackerConfig? = null
             repo.config.collect { c ->
                 val identityChanged = c.identityChangedFrom(previous)
+                val dittoConfigChanged = previous?.let {
+                    it.dittoEnabled != c.dittoEnabled ||
+                        it.dittoPdlSource != c.dittoPdlSource ||
+                        it.dittoCustomPdl != c.dittoCustomPdl
+                } ?: true
                 previous = c
                 config = c
                 applyPhysio()
                 tak.update(c.servers)
                 channels.retain(c.servers.filter { it.enabled }.map { it.id }.toSet())
                 sitx.update(c)
+                if (c.dittoEnabled && dittoConfigChanged) {
+                    TrackerState.ditto.value = com.tak.weartak_tracker.data.DittoState.Starting
+                }
+                val dittoState = ditto.configure(c)
+                TrackerState.ditto.value = dittoState
+                TrackerState.setEndpoint(Endpoint.DITTO, dittoState == com.tak.weartak_tracker.data.DittoState.Active)
                 configureMulticast()
-                if (identityChanged) {
+                if (identityChanged || dittoConfigChanged) {
                     location.requestSingleFix()
                     lastFix?.let { sendPli(it) }
                 }
@@ -277,8 +290,11 @@ class TrackerService : Service() {
             channels.clear()
             sitx.stop()
             multicast.close()
+            ditto.stop()
             network.stop()
         }
+        TrackerState.setEndpoint(Endpoint.DITTO, false)
+        TrackerState.ditto.value = com.tak.weartak_tracker.data.DittoState.Disabled
         scope.cancel()
         TrackerState.serviceRunning.value = false
         TrackerState.activity.value = Activity.UNKNOWN
@@ -330,6 +346,7 @@ class TrackerService : Service() {
         routes += withContext(Dispatchers.IO) { sitx.send(xml) }
         routes += multicast.send(xml)
         if (routes > 0) TrackerState.lastPliMillis.value = System.currentTimeMillis()
+        ditto.publishTrack(xml, fix, config, repo.deviceUid)
     }
 
     // ---- Alerts ----

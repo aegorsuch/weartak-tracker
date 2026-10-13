@@ -10,6 +10,12 @@ android {
     namespace 'com.tak.weartak_tracker'
     compileSdk 36
 
+    def localBuildProperties = new Properties()
+    def localBuildPropertiesFile = rootProject.file("local.properties")
+    if (localBuildPropertiesFile.exists()) localBuildPropertiesFile.withInputStream {
+        localBuildProperties.load(it)
+    }
+
     defaultConfig {
         applicationId "com.tak.weartak_tracker"
         minSdk 30
@@ -17,6 +23,16 @@ android {
         versionCode 585
         versionName "5.8.3"
         setProperty("archivesBaseName", "WearTAK-Tracker-${versionName}")
+        def dittoCommunityIdentity = (
+                project.findProperty("dittoCommunityIdentity") ?:
+                System.getenv("DITTO_COMMUNITY_IDENTITY") ?:
+                localBuildProperties.getProperty("dittoCommunityIdentity") ?:
+                ""
+        ).toString().trim()
+        if (dittoCommunityIdentity.startsWith('"') && dittoCommunityIdentity.endsWith('"')) {
+            dittoCommunityIdentity = dittoCommunityIdentity.substring(1, dittoCommunityIdentity.length() - 1)
+        }
+        buildConfigField "String", "DITTO_COMMUNITY_IDENTITY", "\"${dittoCommunityIdentity}\""
     }
 
     signingConfigs {
@@ -78,6 +94,7 @@ dependencies {
 
     implementation 'androidx.core:core-ktx:1.13.1'
     implementation 'androidx.datastore:datastore-preferences:1.1.1'
+    implementation 'live.ditto:ditto:4.10.2'
     implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1'
     implementation 'com.google.android.gms:play-services-location:21.3.0'
     implementation 'com.squareup.okhttp3:okhttp:4.12.0'

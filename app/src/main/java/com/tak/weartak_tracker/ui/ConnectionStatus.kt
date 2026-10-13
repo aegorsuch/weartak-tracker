@@ -21,7 +21,7 @@ internal fun connectionStatusIcon(
         sitx is SitxState.AwaitingUser || sitx is SitxState.Connecting || sitx is SitxState.Authorized
     return when {
         connected > 0 && connected < servers.size -> R.drawable.tak_server_some_connected
-        connected > 0 || Endpoint.SITX in endpoints -> R.drawable.tak_server_connected
+        connected > 0 || Endpoint.SITX in endpoints || Endpoint.DITTO in endpoints -> R.drawable.tak_server_connected
         connecting -> R.drawable.tak_server_connecting
         Endpoint.MULTICAST in endpoints -> R.drawable.multicast_connected
         else -> R.drawable.tak_server_disconnected

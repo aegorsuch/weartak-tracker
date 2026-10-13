@@ -35,6 +35,8 @@ const val DEFAULT_TAK_PORT = 8089
 /** Public OAuth application identifier used by WearTAK-CIV; not a client secret. */
 const val DEFAULT_SITX_CLIENT_ID = "D4RTE81TJjccxlc8LPD7QQ"
 
+enum class DittoPdlSource { COMMUNITY, CUSTOM }
+
 internal fun sitxClientIdOrDefault(value: String?): String =
     value?.trim()?.takeIf { it.isNotEmpty() } ?: DEFAULT_SITX_CLIENT_ID
 
@@ -112,6 +114,9 @@ data class TrackerConfig(
     val networkPreferencesLocked: Boolean = false,
     val chatCommandsEnabled: Boolean = false,
     val chatCommandCallsigns: List<String> = emptyList(),
+    val dittoEnabled: Boolean = false,
+    val dittoPdlSource: DittoPdlSource = DittoPdlSource.COMMUNITY,
+    val dittoCustomPdl: String = "",
 )
 
 /** SITX OAuth device-flow state (persisted encrypted). */
@@ -152,6 +157,9 @@ class SettingsRepository(private val context: Context) {
         val NETWORK_LOCKED = booleanPreferencesKey("network_preferences_locked")
         val CHAT_COMMANDS = booleanPreferencesKey("enable_chat_commands")
         val CHAT_CALLSIGNS = stringPreferencesKey("chat_command_callsigns")
+        val DITTO_ENABLED = booleanPreferencesKey("ditto_enabled")
+        val DITTO_PDL_SOURCE = stringPreferencesKey("ditto_pdl_source")
+        val DITTO_CUSTOM_PDL = stringPreferencesKey("ditto_custom_pdl.enc")
     }
 
     @SuppressLint("HardwareIds")
@@ -185,6 +193,12 @@ class SettingsRepository(private val context: Context) {
             p[K.NETWORK_LOCKED] = n.networkPreferencesLocked
             p[K.CHAT_COMMANDS] = n.chatCommandsEnabled
             p[K.CHAT_CALLSIGNS] = n.chatCommandCallsigns.joinToString("\n")
+            p[K.DITTO_ENABLED] = n.dittoEnabled
+            p[K.DITTO_PDL_SOURCE] = n.dittoPdlSource.name
+            if (n.dittoCustomPdl != old.dittoCustomPdl) {
+                if (n.dittoCustomPdl.isBlank()) p.remove(K.DITTO_CUSTOM_PDL)
+                else p[K.DITTO_CUSTOM_PDL] = SecretBox.encrypt(n.dittoCustomPdl.trim())
+            }
             p[K.CALLSIGN] = n.callsign.trim()
             p[K.TEAM] = n.team
             p[K.ROLE] = n.role
@@ -264,5 +278,10 @@ class SettingsRepository(private val context: Context) {
             networkPreferencesLocked = p[K.NETWORK_LOCKED] ?: false,
             chatCommandsEnabled = p[K.CHAT_COMMANDS] ?: false,
             chatCommandCallsigns = p[K.CHAT_CALLSIGNS]?.lines()?.filter { it.isNotBlank() } ?: emptyList(),
+            dittoEnabled = p[K.DITTO_ENABLED] ?: false,
+            dittoPdlSource = p[K.DITTO_PDL_SOURCE]?.let {
+                runCatching { DittoPdlSource.valueOf(it) }.getOrNull()
+            } ?: DittoPdlSource.COMMUNITY,
+            dittoCustomPdl = SecretBox.decrypt(p[K.DITTO_CUSTOM_PDL]).orEmpty(),
         )
 }

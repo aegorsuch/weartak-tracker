@@ -7,7 +7,15 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 
-enum class Endpoint { TAK_SERVER, SITX, MULTICAST }
+enum class Endpoint { TAK_SERVER, SITX, MULTICAST, DITTO }
+
+sealed interface DittoState {
+    data object Disabled : DittoState
+    data object NeedsIdentity : DittoState
+    data object Starting : DittoState
+    data object Active : DittoState
+    data class Error(val message: String) : DittoState
+}
 
 enum class TakStatus { DISABLED, DISCONNECTED, ENROLLING, CONNECTING, CONNECTED, FAILED, DUPLICATE }
 
@@ -54,6 +62,7 @@ object TrackerState {
     /** Channel lists keyed by TAK Server id; only servers that have connected appear here. */
     val takChannels = MutableStateFlow<Map<String, TakServerChannels>>(emptyMap())
     val sitx = MutableStateFlow<SitxState>(SitxState.Disabled)
+    val ditto = MutableStateFlow<DittoState>(DittoState.Disabled)
     val sitxAccount = MutableStateFlow<SitxAccount?>(null)
     val sitxAuthorized = MutableStateFlow(false)
     val sitxRenewalMessage = MutableStateFlow("")

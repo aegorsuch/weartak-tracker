@@ -5,6 +5,8 @@ import android.hardware.Sensor
 import android.hardware.SensorManager
 import android.content.ClipData
 import android.content.ClipboardManager
+import android.content.Context
+import android.os.Build
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -78,7 +80,10 @@ import com.tak.weartak_tracker.R
 import com.tak.weartak_tracker.cot.calculateExertion
 import com.tak.weartak_tracker.command.ChatCommandAuthorizer
 import com.tak.weartak_tracker.data.MULTICAST_PROTOCOLS
+import com.tak.weartak_tracker.BuildConfig
 import com.tak.weartak_tracker.data.DEFAULT_SITX_CLIENT_ID
+import com.tak.weartak_tracker.data.DittoPdlSource
+import com.tak.weartak_tracker.data.DittoState
 import com.tak.weartak_tracker.data.ROLE_CATEGORIES
 import com.tak.weartak_tracker.data.SettingsRepository
 import com.tak.weartak_tracker.data.SitxState
@@ -314,6 +319,15 @@ fun NavGraphBuilder.settingsGraph(repo: SettingsRepository, configState: State<T
 
     composable("plugins") {
         val update = rememberUpdater(repo)
+        val context = LocalContext.current
+        val dittoPermissions = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { results ->
+            if (results.values.all { it }) {
+                update { it.copy(dittoEnabled = true) }
+                TrackerService.start(context)
+            } else {
+                Toast.makeText(context, "Nearby permissions are required for Ditto peer-to-peer sync", Toast.LENGTH_LONG).show()
+            }
+        }
         WearTAKPageWithBackArrow("Plugins", back) {
             item {
                 WearTAKSplitToggleChip(
@@ -325,7 +339,70 @@ fun NavGraphBuilder.settingsGraph(repo: SettingsRepository, configState: State<T
                     onClick = { go("chat_commands") },
                 )
             }
+            item {
+                WearTAKSplitToggleChip(
+                    appIcon = {},
+                    title = "Ditto",
+                    label = if (config.dittoEnabled) "Enabled" else "Disabled",
+                    checked = config.dittoEnabled,
+                    onCheckedChange = { on ->
+                        if (!on) {
+                            update { it.copy(dittoEnabled = false) }
+                            return@WearTAKSplitToggleChip
+                        }
+                        val pdl = when (config.dittoPdlSource) {
+                            DittoPdlSource.COMMUNITY -> BuildConfig.DITTO_COMMUNITY_IDENTITY
+                            DittoPdlSource.CUSTOM -> config.dittoCustomPdl
+                        }
+                        val identityError = try {
+                            val license = com.tak.weartak_tracker.service.DittoCommunityLicenseHelper.parse(pdl)
+                            if (license.expiresAtMillis <= System.currentTimeMillis()) "Ditto identity has expired" else null
+                        } catch (error: IllegalArgumentException) {
+                            error.message ?: "Invalid Ditto identity"
+                        }
+                        if (identityError != null) {
+                            Toast.makeText(context, identityError, Toast.LENGTH_LONG).show()
+                            go("ditto_identity")
+                            return@WearTAKSplitToggleChip
+                        }
+                        val missing = dittoRuntimePermissions(context)
+                        if (missing.isEmpty()) {
+                            update { it.copy(dittoEnabled = true) }
+                            TrackerService.start(context)
+                        } else {
+                            dittoPermissions.launch(missing)
+                        }
+                    },
+                    onClick = { go("ditto_identity") },
+                )
+            }
         }
+    }
+
+    composable("ditto_identity") {
+        DittoIdentityPage(repo, config, back, go)
+    }
+
+    composable("ditto_custom_identity") {
+        val currentConfig by repo.config.collectAsStateWithLifecycle(initialValue = config)
+        val update = rememberUpdater(repo)
+        WearTAKStringEntryPage(
+            item = currentConfig.dittoCustomPdl,
+            label = "Ditto Community PDL",
+            onBack = back,
+            keyboardType = KeyboardType.Ascii,
+            validate = { value ->
+                try {
+                    val license = com.tak.weartak_tracker.service.DittoCommunityLicenseHelper.parse(value)
+                    if (license.expiresAtMillis <= System.currentTimeMillis()) "Ditto identity has expired" else null
+                } catch (error: IllegalArgumentException) {
+                    error.message ?: "Invalid Ditto identity"
+                }
+            },
+            confirmFunction = { value ->
+                update { it.copy(dittoPdlSource = DittoPdlSource.CUSTOM, dittoCustomPdl = value.trim()) }
+            },
+        )
     }
 
     composable("chat_commands") {
@@ -445,6 +522,81 @@ fun NavGraphBuilder.settingsGraph(repo: SettingsRepository, configState: State<T
         SitxStatusPage(configState.value, back, autoDismissAfterAuthorization = true)
     }
 }
+
+@Composable
+private fun DittoIdentityPage(
+    repo: SettingsRepository,
+    config: TrackerConfig,
+    back: () -> Unit,
+    go: Navigate,
+) {
+    val context = LocalContext.current
+    val update = rememberUpdater(repo)
+    val state by TrackerState.ditto.collectAsStateWithLifecycle()
+    val communityAvailable = BuildConfig.DITTO_COMMUNITY_IDENTITY.isNotBlank()
+    val currentState = state
+    WearTAKPageWithBackArrow("Ditto Identity", back) {
+        item {
+            WearTAKSelectableChip(
+                selected = config.dittoPdlSource == DittoPdlSource.COMMUNITY,
+                onClick = {
+                    if (communityAvailable) {
+                        update { it.copy(dittoPdlSource = DittoPdlSource.COMMUNITY) }
+                    } else {
+                        Toast.makeText(context, "Community PDL is not configured in this build", Toast.LENGTH_LONG).show()
+                    }
+                },
+                title = "Community PDL",
+                item = DittoPdlSource.COMMUNITY,
+                list = DittoPdlSource.entries,
+            )
+        }
+        if (!communityAvailable) {
+            item {
+                Text(
+                    "Community PDL is not configured in this build",
+                    fontSize = 11.sp,
+                    textAlign = TextAlign.Center,
+                    color = Color.LightGray,
+                )
+            }
+        }
+        item {
+            WearTAKSelectableChip(
+                selected = config.dittoPdlSource == DittoPdlSource.CUSTOM,
+                onClick = { go("ditto_custom_identity") },
+                title = "Custom PDL",
+                item = DittoPdlSource.CUSTOM,
+                list = DittoPdlSource.entries,
+            )
+        }
+        item {
+            Text(
+                when (currentState) {
+                    DittoState.Disabled -> "Ditto sync is off"
+                    DittoState.NeedsIdentity -> "Set a Ditto identity to start sync"
+                    DittoState.Starting -> "Starting Ditto peer-to-peer sync"
+                    DittoState.Active -> "Ditto peer-to-peer sync is active"
+                    is DittoState.Error -> currentState.message
+                },
+                fontSize = 11.sp,
+                textAlign = TextAlign.Center,
+                color = Color.LightGray,
+            )
+        }
+    }
+}
+
+private fun dittoRuntimePermissions(context: Context): Array<String> = buildList {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        add(Manifest.permission.BLUETOOTH_SCAN)
+        add(Manifest.permission.BLUETOOTH_CONNECT)
+        add(Manifest.permission.BLUETOOTH_ADVERTISE)
+    }
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        add(Manifest.permission.NEARBY_WIFI_DEVICES)
+    }
+}.filterNot(context::granted).toTypedArray()
 
 private fun NavGraphBuilder.networkComposable(
     route: String,

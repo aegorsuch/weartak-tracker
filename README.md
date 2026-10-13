@@ -160,6 +160,11 @@ Logs: `adb logcat -s TrackerService TakServerManager TakCertificates TakChannelM
 ```
 CI (`.github/workflows/android.yml`) runs the unit tests and builds the debug APK on every push and pull request.
 
+Ditto defaults to the Community PDL. Provide `dittoCommunityIdentity` in the ignored root `local.properties`,
+through Gradle properties, or with the `DITTO_COMMUNITY_IDENTITY` environment variable for builds that include the
+Community identity; keep the license out of source control. A custom PDL can also be entered on the watch under
+**Plugins > Ditto > Ditto Identity**.
+
 ### Release signing
 Release builds are signed only when a `signing.properties` file exists in the project root (it is git-ignored, as are `*.jks`/`*.keystore`):
 ```
