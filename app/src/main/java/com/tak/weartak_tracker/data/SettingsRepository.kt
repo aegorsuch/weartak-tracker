@@ -117,6 +117,7 @@ data class TrackerConfig(
     val dittoEnabled: Boolean = false,
     val dittoPdlSource: DittoPdlSource = DittoPdlSource.COMMUNITY,
     val dittoCustomPdl: String = "",
+    val sensorManagerEnabled: Boolean = false,
 )
 
 /** SITX OAuth device-flow state (persisted encrypted). */
@@ -156,6 +157,7 @@ class SettingsRepository(private val context: Context) {
         val MEDICAL_PROFILE = stringPreferencesKey("medical_profile.enc")
         val NETWORK_LOCKED = booleanPreferencesKey("network_preferences_locked")
         val CHAT_COMMANDS = booleanPreferencesKey("enable_chat_commands")
+        val SENSOR_MANAGER = booleanPreferencesKey("enable_sensor_manager")
         val CHAT_CALLSIGNS = stringPreferencesKey("chat_command_callsigns")
         val DITTO_ENABLED = booleanPreferencesKey("ditto_enabled")
         val DITTO_PDL_SOURCE = stringPreferencesKey("ditto_pdl_source")
@@ -192,6 +194,7 @@ class SettingsRepository(private val context: Context) {
             developerMode.value = n.developerMode
             p[K.NETWORK_LOCKED] = n.networkPreferencesLocked
             p[K.CHAT_COMMANDS] = n.chatCommandsEnabled
+            p[K.SENSOR_MANAGER] = n.sensorManagerEnabled
             p[K.CHAT_CALLSIGNS] = n.chatCommandCallsigns.joinToString("\n")
             p[K.DITTO_ENABLED] = n.dittoEnabled
             p[K.DITTO_PDL_SOURCE] = n.dittoPdlSource.name
@@ -277,6 +280,7 @@ class SettingsRepository(private val context: Context) {
             medicalProfile = MedicalProfileCodec.decode(SecretBox.decrypt(p[K.MEDICAL_PROFILE])),
             networkPreferencesLocked = p[K.NETWORK_LOCKED] ?: false,
             chatCommandsEnabled = p[K.CHAT_COMMANDS] ?: false,
+            sensorManagerEnabled = p[K.SENSOR_MANAGER] ?: false,
             chatCommandCallsigns = p[K.CHAT_CALLSIGNS]?.lines()?.filter { it.isNotBlank() } ?: emptyList(),
             dittoEnabled = p[K.DITTO_ENABLED] ?: false,
             dittoPdlSource = p[K.DITTO_PDL_SOURCE]?.let {

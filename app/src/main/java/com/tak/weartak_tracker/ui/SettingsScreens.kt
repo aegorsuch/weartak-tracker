@@ -333,7 +333,7 @@ fun NavGraphBuilder.settingsGraph(repo: SettingsRepository, configState: State<T
             }
         }
         WearTAKPageWithBackArrow("Plugins", back) {
-            listOf("Commands", "Ditto", "Everywhere Comms", "GoTenna", "Somewear Labs")
+            listOf("Commands", "Ditto", "Everywhere Comms", "GoTenna", "Sensor Manager", "Somewear Labs")
                 .sortedWith(String.CASE_INSENSITIVE_ORDER)
                 .forEach { title ->
                     item {
@@ -388,6 +388,16 @@ fun NavGraphBuilder.settingsGraph(repo: SettingsRepository, configState: State<T
                                     onClick = { go("ditto_identity") },
                                 )
                             }
+                            "Sensor Manager" -> {
+                                WearTAKSplitToggleChip(
+                                    appIcon = {},
+                                    title = title,
+                                    label = "Unfunded Request",
+                                    checked = config.sensorManagerEnabled,
+                                    onCheckedChange = { on -> update { it.copy(sensorManagerEnabled = on) } },
+                                    onClick = { go("sensor_manager") },
+                                )
+                            }
                             else -> {
                                 WearTAKSplitToggleChip(
                                     appIcon = {},
@@ -438,6 +448,14 @@ fun NavGraphBuilder.settingsGraph(repo: SettingsRepository, configState: State<T
                     config.chatCommandCallsigns.joinToString(", ").ifEmpty { "None" },
                 ) { go("chat_command_callsigns") }
             }
+        }
+    }
+
+    composable("sensor_manager") {
+        WearTAKPageWithBackArrow("Sensor Manager", back) {
+            item { Text("Unfunded Request", textAlign = TextAlign.Center) }
+            item { Text("Button is Placeholder", textAlign = TextAlign.Center, color = Color.LightGray) }
+            item { WearTAKTitleChip("Scan") {} }
         }
     }
 

@@ -167,6 +167,9 @@ Community identity; keep the license out of source control. A custom PDL can als
 The Ditto plugin subtitle shows Community or the saved custom PDL (truncated to fit); the switch controls sync.
 Plugins are listed alphabetically. Everywhere Comms, GoTenna and Somewear Labs display **Unfunded Request**;
 their placeholder switches stay off and tapping them does not activate any integration.
+Sensor Manager also displays **Unfunded Request** and has a saved enable/disable switch (off by default). Tapping
+its row opens a page showing **Unfunded Request**, **Button is Placeholder** and an inert **Scan** button; no
+scanning, pairing or Bluetooth access is performed.
 PDL Help contains scrollable instructions for copying and pasting a custom identity. Turning Ditto off closes its
 database before it is reopened, so repeated off/on cycles release the previous instance's resources.
 
