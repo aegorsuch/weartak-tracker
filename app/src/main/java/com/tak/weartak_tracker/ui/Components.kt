@@ -131,9 +131,10 @@ private val titleChipColors
     )
 
 @Composable
-fun WearTAKTitleChip(title: String, icon: @Composable () -> Unit = {}, onClick: () -> Unit) {
+fun WearTAKTitleChip(title: String, icon: @Composable () -> Unit = {}, enabled: Boolean = true, onClick: () -> Unit) {
     Chip(
         onClick = onClick,
+        enabled = enabled,
         label = { Text(text = title) },
         colors = titleChipColors,
         icon = { icon() },
@@ -153,11 +154,13 @@ fun WearTAKTitleChipWithState(title: String, state: String, onClick: () -> Unit)
 }
 
 @Composable
-fun WearTAKToggleChip(checked: Boolean, onCheckedChange: (Boolean) -> Unit, title: String, description: String) {
+fun WearTAKToggleChip(checked: Boolean, onCheckedChange: (Boolean) -> Unit, title: String, description: String = "") {
     ToggleChip(
         modifier = Modifier.fillMaxWidth(),
         label = { Text(title, maxLines = 3, overflow = TextOverflow.Ellipsis) },
-        secondaryLabel = { Text(description, maxLines = 2, overflow = TextOverflow.Ellipsis) },
+        secondaryLabel = if (description.isEmpty()) null else {
+            { Text(description, maxLines = 2, overflow = TextOverflow.Ellipsis) }
+        },
         checked = checked,
         colors = ToggleChipDefaults.toggleChipColors(uncheckedToggleControlColor = ToggleChipDefaults.SwitchUncheckedIconColor),
         toggleControl = { Switch(checked = checked, onCheckedChange = null, enabled = true) },

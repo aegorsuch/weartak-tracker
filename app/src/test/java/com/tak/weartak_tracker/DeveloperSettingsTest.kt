@@ -48,7 +48,7 @@ class DeveloperSettingsTest {
             "multicast_protocol", "multicast_port", "sitx_tak_screen", "sitx_tak_url_screen",
             "sitx_tak_group_screen", "sitx_status_authorization_screen",
         ).forEach { assertTrue(it, isNetworkSettingsRoute(it)) }
-        listOf("main_screen", "settings_screen", "callsign_and_device_preferences", "reporting_strategy", "beta_features", "debug_tools")
+        listOf("main_screen", "settings_screen", "callsign_and_device_preferences", "reporting_strategy", "admin_preferences", "debug_tools")
             .forEach { assertFalse(it, isNetworkSettingsRoute(it)) }
     }
 }

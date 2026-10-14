@@ -96,7 +96,7 @@ internal fun DeveloperDebugPage(repo: SettingsRepository, back: () -> Unit) {
     val servers by TrackerState.takServers.collectAsStateWithLifecycle()
     val sitx by TrackerState.sitx.collectAsStateWithLifecycle()
     val connectivity = rememberConnectivity()
-    WearTAKPageWithBackArrow("Dev Debug Tools", back) {
+    WearTAKPageWithBackArrow("Developer Preferences", back) {
         item { DebugStayAwakeSetting() }
         item { DebugValue("Build", "${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})") }
         item { DebugValue("Device", "${Build.MANUFACTURER} ${Build.MODEL} / Android ${Build.VERSION.RELEASE}") }

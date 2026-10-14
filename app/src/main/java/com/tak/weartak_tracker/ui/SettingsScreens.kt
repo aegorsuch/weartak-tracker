@@ -151,28 +151,23 @@ fun NavGraphBuilder.settingsGraph(repo: SettingsRepository, configState: State<T
                     WearTAKTitleChip("Network Preferences") { go("network_preferences") }
                 }
             }
-            if (config.developerMode) {
-                item { WearTAKTitleChip("Beta Features") { go("beta_features") } }
-                item {
-                    WearTAKTitleChipWithState("Dev Debug Tools", "View network and build information") { go("debug_tools") }
-                }
-            }
             item { WearTAKTitleChip("Tool Preferences") { go("tool_preferences") } }
+            item { WearTAKTitleChip("Admin Preferences", enabled = config.developerMode) { go("admin_preferences") } }
+            item { WearTAKTitleChip("Developer Preferences", enabled = config.developerMode) { go("debug_tools") } }
             item { DeveloperVersion(repo, config) }
         }
     }
 
-    composable("beta_features") {
+    composable("admin_preferences") {
         if (config.developerMode) {
-            WearTAKPageWithBackArrow("Beta Features", back) {
+            WearTAKPageWithBackArrow("Admin Preferences", back) {
                 item {
                     WearTAKToggleChip(
                         checked = config.networkPreferencesLocked,
                         onCheckedChange = { locked ->
                             repo.updateAsync { if (it.developerMode) it.copy(networkPreferencesLocked = locked) else it }
                         },
-                        title = "Network Settings Lock",
-                        description = "Prevent access to Network Preferences",
+                        title = "Network Preferences Lock",
                     )
                 }
             }
