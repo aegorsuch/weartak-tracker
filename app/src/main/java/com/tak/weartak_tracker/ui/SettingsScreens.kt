@@ -333,7 +333,7 @@ fun NavGraphBuilder.settingsGraph(repo: SettingsRepository, configState: State<T
             }
         }
         WearTAKPageWithBackArrow("Plugins", back) {
-            listOf("Commands", "Ditto", "Everywhere Comms", "Somewear Labs")
+            listOf("Commands", "Ditto", "Everywhere Comms", "GoTenna", "Somewear Labs")
                 .sortedWith(String.CASE_INSENSITIVE_ORDER)
                 .forEach { title ->
                     item {

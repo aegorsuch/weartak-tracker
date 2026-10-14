@@ -165,7 +165,7 @@ through Gradle properties, or with the `DITTO_COMMUNITY_IDENTITY` environment va
 Community identity; keep the license out of source control. A custom PDL can also be entered on the watch under
 **Plugins > Ditto > Ditto Identity**.
 The Ditto plugin subtitle shows Community or the saved custom PDL (truncated to fit); the switch controls sync.
-Plugins are listed alphabetically. Everywhere Comms and Somewear Labs display **Unfunded Request**;
+Plugins are listed alphabetically. Everywhere Comms, GoTenna and Somewear Labs display **Unfunded Request**;
 their placeholder switches stay off and tapping them does not activate any integration.
 PDL Help contains scrollable instructions for copying and pasting a custom identity. Turning Ditto off closes its
 database before it is reopened, so repeated off/on cycles release the previous instance's resources.
