@@ -160,6 +160,39 @@ Logs: `adb logcat -s TrackerService TakServerManager TakCertificates TakChannelM
 ```
 CI (`.github/workflows/android.yml`) runs the unit tests and builds the debug APK on every push and pull request.
 
+### Government GitLab CI/CD
+
+The canonical TAK Forge repository uses `.gitlab-ci.yml`, matching WearTAK-WearOS's
+Gradle build-launcher image and release workflow. A push to `develop` runs unit tests
+and builds a signed release APK in `develop_release`; APKs and test reports are kept
+for 30 days. Version tags such as `v5.8.3` or `v5.8.0.3` run `official_release` with
+artifacts that do not expire. Use the official release job URL for TPC submissions.
+This pipeline does not publish GitHub releases or change version numbers.
+
+Configure these masked CI/CD variables in the **Tracker** GitLab project:
+
+| Variable | Value |
+|---|---|
+| `WEARTAK_RELEASE_KEYSTORE_B64` | Base64-encoded established Tracker release keystore, not the WearTAK-WearOS keystore |
+| `RELEASE_STORE_PASSWORD` | Tracker keystore password |
+| `RELEASE_KEY_ALIAS` | Tracker signing-key alias |
+| `RELEASE_KEY_PASSWORD` | Tracker signing-key password |
+| `DITTO_COMMUNITY_IDENTITY` | Optional Community identity for builds that include it |
+
+Protect the signing variables and ensure `develop` and release tags are protected so
+their jobs can access them. The instance/group must supply `TAK_REGISTRY_HOST` and a
+runner able to pull `devsecops/gradle-build-launcher:17-2.6.2` (Android SDK 36 and
+build-tools 35.0.0 are required). The proprietary Samsung Health AAR is not included
+in CI; those builds use the existing skin-temperature stub.
+
+The job recreates the keystore with restrictive permissions, validates its alias,
+passes signing credentials through environment variables, and removes the keystore
+afterward. It rejects missing/unsigned APKs and verifies the established Tracker
+certificate SHA-256 fingerprint:
+`430f146736b3dafc44157ff0b62836d16202244da17209176cb335ef0e63f2ec`.
+No signing secrets are committed or uploaded as artifacts. Local `signing.properties`
+builds and the existing GitHub debug workflow remain supported.
+
 Ditto defaults to the Community PDL. Provide `dittoCommunityIdentity` in the ignored root `local.properties`,
 through Gradle properties, or with the `DITTO_COMMUNITY_IDENTITY` environment variable for builds that include the
 Community identity; keep the license out of source control. A custom PDL can also be entered on the watch under

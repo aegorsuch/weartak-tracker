@@ -1,0 +1,76 @@
+variables:
+  GRADLE_BUILD_LAUNCHER_TAG: "2.6.2"
+  KUBERNETES_MEMORY_LIMIT: "8Gi"
+  GRADLE_USER_HOME: "$CI_PROJECT_DIR/.gradle"
+
+stages:
+  - build
+
+.release_build:
+  stage: build
+  image:
+    name: ${TAK_REGISTRY_HOST}/devsecops/gradle-build-launcher:17-${GRADLE_BUILD_LAUNCHER_TAG}
+    entrypoint: [""]
+
+  before_script:
+    - chmod +x gradlew
+    - |
+      set -eu
+      [ -n "${WEARTAK_RELEASE_KEYSTORE_B64:-}" ] || { echo "ERROR: WEARTAK_RELEASE_KEYSTORE_B64 missing"; exit 1; }
+      [ -n "${RELEASE_STORE_PASSWORD:-}" ] || { echo "ERROR: RELEASE_STORE_PASSWORD missing"; exit 1; }
+      [ -n "${RELEASE_KEY_ALIAS:-}" ] || { echo "ERROR: RELEASE_KEY_ALIAS missing"; exit 1; }
+      [ -n "${RELEASE_KEY_PASSWORD:-}" ] || { echo "ERROR: RELEASE_KEY_PASSWORD missing"; exit 1; }
+      umask 077
+      printf '%s' "$WEARTAK_RELEASE_KEYSTORE_B64" | base64 -d > "$CI_PROJECT_DIR/release.jks"
+      export RELEASE_KEYSTORE_FILE="$CI_PROJECT_DIR/release.jks"
+      keytool -list \
+        -keystore "$RELEASE_KEYSTORE_FILE" \
+        -storepass:env RELEASE_STORE_PASSWORD \
+        -alias "$RELEASE_KEY_ALIAS" >/dev/null
+      echo "Tracker release keystore verified."
+    - java -version
+    - ./gradlew --version
+
+  script:
+    - ./gradlew --no-daemon clean :app:testDebugUnitTest :app:assembleRelease
+    - |
+      set -eu
+      set -- app/build/outputs/apk/release/*.apk
+      [ "$#" -eq 1 ] && [ -f "$1" ] || { echo "ERROR: Expected exactly one release APK"; exit 1; }
+      APK="$1"
+      APKSIGNER="/opt/android-sdk-linux/build-tools/35.0.0/apksigner"
+      [ -x "$APKSIGNER" ] || { echo "ERROR: apksigner not found at $APKSIGNER"; exit 1; }
+      EXPECTED_SIGNER="430f146736b3dafc44157ff0b62836d16202244da17209176cb335ef0e63f2ec"
+      CERTIFICATES="$("$APKSIGNER" verify --print-certs "$APK")"
+      ACTUAL_SIGNER="$(printf '%s\n' "$CERTIFICATES" | sed -n 's/.*certificate SHA-256 digest: //p' | tr '[:upper:]' '[:lower:]')"
+      [ "$ACTUAL_SIGNER" = "$EXPECTED_SIGNER" ] || { echo "ERROR: Unexpected Tracker signing certificate"; exit 1; }
+      echo "Tracker release APK signature verified: $APK"
+
+  after_script:
+    - rm -f "$CI_PROJECT_DIR/release.jks"
+
+develop_release:
+  extends: .release_build
+  artifacts:
+    when: always
+    expire_in: 30 days
+    paths:
+      - app/build/outputs/apk/release/*.apk
+      - app/build/reports/tests/testDebugUnitTest/
+    reports:
+      junit: app/build/test-results/testDebugUnitTest/TEST-*.xml
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "develop" && $CI_PIPELINE_SOURCE == "push"'
+
+official_release:
+  extends: .release_build
+  artifacts:
+    when: always
+    expire_in: never
+    paths:
+      - app/build/outputs/apk/release/*.apk
+      - app/build/reports/tests/testDebugUnitTest/
+    reports:
+      junit: app/build/test-results/testDebugUnitTest/TEST-*.xml
+  rules:
+    - if: '$CI_COMMIT_TAG =~ /^v[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?$/'

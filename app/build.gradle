@@ -36,9 +36,21 @@ android {
     }
 
     signingConfigs {
+        def ciKeystore = System.getenv('RELEASE_KEYSTORE_FILE')
         // Optional: create signing.properties (git-ignored) to sign release builds; see README.
         def signingFile = rootProject.file('signing.properties')
-        if (signingFile.exists()) {
+        if (ciKeystore) {
+            def required = ['RELEASE_STORE_PASSWORD', 'RELEASE_KEY_ALIAS', 'RELEASE_KEY_PASSWORD']
+            required.each { name ->
+                if (!System.getenv(name)) throw new GradleException("Missing CI signing variable: ${name}")
+            }
+            release {
+                storeFile rootProject.file(ciKeystore)
+                storePassword System.getenv('RELEASE_STORE_PASSWORD')
+                keyAlias System.getenv('RELEASE_KEY_ALIAS')
+                keyPassword System.getenv('RELEASE_KEY_PASSWORD')
+            }
+        } else if (signingFile.exists()) {
             def props = new Properties()
             signingFile.withInputStream { props.load(it) }
             release {
@@ -55,7 +67,9 @@ android {
             minifyEnabled true
             shrinkResources true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
-            if (rootProject.file('signing.properties').exists()) signingConfig signingConfigs.release
+            if (System.getenv('RELEASE_KEYSTORE_FILE') || rootProject.file('signing.properties').exists()) {
+                signingConfig signingConfigs.release
+            }
         }
     }
     compileOptions {
