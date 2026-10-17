@@ -20,6 +20,8 @@ WearTAK-Tracker is intended primarily for standalone **LTE-connected watches**, 
 
 For an LTE deployment, disable **TAK SA Multicast** under Network Preferences: it is a Wi-Fi-only option, not an LTE delivery route. Tune reporting intervals for the required position freshness and leave physiological monitoring off unless needed. Actual battery life depends on coverage, GPS use, reporting intervals, and enabled sensors.
 
+While **TAK SA Multicast** is enabled and Tracker is running, Tracker actively requests local Wi-Fi (internet is not required) and holds a non-reference-counted high-performance Wi-Fi lock. This best-effort retention keeps Wi-Fi demand across network loss, without keeping the screen or CPU awake or changing the default/LTE route. Disabling multicast or stopping Tracker releases both; failed acquisition rolls back the lock and can retry on the next settings/network update. Tracker is send-only and does not need a multicast receive lock. This uses extra battery and cannot override disabled Wi-Fi, pin an SSID, or guarantee screen-off delivery. On Android 14+, high-performance mode maps to low-latency mode, which only takes effect while the app is foreground and the screen is on; the active network request remains the source of Wi-Fi demand.
+
 ## Features
 - Reports position (PLI) to one or more TAK Servers (TLS, enrollment on 8446), Sit(x) TAK, and TAK SA UDP multicast.
 - Constant or dynamic reporting (stationary / on foot / vehicle / while alerting intervals). Dynamic reporting classifies movement from GPS speed (like ATAK) and uses the significant-motion sensor to leave the stationary interval as soon as the wearer moves.
@@ -143,7 +145,7 @@ If the server form shows `TLS: Certificate is for [...], not <address>`, enter t
 | Reporting interval never drops to stationary | Approximate location, or GPS speed accuracy too poor indoors. |
 | Sit(x) stuck on "Authorize" | Open the verification URL on a phone and enter the code shown under Sit(x) State. |
 
-Logs: `adb logcat -s TrackerService TakServerManager TakCertificates TakChannelManager TakChannelApi SitxClient MulticastPublisher`
+Logs: `adb logcat -s TrackerService TakServerManager TakCertificates TakChannelManager TakChannelApi SitxClient MulticastPublisher MulticastWifiRequest`
 
 ## Project Information
 

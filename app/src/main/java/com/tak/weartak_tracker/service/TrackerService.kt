@@ -398,6 +398,7 @@ class TrackerService : Service() {
 
     private fun configureMulticast() {
         val c = config
+        network.setMulticastEnabled(c.multicastEnabled)
         val wifi = network.wifiNetwork.value
         scope.launch(Dispatchers.IO) { multicast.configure(c.multicastEnabled, c.multicastAddress, c.multicastPort, wifi) }
     }

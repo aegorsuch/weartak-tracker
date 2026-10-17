@@ -15,6 +15,7 @@ import kotlinx.coroutines.flow.asStateFlow
  */
 class NetworkMonitor(context: Context) {
     private val cm = context.getSystemService(ConnectivityManager::class.java)
+    private val multicastWifi = MulticastWifiRequest.create(context)
 
     private val _defaultNetwork = MutableStateFlow<Network?>(null)
     val defaultNetwork: StateFlow<Network?> = _defaultNetwork.asStateFlow()
@@ -52,7 +53,12 @@ class NetworkMonitor(context: Context) {
         cm.registerNetworkCallback(wifiRequest, wifiCallback)
     }
 
+    fun setMulticastEnabled(enabled: Boolean) {
+        multicastWifi.setEnabled(enabled)
+    }
+
     fun stop() {
+        multicastWifi.close()
         runCatching { cm.unregisterNetworkCallback(defaultCallback) }
         runCatching { cm.unregisterNetworkCallback(wifiCallback) }
     }
