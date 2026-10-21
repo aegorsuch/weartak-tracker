@@ -165,8 +165,8 @@ CI (`.github/workflows/android.yml`) runs the unit tests and builds the debug AP
 ### Government GitLab CI/CD
 
 The canonical TAK Forge repository uses `.gitlab-ci.yml`, matching WearTAK-WearOS's
-Gradle build-launcher image and release workflow. A push to `develop` runs unit tests
-and builds a signed release APK in `develop_release`; APKs and test reports are kept
+Gradle build-launcher image and release workflow. A push to `main` runs unit tests
+and builds a signed release APK in `main_release`; APKs and test reports are kept
 for 30 days. Version tags such as `v5.8.3` or `v5.8.0.3` run `official_release` with
 artifacts that do not expire. Use the official release job URL for TPC submissions.
 This pipeline does not publish GitHub releases or change version numbers.
@@ -181,7 +181,7 @@ Configure these masked CI/CD variables in the **Tracker** GitLab project:
 | `RELEASE_KEY_PASSWORD` | Tracker signing-key password |
 | `DITTO_COMMUNITY_IDENTITY` | Optional Community identity for builds that include it |
 
-Protect the signing variables and ensure `develop` and release tags are protected so
+Protect the signing variables and ensure `main` and release tags are protected so
 their jobs can access them. The instance/group must supply `TAK_REGISTRY_HOST` and a
 runner able to pull `devsecops/gradle-build-launcher:17-2.6.2` (Android SDK 36 and
 build-tools 35.0.0 are required). The proprietary Samsung Health AAR is not included

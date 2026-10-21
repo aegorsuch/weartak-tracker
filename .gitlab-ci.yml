@@ -49,7 +49,7 @@ stages:
   after_script:
     - rm -f "$CI_PROJECT_DIR/release.jks"
 
-develop_release:
+main_release:
   extends: .release_build
   artifacts:
     when: always
@@ -60,7 +60,7 @@ develop_release:
     reports:
       junit: app/build/test-results/testDebugUnitTest/TEST-*.xml
   rules:
-    - if: '$CI_COMMIT_BRANCH == "develop" && $CI_PIPELINE_SOURCE == "push"'
+    - if: '$CI_COMMIT_BRANCH == "main" && $CI_PIPELINE_SOURCE == "push"'
 
 official_release:
   extends: .release_build
