@@ -20,9 +20,22 @@ android {
         applicationId "com.tak.weartak_tracker"
         minSdk 30
         targetSdk 34
-        versionCode 585
-        versionName "5.8.3"
-        setProperty("archivesBaseName", "WearTAK-Tracker-${versionName}")
+        // Same scheme as WearTAK/Sextant: CI builds get versionCode base*10000 + pipeline IID and
+        // versionName <base>-p<IID>+<sha>. Base code stays above the previously shipped 585.
+        def baseVersionCode = 586
+        def baseVersionName = "5.8.4"
+        def ciPipelineIid = System.getenv('CI_PIPELINE_IID')?.isInteger() ? System.getenv('CI_PIPELINE_IID').toInteger() : null
+        if (ciPipelineIid != null) {
+            if (ciPipelineIid < 0 || ciPipelineIid > 9999) {
+                throw new GradleException("CI_PIPELINE_IID ${ciPipelineIid} exceeds the versionCode pipeline range (0-9999).")
+            }
+            versionCode baseVersionCode * 10000 + ciPipelineIid
+            versionName "${baseVersionName}-p${ciPipelineIid}+${System.getenv('CI_COMMIT_SHORT_SHA') ?: 'local'}"
+        } else {
+            versionCode baseVersionCode
+            versionName baseVersionName
+        }
+        setProperty("archivesBaseName", "WearTAK-Tracker-${baseVersionName}-${versionCode}")
         def dittoCommunityIdentity = (
                 project.findProperty("dittoCommunityIdentity") ?:
                 System.getenv("DITTO_COMMUNITY_IDENTITY") ?:

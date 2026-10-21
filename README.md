@@ -169,7 +169,7 @@ Gradle build-launcher image and release workflow. A push to `main` runs unit tes
 and builds a signed release APK in `main_release`; APKs and test reports are kept
 for 30 days. Version tags such as `v5.8.3` or `v5.8.0.3` run `official_release` with
 artifacts that do not expire. Use the official release job URL for TPC submissions.
-The pipeline does not change version numbers.
+Each pipeline build gets versionName `<base>-p<pipeline IID>+<short sha>` (e.g. `5.8.4-p12+1a2b3c4d`) and versionCode `<baseVersionCode> * 10000 + <pipeline IID>` (base `586` for 5.8.4), matching WearTAK and Sextant, so every build installs over the previous one. Bump the base in `app/build.gradle` for each release.
 
 Configure these masked CI/CD variables in the **Tracker** GitLab project:
 
