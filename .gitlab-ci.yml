@@ -74,3 +74,25 @@ official_release:
       junit: app/build/test-results/testDebugUnitTest/TEST-*.xml
   rules:
     - if: '$CI_COMMIT_TAG =~ /^v[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?$/'
+
+publish_github_pipeline_release:
+  stage: .post
+  image:
+    name: ${TAK_REGISTRY_HOST}/devsecops/gradle-build-launcher:17-${GRADLE_BUILD_LAUNCHER_TAG}
+    entrypoint: [""]
+  needs:
+    - job: main_release
+      artifacts: true
+  resource_group: tracker-github-rolling-release
+  script:
+    - |
+      case "${CI_DEBUG_TRACE:-false}" in
+        true|TRUE|1)
+          echo "ERROR: Disable CI_DEBUG_TRACE before publishing"
+          exit 1
+          ;;
+      esac
+    - python3 -m unittest discover -s tests -p 'test_publish_github_release.py'
+    - python3 scripts/publish_github_release.py
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main" && $CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_REF_PROTECTED == "true"'
