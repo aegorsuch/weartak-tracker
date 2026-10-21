@@ -78,7 +78,8 @@ official_release:
 publish_github_pipeline_release:
   stage: .post
   image:
-    name: ${TAK_REGISTRY_HOST}/devsecops/gradle-build-launcher:17-${GRADLE_BUILD_LAUNCHER_TAG}
+    # 3.0.2 ships python3 (2.6.2, used for the build, does not); same image Houndmaster publishes with.
+    name: ${TAK_REGISTRY_HOST}/devsecops/gradle-build-launcher:17-3.0.2
     entrypoint: [""]
   needs:
     - job: main_release

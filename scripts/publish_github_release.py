@@ -141,10 +141,21 @@ def latest_main_sha(repository_url):
 
 
 def verify_signed_apk(apk_path):
-    sdk_root = os.environ.get("ANDROID_SDK_ROOT") or os.environ.get("ANDROID_HOME")
-    apksigner = Path(sdk_root or "/opt/android-sdk-linux") / "build-tools/35.0.0/apksigner"
+    sdk_root = os.environ.get("ANDROID_SDK_ROOT") or os.environ.get("ANDROID_HOME") or "/opt/android-sdk-linux"
+    build_tools = Path(sdk_root) / "build-tools"
+    apksigner = build_tools / "35.0.0" / "apksigner"
     if not apksigner.is_file():
-        raise PublishError("Android apksigner is unavailable for APK signature verification")
+        candidates = [
+            path / "apksigner"
+            for path in build_tools.iterdir()
+            if path.is_dir() and (path / "apksigner").is_file()
+        ] if build_tools.is_dir() else []
+        if not candidates:
+            raise PublishError("Android apksigner is unavailable for APK signature verification")
+        apksigner = max(
+            candidates,
+            key=lambda path: tuple(int(part) for part in re.findall(r"\d+", path.parent.name)),
+        )
     result = subprocess.run(
         [str(apksigner), "verify", "--print-certs", str(apk_path)],
         check=False,
