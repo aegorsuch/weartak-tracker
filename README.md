@@ -169,7 +169,7 @@ Gradle build-launcher image and release workflow. A push to `main` runs unit tes
 and builds a signed release APK in `main_release`; APKs and test reports are kept
 for 30 days. Version tags such as `v5.8.3` or `v5.8.0.3` run `official_release` with
 artifacts that do not expire. Use the official release job URL for TPC submissions.
-This pipeline does not publish GitHub releases or change version numbers.
+The pipeline does not change version numbers.
 
 Configure these masked CI/CD variables in the **Tracker** GitLab project:
 
@@ -180,6 +180,7 @@ Configure these masked CI/CD variables in the **Tracker** GitLab project:
 | `RELEASE_KEY_ALIAS` | Tracker signing-key alias |
 | `RELEASE_KEY_PASSWORD` | Tracker signing-key password |
 | `DITTO_COMMUNITY_IDENTITY` | Optional Community identity for builds that include it |
+| `GITHUB_RELEASE_TOKEN` | Fine-grained GitHub token restricted to `aegorsuch/weartak-tracker` with Contents read/write permission; masked and protected |
 
 Protect the signing variables and ensure `main` and release tags are protected so
 their jobs can access them. The instance/group must supply `TAK_REGISTRY_HOST` and a
@@ -187,13 +188,42 @@ runner able to pull `devsecops/gradle-build-launcher:17-2.6.2` (Android SDK 36 a
 build-tools 35.0.0 are required). The proprietary Samsung Health AAR is not included
 in CI; those builds use the existing skin-temperature stub.
 
-The job recreates the keystore with restrictive permissions, validates its alias,
+The build job recreates the keystore with restrictive permissions, validates its alias,
 passes signing credentials through environment variables, and removes the keystore
 afterward. It rejects missing/unsigned APKs and verifies the established Tracker
 certificate SHA-256 fingerprint:
 `430f146736b3dafc44157ff0b62836d16202244da17209176cb335ef0e63f2ec`.
 No signing secrets are committed or uploaded as artifacts. Local `signing.properties`
 builds and the existing GitHub debug workflow remain supported.
+
+#### Automated GitHub release
+
+After `main_release` succeeds on a protected `main` push,
+`publish_github_pipeline_release` publishes its signed APK to the GitHub mirror
+`aegorsuch/weartak-tracker`, using the stable tag `takgov-pipeline` and title
+**TAK Forge Automated Pipeline**. Official version-tag builds and GitHub Actions
+are unchanged. Create `GITHUB_RELEASE_TOKEN` in the canonical Tracker GitLab
+project's CI/CD variables; the publisher reads it only from the environment and
+fails clearly if absent. Never put it in files or enable `CI_DEBUG_TRACE`.
+The existing runner image must provide Python 3.9+ and Git; no packages are installed.
+
+The job is serialized and requires both canonical and mirrored `main` heads
+to match the pipeline commit before publication and again before advancing the
+rolling tag. A stale mirror fails the job; synchronize it before retrying.
+It rechecks the established Tracker signing certificate and uploads the unchanged
+APK bytes as `WearTAK-Tracker-<version>-<8-character-commit>-release.apk`, so a new
+commit does not overwrite the previous APK before verification. It verifies the
+downloaded upload's SHA-256 before removing older publisher-owned APKs. Existing
+release notes and unrelated assets are retained; an unmarked existing release at
+`takgov-pipeline` is rejected rather than adopted. Version releases are untouched.
+The mirror repository, title, tag, and canonical project are fixed in
+`scripts/publish_github_release.py`, with no CI variable overrides.
+
+Run the publisher's offline mocked-API tests without credentials or network access:
+
+```powershell
+py -3 -m unittest discover -s tests -p 'test_publish_github_release.py'
+```
 
 Ditto defaults to the Community PDL. Provide `dittoCommunityIdentity` in the ignored root `local.properties`,
 through Gradle properties, or with the `DITTO_COMMUNITY_IDENTITY` environment variable for builds that include the
