@@ -212,7 +212,7 @@ The existing runner image must provide Python 3.9+, Git, and Android build-tools
 
 Presentation is read from the signed APK manifest, not guessed from its filename
 or the current source version. Notes include actual APK version/versionCode,
-global pipeline ID and project IID when available, the canonical pipeline URL,
+global pipeline ID and project IID, the canonical pipeline URL,
 full source SHA, a separate artifact SHA256, and a readable labeled APK download.
 Only the bounded `tracker-ci-presentation` block is refreshed; manual notes
 outside it and the `tracker-ci-assets` ownership marker are preserved.
@@ -221,10 +221,16 @@ The job is serialized and requires both canonical and mirrored `main` heads
 to match the pipeline commit before publication and again before advancing the
 rolling tag. A stale mirror fails the job; synchronize it before retrying.
 It rechecks the established Tracker signing certificate and uploads the unchanged
-APK bytes as `WearTAK-Tracker-<version>-<8-character-commit>-release.apk`, so a new
-commit does not overwrite the previous APK before verification. It verifies the
+APK bytes as `WearTAK-Tracker-<APK version without +SHA>-p<IID>.apk`, omitting
+the extra `-p<IID>` when already present (for example `WearTAK-Tracker-5.8.4-p7.apk`).
+The native asset label matches that readable filename; the full manifest version
+stays in the notes. Project pipeline IID is required for unique filenames.
+It verifies the
 downloaded upload's SHA-256 before removing older publisher-owned APKs. Existing
-release notes and unrelated assets are retained; an unmarked existing release at
+release notes and unrelated assets are retained. Legacy commit-stamped APKs and
+their ownership entries are retained during migration so their existing download
+URLs remain valid; normal cleanup applies only to publisher-owned new-style APKs.
+An unmarked existing release at
 `takgov-pipeline` is rejected rather than adopted. Version releases are untouched.
 The mirror repository, title, tag, and canonical project are fixed in
 `scripts/publish_github_release.py`, with no CI variable overrides.

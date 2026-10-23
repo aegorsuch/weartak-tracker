@@ -27,6 +27,7 @@ from scripts.publish_github_release import (
     main,
     read_owned_names,
     read_apk_version,
+    release_asset_name,
     update_marker,
     update_presentation,
     verify_signed_apk,
@@ -35,8 +36,8 @@ from scripts.publish_github_release import (
 
 COMMIT_SHA = "58fcc745aff1d30493493fdc852d00e64f111419"
 BUILD_APK = "WearTAK-Tracker-5.8.3-release.apk"
-APK_NAME = "WearTAK-Tracker-5.8.3-58fcc745-release.apk"
-OLD_APK = "WearTAK-Tracker-5.8.3-ff41a741-release.apk"
+APK_NAME = "WearTAK-Tracker-5.8.4-p7.apk"
+OLD_APK = "WearTAK-Tracker-5.8.4-p6.apk"
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -179,8 +180,7 @@ class ReleasePublisherTests(OfflineTests):
         ])
         self.assertLess(api.events.index("signature"), api.events.index("upload"))
         self.assertTrue(api.writes[0][1]["draft"])
-        self.assertIn("5.8.4-p7+58fcc745", api.labels[1])
-        self.assertIn("versionCode 5860007", api.labels[1])
+        self.assertEqual(api.labels[1], APK_NAME)
         self.assertIn("versionCode **5860007**", api.release["body"])
         self.assertIn("GitLab pipeline **1792575** (project pipeline **7**)", api.release["body"])
         self.assertIn(f"/{CANONICAL_PROJECT}/-/pipelines/1792575", api.release["body"])
@@ -245,14 +245,30 @@ class ReleasePublisherTests(OfflineTests):
         publisher.run()
         self.assertEqual(api.release["name"], RELEASE_TITLE + " (5.8.3)")
         self.assertIn("versionCode **585**", api.release["body"])
-        self.assertNotIn("5.8.3-p7", api.release["body"])
+        self.assertIn("- APK version: **5.8.3**", api.release["body"])
+        self.assertNotIn("- APK version: **5.8.3-p7", api.release["body"])
+        self.assertIn("WearTAK-Tracker-5.8.3-p7.apk", api.release["body"])
 
     def test_optional_iid_is_omitted_when_unavailable(self):
         api = FakeGitHubApi()
         del self.env["CI_PIPELINE_IID"]
+        with self.assertRaisesRegex(PublishError, "pipeline IID is required"):
+            self.publisher(api).run()
+        self.assertFalse(api.writes)
+
+    def test_legacy_asset_urls_and_ownership_survive_naming_migration(self):
+        legacy = "WearTAK-Tracker-5.8.4-5860007-6f8b8e4f-release.apk"
+        api = FakeGitHubApi(
+            body=update_marker("Manual notes", [legacy, OLD_APK]),
+            assets={legacy: b"legacy bytes", OLD_APK: b"older new-style bytes"},
+        )
         self.publisher(api).run()
-        self.assertIn("GitLab pipeline **1792575**", api.release["body"])
-        self.assertNotIn("project pipeline", api.release["body"])
+        names = {a["name"] for a, _ in api.assets.values()}
+        self.assertEqual(names, {legacy, APK_NAME})
+        self.assertEqual(read_owned_names(api.release["body"]), [legacy, APK_NAME])
+        self.publisher(api).run()
+        self.assertEqual({a["name"] for a, _ in api.assets.values()}, names)
+        self.assertIn("Manual notes", api.release["body"])
 
     def test_unreadable_manifest_rejected_before_writes(self):
         api = FakeGitHubApi()
@@ -384,6 +400,12 @@ class ReleasePublisherTests(OfflineTests):
 
 
 class PublisherHelperTests(OfflineTests):
+    def test_watch_style_filename_uses_version_once_and_excludes_sha(self):
+        self.assertEqual(release_asset_name("5.8.4-p7+6f8b8e4f", "7"), APK_NAME)
+        self.assertEqual(release_asset_name("5.8.3", "2"), "WearTAK-Tracker-5.8.3-p2.apk")
+        for version, iid in (("5.8.4-p7+sha", "8"), ("../bad", "7"), ("5.8.4", "")):
+            with self.subTest(version=version, iid=iid), self.assertRaises(PublishError):
+                release_asset_name(version, iid)
     def test_reads_actual_manifest_version(self):
         output = (
             "package: name='com.tak.weartak_tracker' versionCode='5860007' "

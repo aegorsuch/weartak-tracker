@@ -20,6 +20,7 @@ OWNERSHIP_MARKER = "<!-- tracker-ci-assets: "
 PRESENTATION_START = "<!-- tracker-ci-presentation:start -->"
 PRESENTATION_END = "<!-- tracker-ci-presentation:end -->"
 APK_PATTERN = re.compile(r"^WearTAK-Tracker-[0-9][A-Za-z0-9.+_-]*-[0-9a-f]{8}-release\.apk$")
+DISPLAY_APK_PATTERN = re.compile(r"^WearTAK-Tracker-[0-9][A-Za-z0-9._-]*-p[0-9]+\.apk$")
 BUILD_APK_PATTERN = re.compile(r"^WearTAK-Tracker-[0-9][A-Za-z0-9.+_-]*-release\.apk$")
 EXPECTED_SIGNER = "430f146736b3dafc44157ff0b62836d16202244da17209176cb335ef0e63f2ec"
 
@@ -217,7 +218,7 @@ def release_presentation(env, version, version_code, digest, asset_name):
         f"https://github.com/{GITHUB_REPOSITORY}/releases/download/{RELEASE_TAG}/"
         + urllib.parse.quote(asset_name, safe="")
     )
-    label = f"WearTAK Tracker {version} (versionCode {version_code}) - signed Wear OS APK"
+    label = asset_name
     body = (
         "Automatically published signed Wear OS Tracker main-channel build.\n\n"
         f"- APK version: **{version}** (versionCode **{version_code}**)\n"
@@ -230,6 +231,21 @@ def release_presentation(env, version, version_code, digest, asset_name):
         "The full source commit above identifies this build; the rolling tag can advance."
     )
     return title, body, label
+
+
+def release_asset_name(version, pipeline_iid):
+    display_version = version.split("+", 1)[0]
+    if not re.fullmatch(r"[1-9][0-9]*", pipeline_iid or ""):
+        raise PublishError("A valid project pipeline IID is required for the APK filename")
+    suffix = re.search(r"-p([0-9]+)$", display_version)
+    if suffix and suffix[1] != pipeline_iid:
+        raise PublishError("The APK version does not match the project pipeline IID")
+    if suffix is None:
+        display_version += "-p" + pipeline_iid
+    name = f"WearTAK-Tracker-{display_version}.apk"
+    if not DISPLAY_APK_PATTERN.fullmatch(name):
+        raise PublishError("The APK version cannot form a safe release filename")
+    return name
 
 
 def update_presentation(body, presentation):
@@ -256,7 +272,9 @@ def read_owned_names(body):
     except json.JSONDecodeError:
         raise PublishError("The rolling release ownership marker is invalid")
     if not isinstance(names, list) or any(
-        not isinstance(name, str) or not APK_PATTERN.fullmatch(name) for name in names
+        not isinstance(name, str)
+        or not (APK_PATTERN.fullmatch(name) or DISPLAY_APK_PATTERN.fullmatch(name))
+        for name in names
     ):
         raise PublishError("The rolling release ownership marker is invalid")
     return list(dict.fromkeys(names))
@@ -326,8 +344,8 @@ class ReleasePublisher:
         ):
             raise PublishError("The pipeline APK name or content is invalid")
         self.apk_verifier(apk_path)
-        asset_name = apk_path.name.removesuffix("-release.apk") + f"-{commit_sha[:8]}-release.apk"
         version, version_code = self.version_reader(apk_path)
+        asset_name = release_asset_name(version, self.env.get("CI_PIPELINE_IID"))
         local_digest = hashlib.sha256(apk_path.read_bytes()).hexdigest()
         title, presentation, label = release_presentation(
             self.env, version, version_code, local_digest, asset_name,
@@ -377,14 +395,22 @@ class ReleasePublisher:
         self.api.label_asset(existing["id"], label)
         self.update_rolling_tag(commit_sha)
         for asset in assets:
-            if asset["name"] in owned_names and asset["name"] != asset_name:
+            if (
+                asset["name"] in owned_names and asset["name"] != asset_name
+                and DISPLAY_APK_PATTERN.fullmatch(asset["name"])
+            ):
                 self.api.delete_asset(asset["id"])
+        retained_names = [
+            name for name in owned_names if APK_PATTERN.fullmatch(name)
+        ]
         self.api.request_json(
             "PATCH", f"/repos/{GITHUB_REPOSITORY}/releases/{release['id']}",
             {
                 "name": title,
                 "body": update_presentation(
-                    update_marker(release.get("body", ""), [asset_name]), presentation,
+                    update_marker(
+                        release.get("body", ""), list(dict.fromkeys(retained_names + [asset_name])),
+                    ), presentation,
                 ),
                 "draft": False, "prerelease": False, "target_commitish": commit_sha,
             },
