@@ -15,8 +15,10 @@ from pathlib import Path
 GITHUB_REPOSITORY = "aegorsuch/weartak-tracker"
 CANONICAL_PROJECT = "core/weartak-core/weartak-tracker"
 RELEASE_TAG = "takgov-pipeline"
-RELEASE_TITLE = "TAK Forge Automated Pipeline"
+RELEASE_TITLE = "TAK.gov Forge CI/CD Pipeline Release"
 OWNERSHIP_MARKER = "<!-- tracker-ci-assets: "
+PRESENTATION_START = "<!-- tracker-ci-presentation:start -->"
+PRESENTATION_END = "<!-- tracker-ci-presentation:end -->"
 APK_PATTERN = re.compile(r"^WearTAK-Tracker-[0-9][A-Za-z0-9.+_-]*-[0-9a-f]{8}-release\.apk$")
 BUILD_APK_PATTERN = re.compile(r"^WearTAK-Tracker-[0-9][A-Za-z0-9.+_-]*-release\.apk$")
 EXPECTED_SIGNER = "430f146736b3dafc44157ff0b62836d16202244da17209176cb335ef0e63f2ec"
@@ -124,6 +126,12 @@ class GitHubApi:
         if status != 204:
             raise PublishError("GitHub asset deletion returned HTTP " + str(status))
 
+    def label_asset(self, asset_id, label):
+        self.request_json(
+            "PATCH", f"/repos/{GITHUB_REPOSITORY}/releases/assets/{asset_id}",
+            {"label": label},
+        )
+
 
 def latest_main_sha(repository_url):
     result = subprocess.run(
@@ -140,22 +148,27 @@ def latest_main_sha(repository_url):
     return fields[0].lower()
 
 
-def verify_signed_apk(apk_path):
+def android_build_tool(name):
     sdk_root = os.environ.get("ANDROID_SDK_ROOT") or os.environ.get("ANDROID_HOME") or "/opt/android-sdk-linux"
     build_tools = Path(sdk_root) / "build-tools"
-    apksigner = build_tools / "35.0.0" / "apksigner"
-    if not apksigner.is_file():
+    tool = build_tools / "35.0.0" / name
+    if not tool.is_file():
         candidates = [
-            path / "apksigner"
+            path / name
             for path in build_tools.iterdir()
-            if path.is_dir() and (path / "apksigner").is_file()
+            if path.is_dir() and (path / name).is_file()
         ] if build_tools.is_dir() else []
         if not candidates:
-            raise PublishError("Android apksigner is unavailable for APK signature verification")
-        apksigner = max(
+            raise PublishError(f"Android {name} is unavailable for APK inspection")
+        tool = max(
             candidates,
             key=lambda path: tuple(int(part) for part in re.findall(r"\d+", path.parent.name)),
         )
+    return tool
+
+
+def verify_signed_apk(apk_path):
+    apksigner = android_build_tool("apksigner")
     result = subprocess.run(
         [str(apksigner), "verify", "--print-certs", str(apk_path)],
         check=False,
@@ -168,6 +181,70 @@ def verify_signed_apk(apk_path):
     )
     if result.returncode != 0 or [value.lower() for value in signers] != [EXPECTED_SIGNER]:
         raise PublishError("The release APK failed Tracker signing certificate verification")
+
+
+def read_apk_version(apk_path):
+    result = subprocess.run(
+        [str(android_build_tool("aapt")), "dump", "badging", str(apk_path)],
+        check=False, capture_output=True, text=True,
+    )
+    match = re.search(
+        r"(?m)^package: name='com\.tak\.weartak_tracker' versionCode='([0-9]+)' "
+        r"versionName='([0-9][A-Za-z0-9.+_-]*)'(?: |$)",
+        result.stdout,
+    )
+    if result.returncode != 0 or match is None or int(match[1]) <= 0:
+        raise PublishError("Could not read the Tracker APK version and versionCode")
+    return match[2], int(match[1])
+
+
+def release_presentation(env, version, version_code, digest, asset_name):
+    pipeline_id = env.get("CI_PIPELINE_ID", "")
+    pipeline_iid = env.get("CI_PIPELINE_IID", "")
+    if not re.fullmatch(r"[1-9][0-9]*", pipeline_id):
+        raise PublishError("The pipeline ID is missing or invalid")
+    if pipeline_iid and not re.fullmatch(r"[1-9][0-9]*", pipeline_iid):
+        raise PublishError("The project pipeline IID is invalid")
+    version_iid = re.search(r"-p([0-9]+)(?:\+|$)", version)
+    if pipeline_iid and version_iid and version_iid[1] != pipeline_iid:
+        raise PublishError("The APK version does not match the project pipeline IID")
+    title = f"{RELEASE_TITLE} ({version.split('+', 1)[0]})"
+    pipeline_url = f"https://git.tak.gov/{CANONICAL_PROJECT}/-/pipelines/{pipeline_id}"
+    build = f"GitLab pipeline **{pipeline_id}**"
+    if pipeline_iid:
+        build += f" (project pipeline **{pipeline_iid}**)"
+    download = (
+        f"https://github.com/{GITHUB_REPOSITORY}/releases/download/{RELEASE_TAG}/"
+        + urllib.parse.quote(asset_name, safe="")
+    )
+    label = f"WearTAK Tracker {version} (versionCode {version_code}) - signed Wear OS APK"
+    body = (
+        "Automatically published signed Wear OS Tracker main-channel build.\n\n"
+        f"- APK version: **{version}** (versionCode **{version_code}**)\n"
+        f"- Build: {build}\n"
+        f"- Pipeline: {pipeline_url}\n"
+        f"- Source commit: `{env['CI_COMMIT_SHA'].lower()}` on TAK.gov `main`\n"
+        f"- SHA256: `{digest}`\n\n"
+        f"[Download {label}]({download})\n\n"
+        "Install the APK, not GitHub's automatic Source code archives. "
+        "The full source commit above identifies this build; the rolling tag can advance."
+    )
+    return title, body, label
+
+
+def update_presentation(body, presentation):
+    body = body or ""
+    starts, ends = body.count(PRESENTATION_START), body.count(PRESENTATION_END)
+    if starts != ends or starts > 1:
+        raise PublishError("The release presentation markers are invalid")
+    block = PRESENTATION_START + "\n" + presentation + "\n" + PRESENTATION_END
+    if starts:
+        start = body.index(PRESENTATION_START)
+        end = body.index(PRESENTATION_END)
+        if end < start:
+            raise PublishError("The release presentation markers are invalid")
+        return body[:start] + block + body[end + len(PRESENTATION_END):]
+    return block + ("\n\n" + body if body else "")
 
 
 def read_owned_names(body):
@@ -196,11 +273,15 @@ def update_marker(body, names):
 
 
 class ReleasePublisher:
-    def __init__(self, env, api=None, head_reader=latest_main_sha, apk_verifier=verify_signed_apk):
+    def __init__(
+        self, env, api=None, head_reader=latest_main_sha, apk_verifier=verify_signed_apk,
+        version_reader=read_apk_version,
+    ):
         self.env = env
         self.api = api
         self.head_reader = head_reader
         self.apk_verifier = apk_verifier
+        self.version_reader = version_reader
 
     def assert_current_head(self, commit_sha):
         if self.head_reader(self.env["CI_REPOSITORY_URL"]) != commit_sha:
@@ -246,6 +327,11 @@ class ReleasePublisher:
             raise PublishError("The pipeline APK name or content is invalid")
         self.apk_verifier(apk_path)
         asset_name = apk_path.name.removesuffix("-release.apk") + f"-{commit_sha[:8]}-release.apk"
+        version, version_code = self.version_reader(apk_path)
+        local_digest = hashlib.sha256(apk_path.read_bytes()).hexdigest()
+        title, presentation, label = release_presentation(
+            self.env, version, version_code, local_digest, asset_name,
+        )
 
         release = self.api.request_json(
             "GET", f"/repos/{GITHUB_REPOSITORY}/releases/tags/{RELEASE_TAG}",
@@ -255,12 +341,13 @@ class ReleasePublisher:
             release = self.api.request_json(
                 "POST", f"/repos/{GITHUB_REPOSITORY}/releases",
                 {
-                    "tag_name": RELEASE_TAG, "name": RELEASE_TITLE,
+                    "tag_name": RELEASE_TAG, "name": title,
                     "body": update_marker("", []), "draft": True,
                     "prerelease": False, "target_commitish": commit_sha,
                 },
             )
         owned_names = read_owned_names(release.get("body", ""))
+        update_presentation(release.get("body", ""), presentation)
         assets = self.api.list_assets(release["id"])
         existing = next((asset for asset in assets if asset["name"] == asset_name), None)
         if existing is not None and asset_name not in owned_names:
@@ -272,7 +359,6 @@ class ReleasePublisher:
                 "body": update_marker(release.get("body", ""), planned_names),
             },
         )
-        local_digest = hashlib.sha256(apk_path.read_bytes()).hexdigest()
         if existing is not None:
             remote_digest = hashlib.sha256(self.api.download_asset(existing["id"])).hexdigest()
             if remote_digest != local_digest:
@@ -285,8 +371,10 @@ class ReleasePublisher:
             if remote_digest != local_digest:
                 self.api.delete_asset(new_asset["id"])
                 raise PublishError("The uploaded APK did not match the pipeline artifact")
+            existing = new_asset
 
         self.assert_current_head(commit_sha)
+        self.api.label_asset(existing["id"], label)
         self.update_rolling_tag(commit_sha)
         for asset in assets:
             if asset["name"] in owned_names and asset["name"] != asset_name:
@@ -294,8 +382,10 @@ class ReleasePublisher:
         self.api.request_json(
             "PATCH", f"/repos/{GITHUB_REPOSITORY}/releases/{release['id']}",
             {
-                "name": RELEASE_TITLE,
-                "body": update_marker(release.get("body", ""), [asset_name]),
+                "name": title,
+                "body": update_presentation(
+                    update_marker(release.get("body", ""), [asset_name]), presentation,
+                ),
                 "draft": False, "prerelease": False, "target_commitish": commit_sha,
             },
         )

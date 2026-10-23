@@ -201,11 +201,21 @@ builds and the existing GitHub debug workflow remain supported.
 After `main_release` succeeds on a protected `main` push,
 `publish_github_pipeline_release` publishes its signed APK to the GitHub mirror
 `aegorsuch/weartak-tracker`, using the stable tag `takgov-pipeline` and title
-**TAK Forge Automated Pipeline**. Official version-tag builds and GitHub Actions
+**TAK.gov Forge CI/CD Pipeline Release (\<APK version without +SHA suffix\>)**.
+For example, APK version `5.8.4-p7+6f8b8e4f` produces title
+`TAK.gov Forge CI/CD Pipeline Release (5.8.4-p7)`. Official version-tag builds and GitHub Actions
 are unchanged. Create `GITHUB_RELEASE_TOKEN` in the canonical Tracker GitLab
 project's CI/CD variables; the publisher reads it only from the environment and
 fails clearly if absent. Never put it in files or enable `CI_DEBUG_TRACE`.
-The existing runner image must provide Python 3.9+ and Git; no packages are installed.
+The existing runner image must provide Python 3.9+, Git, and Android build-tools
+`aapt`/`apksigner`; no packages are installed.
+
+Presentation is read from the signed APK manifest, not guessed from its filename
+or the current source version. Notes include actual APK version/versionCode,
+global pipeline ID and project IID when available, the canonical pipeline URL,
+full source SHA, a separate artifact SHA256, and a readable labeled APK download.
+Only the bounded `tracker-ci-presentation` block is refreshed; manual notes
+outside it and the `tracker-ci-assets` ownership marker are preserved.
 
 The job is serialized and requires both canonical and mirrored `main` heads
 to match the pipeline commit before publication and again before advancing the
@@ -218,6 +228,19 @@ release notes and unrelated assets are retained; an unmarked existing release at
 `takgov-pipeline` is rejected rather than adopted. Version releases are untouched.
 The mirror repository, title, tag, and canonical project are fixed in
 `scripts/publish_github_release.py`, with no CI variable overrides.
+
+Channel inventory: this is the only automated GitHub release publisher in this
+repository. `official_release` retains version-tag artifacts in GitLab, and
+GitHub Actions uploads debug job artifacts, not releases. The older
+`tak-gov-develop` GitHub release has a separate `weartak-tracker-gov` ownership
+marker, also encoded in its asset label; keep that machine label unchanged.
+Its historical `scripts/publish-github-release.mjs` implementation is not in
+canonical `main`; no current producer for it is defined here. The observed
+`untagged-dad360dbcd5853f88d38` release carries `tracker-ci-assets` but is not at
+the publisher's configured `takgov-pipeline` tag. Neither that legacy release nor
+the manually maintained `v5.8.3` release is automatically adopted, retagged,
+deleted, or rewritten. Any metadata-only repair requires separately verified
+artifact/provenance and approval, preserving asset IDs, URLs, bytes, and notes.
 
 Run the publisher's offline mocked-API tests without credentials or network access:
 
