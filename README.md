@@ -52,7 +52,7 @@ Settings > Tool Preferences > Plugins > Commands (off by default; the switch tur
 
 Allowed Callsigns shows one callsign per row in case-insensitive alphabetical order. Select **Add Callsign** to enter one callsign; entries are trimmed, displayed in uppercase, and cannot be added twice. Swipe a row or tap it to reveal **Remove**. Older comma-separated allow-lists are read alongside the current newline-separated format.
 
-**Profiles** lists the `loadprofile` presets saved on the watch. Select one to view its profile fields and servers (name, host and port); it is view-only and never shows server usernames or passwords.
+**Profiles** lists the `loadprofile` presets saved on the watch, so presets work as settings backups. Select one to view its profile fields and servers (name, host and port; server usernames and passwords are never shown), then **Load** or **Delete** it after confirming. Load uses the same path, validation and network-lock rule as the `loadprofile` command (an identity change sends a fresh-fix PLI) and keeps the file. Delete removes only the file, not current settings. **Save Current Settings** writes a new `backup-<yyyyMMdd-HHmm>.json` preset (never overwriting) with the set profile fields and each server that has an enrollment username and password; like pushed presets, the file holds those passwords in plain text in the app's external files folder, which is removed on uninstall.
 
 Profile commands match WearOS WearTAK. Each takes `key=value` or, for single-value commands, the bare value (`#weartaktrackercommandsetusertype Coalition Civilian`):
 

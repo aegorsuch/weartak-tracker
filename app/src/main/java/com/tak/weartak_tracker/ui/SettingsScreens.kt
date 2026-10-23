@@ -86,6 +86,8 @@ import com.tak.weartak_tracker.cot.calculateExertion
 import com.tak.weartak_tracker.command.ChatCommandAuthorizer
 import com.tak.weartak_tracker.data.MULTICAST_PROTOCOLS
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.flow.first
+import com.tak.weartak_tracker.service.ChatCommandRuntime
 import kotlinx.coroutines.Dispatchers
 import com.tak.weartak_tracker.data.PresetSummary
 import com.tak.weartak_tracker.data.ProfilePresets
@@ -452,12 +454,12 @@ fun NavGraphBuilder.settingsGraph(repo: SettingsRepository, configState: State<T
         }
     }
 
-    composable("chat_command_profiles") { PresetListPage(go, back) }
+    composable("chat_command_profiles") { PresetListPage(repo, go, back) }
 
     composable(
         "chat_command_profile/{name}",
         arguments = listOf(navArgument("name") { type = NavType.StringType }),
-    ) { entry -> PresetDetailPage(entry.arguments?.getString("name").orEmpty(), back) }
+    ) { entry -> PresetDetailPage(repo, entry.arguments?.getString("name").orEmpty(), back) }
 
     composable("sensor_manager") {
         WearTAKPageWithBackArrow("Sensor Manager", back) {
@@ -858,12 +860,28 @@ private fun ChannelsPage(server: TakServerConfig, back: () -> Unit) {
 }
 
 @Composable
-private fun PresetListPage(go: Navigate, back: () -> Unit) {
+private fun PresetListPage(repo: SettingsRepository, go: Navigate, back: () -> Unit) {
     val context = LocalContext.current
-    val names by produceState<List<String>?>(null) {
+    val scope = rememberCoroutineScope()
+    var refresh by remember { mutableStateOf(0) }
+    var message by remember { mutableStateOf("") }
+    val names by produceState<List<String>?>(null, refresh) {
         value = withContext(Dispatchers.IO) { ProfilePresets.names(context) }
     }
     WearTAKPageWithBackArrow("Profiles", back) {
+        item {
+            WearTAKTitleChip("Save Current Settings") {
+                scope.launch {
+                    val config = repo.config.first()
+                    val saved = withContext(Dispatchers.IO) { ProfilePresets.saveBackup(context, config) }
+                    message = saved?.let { "Saved as $it" } ?: "Could not save profile"
+                    refresh++
+                }
+            }
+        }
+        if (message.isNotBlank()) {
+            item { Text(message, fontSize = 12.sp, textAlign = TextAlign.Center, color = Color.LightGray) }
+        }
         val list = names
         when {
             list == null -> item { Text("Loading…", textAlign = TextAlign.Center, color = Color.LightGray) }
@@ -882,10 +900,15 @@ private fun PresetListPage(go: Navigate, back: () -> Unit) {
     }
 }
 
-/** View-only: profile values and server endpoints; server credentials are never shown. */
+/** Profile values and server endpoints, with Load and Delete; server credentials are never shown. */
 @Composable
-private fun PresetDetailPage(name: String, back: () -> Unit) {
+private fun PresetDetailPage(repo: SettingsRepository, name: String, back: () -> Unit) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var confirmLoad by remember { mutableStateOf(false) }
+    var confirmDelete by remember { mutableStateOf(false) }
+    var busy by remember { mutableStateOf(false) }
+    var message by remember { mutableStateOf("") }
     val summary by produceState<PresetSummary?>(null, name) {
         value = withContext(Dispatchers.IO) { ProfilePresets.summary(context, name) }
     }
@@ -906,7 +929,82 @@ private fun PresetDetailPage(name: String, back: () -> Unit) {
                 }
             }
         }
+        if (message.isNotBlank()) {
+            item { Text(message, fontSize = 12.sp, textAlign = TextAlign.Center, color = Color.LightGray) }
+        }
+        item {
+            Button(
+                onClick = { confirmLoad = true },
+                enabled = s?.valid == true && !busy,
+                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = colors.primary,
+                    contentColor = Color.Black,
+                    disabledContainerColor = Color.DarkGray,
+                    disabledContentColor = Color.Gray,
+                ),
+            ) { Text("Load", color = if (s?.valid == true && !busy) Color.Black else Color.Gray) }
+        }
+        item {
+            Button(
+                onClick = { confirmDelete = true },
+                enabled = s != null && !busy,
+                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = Color.Red, contentColor = Color.White),
+            ) { Text("Delete", color = Color.White) }
+        }
+        item { Spacer(Modifier.height(10.dp)) }
     }
+
+    WearTAKAlertDialog(
+        show = confirmLoad,
+        onDismissRequest = { confirmLoad = false },
+        text = {
+            Text(
+                "Load $name? Its profile values replace the current ones and its servers are added. The preset is kept.",
+                textAlign = TextAlign.Center,
+                fontSize = 14.sp,
+            )
+        },
+        confirmButton = {
+            DialogButton("Load", colors.primary, Color.Black) {
+                confirmLoad = false
+                busy = true
+                scope.launch {
+                    message = ChatCommandRuntime.loadPreset(context, repo, name).message
+                    busy = false
+                }
+            }
+        },
+        dismissButton = { DialogButton("Dismiss", Color.Gray, Color.White) { confirmLoad = false } },
+    )
+
+    WearTAKAlertDialog(
+        show = confirmDelete,
+        onDismissRequest = { confirmDelete = false },
+        icon = {
+            Icon(Icons.Default.Warning, modifier = Modifier.size(25.dp), contentDescription = null, tint = Color.LightGray)
+        },
+        text = {
+            Text(
+                "Delete $name from this watch? Current settings are not changed. This can't be undone.",
+                textAlign = TextAlign.Center,
+                fontSize = 14.sp,
+            )
+        },
+        confirmButton = {
+            DialogButton("Delete", Color.Red, Color.White) {
+                confirmDelete = false
+                busy = true
+                scope.launch {
+                    val deleted = withContext(Dispatchers.IO) { ProfilePresets.delete(context, name) }
+                    busy = false
+                    if (deleted) back() else message = "Could not delete $name"
+                }
+            }
+        },
+        dismissButton = { DialogButton("Dismiss", Color.Gray, Color.White) { confirmDelete = false } },
+    )
 }
 
 @OptIn(ExperimentalWearMaterialApi::class, ExperimentalWearFoundationApi::class)

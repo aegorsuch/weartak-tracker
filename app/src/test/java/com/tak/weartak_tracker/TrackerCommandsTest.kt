@@ -291,6 +291,56 @@ class TrackerCommandsTest {
     }
 
     @Test
+    fun savedSettingsRoundTripThroughLoadProfile() {
+        val config = com.tak.weartak_tracker.data.TrackerConfig(
+            callsign = "WT-BBFA",
+            team = "Blue",
+            role = "Medic",
+            medicalProfile = MedicalProfile(birthYear = 1988, heightFeet = 5, heightInches = 8, weightLbs = 150, sex = "Male", userType = "Coalition Civilian", pantsLengthInches = 30, waistInches = 30),
+            servers = listOf(
+                com.tak.weartak_tracker.data.TakServerConfig(name = "OPS", address = "tak.example.org", port = 8089, username = "alice", password = "s3cret"),
+                com.tak.weartak_tracker.data.TakServerConfig(name = "CERT", address = "cert.example.org", port = 8089),
+            ),
+        )
+        val json = ProfilePresets.encode(config)
+        val preset = ProfilePresetParser.parse(json)!!
+        assertEquals(listOf("tak.example.org"), preset.servers.map { it.address })
+        val s = ProfilePresets.summarize("backup", json)
+        assertFalse(s.toString().contains("alice") || s.toString().contains("s3cret"))
+
+        val rec = Recorder()
+        var added = emptyList<PresetServer>()
+        val h = LoadProfileHandler({ json }, profile(rec), { added = it; it.size }, { false })
+        val r = runBlocking { h.execute(ChatCommand("loadprofile", mapOf("name" to "backup")), request) }
+        assertTrue(r.message, r.ok)
+        val u = rec.last!!
+        assertEquals("WT-BBFA", u.callsign)
+        assertEquals(5, u.heightFeet); assertEquals(8, u.heightInches)
+        assertEquals(1988, u.birthYear); assertEquals("Coalition Civilian", u.userType)
+        assertEquals(30, u.pantsLengthInches); assertEquals(30, u.waistInches)
+        assertEquals("s3cret", added.single().password)
+        assertEquals("Medic", u.role)
+    }
+
+    @Test
+    fun backupsNeverOverwriteAndDeleteIsScoped() {
+        val dir = java.nio.file.Files.createTempDirectory("presets").toFile()
+        try {
+            val now = java.time.LocalDateTime.of(2026, 10, 23, 17, 12)
+            val config = com.tak.weartak_tracker.data.TrackerConfig(callsign = "WT-1")
+            assertEquals("backup-20261023-1712", ProfilePresets.saveBackup(dir, config, now))
+            assertEquals("backup-20261023-1712-2", ProfilePresets.saveBackup(dir, config, now))
+            assertEquals(setOf("backup-20261023-1712.json", "backup-20261023-1712-2.json"), dir.list()!!.toSet())
+            assertFalse(ProfilePresets.delete(dir, "../x"))
+            assertFalse(ProfilePresets.delete(dir, "missing"))
+            assertTrue(ProfilePresets.delete(dir, "backup-20261023-1712"))
+            assertEquals(listOf("backup-20261023-1712-2.json"), dir.list()!!.toList())
+        } finally {
+            dir.deleteRecursively()
+        }
+    }
+
+    @Test
     fun staleCommandFromAllowedSenderGetsReplyButUnknownSenderDoesNot() {
         val replies = mutableListOf<String>()
         val p = ChatCommandProcessor(
