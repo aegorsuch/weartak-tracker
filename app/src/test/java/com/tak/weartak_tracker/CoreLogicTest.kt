@@ -187,4 +187,24 @@ class CoreLogicTest {
         assertTrue(forwarder.alerts.isEmpty())
         assertTrue(forwarder.pending.isEmpty())
     }
+
+    @Test
+    fun repeatedSubmitOfTheSameUidAndStateSendsOnce() = runBlocking {
+        var online = true
+        val sent = mutableListOf<ManualAlert>()
+        val forwarder = AlertForwarder(send = { if (online) { sent += it; true } else false }, onChanged = { _, _ -> })
+        val alert = forwarder.newAlert("911 Alert")
+        repeat(3) { forwarder.submit(alert, ready = true) }
+        assertEquals(1, sent.size)
+
+        online = false
+        val queued = forwarder.newAlert("911 Alert")
+        repeat(3) { forwarder.submit(queued, ready = true) }
+        assertEquals(1, forwarder.pending.size)
+        online = true
+        forwarder.flush()
+        forwarder.flush()
+        assertEquals(listOf(alert.uid, queued.uid), sent.map { it.uid })
+        assertEquals(2, forwarder.alerts.size)
+    }
 }

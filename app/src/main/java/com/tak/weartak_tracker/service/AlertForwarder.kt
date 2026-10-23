@@ -34,8 +34,10 @@ class AlertForwarder(
         alerts.filter { it.state == AlertState.ALERT }.maxByOrNull { it.timeMillis }
             ?.copy(state = AlertState.CANCEL, enqueued = false)
 
-    /** Returns true when sent now, false when stored for later. */
+    /** Returns true when sent now, false when stored for later. A repeat of an already sent or queued uid/state is dropped. */
     suspend fun submit(item: ManualAlert, ready: Boolean): Boolean {
+        if (queue.any { it.uid == item.uid && it.state == item.state }) return false
+        if (item.state == AlertState.ALERT && alerts.any { it.uid == item.uid && it.state == AlertState.ALERT && !it.enqueued }) return true
         if (ready && sendAll(item)) return true
         enqueue(item)
         return false
