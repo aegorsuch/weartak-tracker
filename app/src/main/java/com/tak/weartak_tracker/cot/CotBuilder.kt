@@ -41,9 +41,6 @@ object CotBuilder {
         2L * reportingIntervalSeconds.coerceAtLeast(1) + 15L
     const val ALERT_STALE_SECONDS = 15L * 60L
     private const val FRESH_EMERGENCY_FIX_MILLIS = 3_000L
-    /** Older fixes fall back to 0,0 rather than pointing responders somewhere the wearer probably isn't. */
-    const val MAX_EMERGENCY_FIX_AGE_MILLIS = 5L * 60_000L
-    private const val MAX_FIX_CLOCK_SKEW_MILLIS = 60_000L
     /** Walking pace, used to grow ce for an older fix when the fix's own speed is lower or unknown. */
     private const val ASSUMED_DRIFT_MPS = 1.5f
     private const val UNKNOWN_LOCATION_ERROR_METERS = 9_999_999f
@@ -98,17 +95,19 @@ object CotBuilder {
         time: CotTime,
     ): String {
         val eventMillis = Instant.parse(time.startCot).toEpochMilli()
-        // GPS and system clocks can disagree slightly, so a fix a little "in the future" counts as current.
-        val ageMillis = fix?.let { (eventMillis - it.timeMillis).let { a -> if (a in -MAX_FIX_CLOCK_SKEW_MILLIS until 0) 0 else a } }
+        // Any valid fix beats 0,0. GPS and system clocks can disagree, so a fix dated "in the future" counts as current.
         val location = fix?.takeIf {
-            ageMillis != null && ageMillis in 0..MAX_EMERGENCY_FIX_AGE_MILLIS &&
-                it.lat.isFinite() && it.lat in -90.0..90.0 &&
+            it.lat.isFinite() && it.lat in -90.0..90.0 &&
                 it.lon.isFinite() && it.lon in -180.0..180.0
         }
+        val ageMillis = location?.let { (eventMillis - it.timeMillis).coerceAtLeast(0) } ?: 0
         val ce = location?.ce?.takeIf { it.isFinite() && it >= 0f }?.let { base ->
-            // An older fix is still the best position, but its error grows with how far the wearer could have moved.
-            if (ageMillis!! < FRESH_EMERGENCY_FIX_MILLIS) base
-            else base + maxOf(location.speed.takeIf { it.isFinite() } ?: 0f, ASSUMED_DRIFT_MPS) * ageMillis / 1000f
+            // An older fix's error grows with how far the wearer could have moved since it was taken.
+            if (ageMillis < FRESH_EMERGENCY_FIX_MILLIS) base
+            else minOf(
+                base + maxOf(location.speed.takeIf { it.isFinite() } ?: 0f, ASSUMED_DRIFT_MPS) * ageMillis / 1000f,
+                UNKNOWN_LOCATION_ERROR_METERS,
+            )
         }
         val point = listOf(
             "lat" to (location?.lat ?: 0.0), "lon" to (location?.lon ?: 0.0),

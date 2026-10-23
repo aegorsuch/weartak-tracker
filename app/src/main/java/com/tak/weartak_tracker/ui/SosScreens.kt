@@ -135,7 +135,8 @@ fun SosScreen(repo: SettingsRepository, exit: () -> Unit) {
     } else {
         var timedOut by remember(uid) { mutableStateOf(false) }
         LaunchedEffect(uid) {
-            delay(5000)
+            // Covers the service's up-to-3 s wait for a fresh fix plus sending.
+            delay(8000)
             timedOut = true
         }
         val entry = alerts.firstOrNull { it.uid == uid }
