@@ -201,23 +201,55 @@ builds and the existing GitHub debug workflow remain supported.
 After `main_release` succeeds on a protected `main` push,
 `publish_github_pipeline_release` publishes its signed APK to the GitHub mirror
 `aegorsuch/weartak-tracker`, using the stable tag `takgov-pipeline` and title
-**TAK Forge Automated Pipeline**. Official version-tag builds and GitHub Actions
+**TAK.gov Forge CI/CD Pipeline Release (\<APK version without +SHA suffix\>)**.
+For example, APK version `5.8.4-p7+6f8b8e4f` produces title
+`TAK.gov Forge CI/CD Pipeline Release (5.8.4-p7)`. Official version-tag builds and GitHub Actions
 are unchanged. Create `GITHUB_RELEASE_TOKEN` in the canonical Tracker GitLab
 project's CI/CD variables; the publisher reads it only from the environment and
 fails clearly if absent. Never put it in files or enable `CI_DEBUG_TRACE`.
-The existing runner image must provide Python 3.9+ and Git; no packages are installed.
+The existing runner image must provide Python 3.9+, Git, and Android build-tools
+`aapt`/`apksigner`; no packages are installed.
+
+Presentation is read from the signed APK manifest, not guessed from its filename
+or the current source version. Notes include actual APK version/versionCode,
+global pipeline ID and project IID, the canonical pipeline URL,
+full source SHA, a separate artifact SHA256, and a readable labeled APK download.
+Only the bounded `tracker-ci-presentation` block is refreshed; manual notes
+outside it and the `tracker-ci-assets` ownership marker are preserved.
 
 The job is serialized and requires both canonical and mirrored `main` heads
-to match the pipeline commit before publication and again before advancing the
-rolling tag. A stale mirror fails the job; synchronize it before retrying.
+to match the pipeline commit before publication and again before final publication.
+A stale mirror fails the job; synchronize it before retrying. The approved
+`takgov-pipeline` anchor tag must already exist and is never moved by the publisher.
 It rechecks the established Tracker signing certificate and uploads the unchanged
-APK bytes as `WearTAK-Tracker-<version>-<8-character-commit>-release.apk`, so a new
-commit does not overwrite the previous APK before verification. It verifies the
+APK bytes as `WearTAK-Tracker-<APK version without +SHA>-p<IID>.apk`, omitting
+the extra `-p<IID>` when already present (for example `WearTAK-Tracker-5.8.4-p7.apk`).
+The native asset label matches that readable filename; the full manifest version
+stays in the notes. Project pipeline IID is required for unique filenames.
+It verifies the
 downloaded upload's SHA-256 before removing older publisher-owned APKs. Existing
-release notes and unrelated assets are retained; an unmarked existing release at
+release notes and unrelated assets are retained. After upload verification, older
+publisher-owned APKs (including legacy commit-stamped names) are removed so the
+rolling release keeps only its current owned APK, matching the watch publisher.
+An unmarked existing release at
 `takgov-pipeline` is rejected rather than adopted. Version releases are untouched.
 The mirror repository, title, tag, and canonical project are fixed in
 `scripts/publish_github_release.py`, with no CI variable overrides.
+
+Channel inventory: this is the only automated GitHub release publisher in this
+repository. `official_release` retains version-tag artifacts in GitLab, and
+GitHub Actions uploads debug job artifacts, not releases. The older
+`tak-gov-develop` GitHub release has a separate `weartak-tracker-gov` ownership
+marker, also encoded in its asset label; keep that machine label unchanged.
+Its historical `scripts/publish-github-release.mjs` implementation is not in
+canonical `main`; no current producer for it is defined here. The observed
+`untagged-dad360dbcd5853f88d38` release carries `tracker-ci-assets` but is not at
+the publisher's configured `takgov-pipeline` tag before the approved migration.
+That existing release is adopted at the fixed tag with its existing APK renamed
+and relabeled to `WearTAK-Tracker-5.8.4-p7.apk`, preserving verified bytes and
+release/asset IDs after a byte+metadata backup. The historical `tak-gov-develop`
+and manually maintained `v5.8.3` releases are not adopted, deleted, or rewritten
+by the publisher.
 
 Run the publisher's offline mocked-API tests without credentials or network access:
 
