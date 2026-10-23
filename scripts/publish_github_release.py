@@ -220,15 +220,16 @@ def release_presentation(env, version, version_code, digest, asset_name):
     )
     label = asset_name
     body = (
-        "Automatically published signed Wear OS Tracker main-channel build.\n\n"
+        "Automatically published stable WearOS Tracker main-channel build.\n\n"
         f"- APK version: **{version}** (versionCode **{version_code}**)\n"
         f"- Build: {build}\n"
         f"- Pipeline: {pipeline_url}\n"
         f"- Source commit: `{env['CI_COMMIT_SHA'].lower()}` on TAK.gov `main`\n"
         f"- SHA256: `{digest}`\n\n"
         f"[Download {label}]({download})\n\n"
-        "Install the APK, not GitHub's automatic Source code archives. "
-        "The full source commit above identifies this build; the rolling tag can advance."
+        "Install the APK above. GitHub's \"Source code\" archives come from the fixed "
+        "release anchor tag, not from this build; the source commit above is "
+        "authoritative and may not yet be mirrored to GitHub."
     )
     return title, body, label
 
@@ -333,6 +334,12 @@ class ReleasePublisher:
         if self.api is None:
             self.api = GitHubApi(self.env["GITHUB_RELEASE_TOKEN"])
         self.assert_current_head(commit_sha)
+        anchor = self.api.request_json(
+            "GET", f"/repos/{GITHUB_REPOSITORY}/git/ref/tags/{RELEASE_TAG}",
+            allow_not_found=True,
+        )
+        if anchor is None:
+            raise PublishError("The approved fixed release anchor tag is missing")
 
         apk_candidates = list(Path("app/build/outputs/apk/release").glob("*.apk"))
         if len(apk_candidates) != 1:
@@ -393,46 +400,22 @@ class ReleasePublisher:
 
         self.assert_current_head(commit_sha)
         self.api.label_asset(existing["id"], label)
-        self.update_rolling_tag(commit_sha)
         for asset in assets:
-            if (
-                asset["name"] in owned_names and asset["name"] != asset_name
-                and DISPLAY_APK_PATTERN.fullmatch(asset["name"])
-            ):
+            if asset["name"] in owned_names and asset["name"] != asset_name:
                 self.api.delete_asset(asset["id"])
-        retained_names = [
-            name for name in owned_names if APK_PATTERN.fullmatch(name)
-        ]
         self.api.request_json(
             "PATCH", f"/repos/{GITHUB_REPOSITORY}/releases/{release['id']}",
             {
                 "name": title,
                 "body": update_presentation(
                     update_marker(
-                        release.get("body", ""), list(dict.fromkeys(retained_names + [asset_name])),
+                        release.get("body", ""), [asset_name],
                     ), presentation,
                 ),
                 "draft": False, "prerelease": False, "target_commitish": commit_sha,
             },
         )
         return asset_name
-
-    def update_rolling_tag(self, commit_sha):
-        ref = self.api.request_json(
-            "GET", f"/repos/{GITHUB_REPOSITORY}/git/ref/tags/{RELEASE_TAG}",
-            allow_not_found=True,
-        )
-        if ref is None:
-            self.api.request_json(
-                "POST", f"/repos/{GITHUB_REPOSITORY}/git/refs",
-                {"ref": "refs/tags/" + RELEASE_TAG, "sha": commit_sha},
-            )
-        elif ref.get("object", {}).get("sha", "").lower() != commit_sha:
-            self.api.request_json(
-                "PATCH", f"/repos/{GITHUB_REPOSITORY}/git/refs/tags/{RELEASE_TAG}",
-                {"sha": commit_sha, "force": True},
-            )
-
 
 def main():
     try:

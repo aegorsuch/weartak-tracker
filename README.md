@@ -218,8 +218,9 @@ Only the bounded `tracker-ci-presentation` block is refreshed; manual notes
 outside it and the `tracker-ci-assets` ownership marker are preserved.
 
 The job is serialized and requires both canonical and mirrored `main` heads
-to match the pipeline commit before publication and again before advancing the
-rolling tag. A stale mirror fails the job; synchronize it before retrying.
+to match the pipeline commit before publication and again before final publication.
+A stale mirror fails the job; synchronize it before retrying. The approved
+`takgov-pipeline` anchor tag must already exist and is never moved by the publisher.
 It rechecks the established Tracker signing certificate and uploads the unchanged
 APK bytes as `WearTAK-Tracker-<APK version without +SHA>-p<IID>.apk`, omitting
 the extra `-p<IID>` when already present (for example `WearTAK-Tracker-5.8.4-p7.apk`).
@@ -227,9 +228,9 @@ The native asset label matches that readable filename; the full manifest version
 stays in the notes. Project pipeline IID is required for unique filenames.
 It verifies the
 downloaded upload's SHA-256 before removing older publisher-owned APKs. Existing
-release notes and unrelated assets are retained. Legacy commit-stamped APKs and
-their ownership entries are retained during migration so their existing download
-URLs remain valid; normal cleanup applies only to publisher-owned new-style APKs.
+release notes and unrelated assets are retained. After upload verification, older
+publisher-owned APKs (including legacy commit-stamped names) are removed so the
+rolling release keeps only its current owned APK, matching the watch publisher.
 An unmarked existing release at
 `takgov-pipeline` is rejected rather than adopted. Version releases are untouched.
 The mirror repository, title, tag, and canonical project are fixed in
@@ -243,10 +244,12 @@ marker, also encoded in its asset label; keep that machine label unchanged.
 Its historical `scripts/publish-github-release.mjs` implementation is not in
 canonical `main`; no current producer for it is defined here. The observed
 `untagged-dad360dbcd5853f88d38` release carries `tracker-ci-assets` but is not at
-the publisher's configured `takgov-pipeline` tag. Neither that legacy release nor
-the manually maintained `v5.8.3` release is automatically adopted, retagged,
-deleted, or rewritten. Any metadata-only repair requires separately verified
-artifact/provenance and approval, preserving asset IDs, URLs, bytes, and notes.
+the publisher's configured `takgov-pipeline` tag before the approved migration.
+That existing release is adopted at the fixed tag with its existing APK renamed
+and relabeled to `WearTAK-Tracker-5.8.4-p7.apk`, preserving verified bytes and
+release/asset IDs after a byte+metadata backup. The historical `tak-gov-develop`
+and manually maintained `v5.8.3` releases are not adopted, deleted, or rewritten
+by the publisher.
 
 Run the publisher's offline mocked-API tests without credentials or network access:
 

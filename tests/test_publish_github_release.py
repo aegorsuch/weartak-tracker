@@ -51,7 +51,7 @@ class FakeGitHubApi:
         self.writes = []
         self.events = []
         self.labels = {}
-        self.tag_ref = None
+        self.tag_ref = {"object": {"sha": "0" * 40}}
         if body is not None:
             self.release = {
                 "id": 17,
@@ -174,7 +174,8 @@ class ReleasePublisherTests(OfflineTests):
         self.assertEqual(api.release["tag_name"], "takgov-pipeline")
         self.assertFalse(api.release["draft"])
         self.assertFalse(api.release["prerelease"])
-        self.assertEqual(api.tag_ref["object"]["sha"], COMMIT_SHA)
+        self.assertEqual(api.tag_ref["object"]["sha"], "0" * 40)
+        self.assertFalse(any(entry[0] in ("move-tag", "create-tag") for entry in api.writes))
         self.assertEqual(list(api.assets.values()), [
             ({"id": 1, "name": APK_NAME}, self.apk_bytes),
         ])
@@ -202,7 +203,8 @@ class ReleasePublisherTests(OfflineTests):
         verification = next(i for i, entry in enumerate(api.writes) if entry[0] == "verify")
         deletion = next(i for i, entry in enumerate(api.writes) if entry[0] == "delete-asset")
         self.assertLess(verification, deletion)
-        self.assertIn(("move-tag", {"sha": COMMIT_SHA, "force": True}), api.writes)
+        self.assertEqual(api.tag_ref["object"]["sha"], "0" * 40)
+        self.assertFalse(any(entry[0] in ("move-tag", "create-tag") for entry in api.writes))
         self.assertEqual(api.release["name"], RELEASE_TITLE + " (5.8.4-p7)")
 
     def test_rerun_replaces_only_generated_presentation_and_preserves_manual_notes(self):
@@ -256,7 +258,7 @@ class ReleasePublisherTests(OfflineTests):
             self.publisher(api).run()
         self.assertFalse(api.writes)
 
-    def test_legacy_asset_urls_and_ownership_survive_naming_migration(self):
+    def test_legacy_owned_asset_cleanup_keeps_only_verified_current_apk(self):
         legacy = "WearTAK-Tracker-5.8.4-5860007-6f8b8e4f-release.apk"
         api = FakeGitHubApi(
             body=update_marker("Manual notes", [legacy, OLD_APK]),
@@ -264,8 +266,8 @@ class ReleasePublisherTests(OfflineTests):
         )
         self.publisher(api).run()
         names = {a["name"] for a, _ in api.assets.values()}
-        self.assertEqual(names, {legacy, APK_NAME})
-        self.assertEqual(read_owned_names(api.release["body"]), [legacy, APK_NAME])
+        self.assertEqual(names, {APK_NAME})
+        self.assertEqual(read_owned_names(api.release["body"]), [APK_NAME])
         self.publisher(api).run()
         self.assertEqual({a["name"] for a, _ in api.assets.values()}, names)
         self.assertIn("Manual notes", api.release["body"])
@@ -288,7 +290,7 @@ class ReleasePublisherTests(OfflineTests):
         self.assertEqual({a["name"] for a, _ in api.assets.values()}, {OLD_APK})
         self.assertEqual(api.release["name"], "old title")
         self.assertTrue(api.release["prerelease"])
-        self.assertIsNone(api.tag_ref)
+        self.assertEqual(api.tag_ref["object"]["sha"], "0" * 40)
         self.assertFalse(api.labels)
 
     def test_rejects_unowned_release_without_writes(self):
@@ -340,7 +342,14 @@ class ReleasePublisherTests(OfflineTests):
         with self.assertRaisesRegex(PublishError, "no longer the canonical"):
             publisher.run()
         self.assertTrue(any(a["name"] == OLD_APK for a, _ in api.assets.values()))
-        self.assertIsNone(api.tag_ref)
+        self.assertEqual(api.tag_ref["object"]["sha"], "0" * 40)
+
+    def test_missing_fixed_anchor_fails_before_any_write(self):
+        api = FakeGitHubApi()
+        api.tag_ref = None
+        with self.assertRaisesRegex(PublishError, "fixed release anchor tag is missing"):
+            self.publisher(api).run()
+        self.assertFalse(api.writes)
 
     def test_unsigned_apk_rejected_before_writes(self):
         api = FakeGitHubApi()
