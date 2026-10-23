@@ -1,5 +1,7 @@
 package com.tak.weartak_tracker.command
 
+import java.util.Locale
+
 enum class ChatCommandDecision { ALLOWED, SENDER_NOT_ALLOWED, STALE, DUPLICATE }
 
 /**
@@ -38,6 +40,31 @@ class ChatCommandAuthorizer(
         fun normalize(callsign: String) = callsign.trim().lowercase()
 
         fun parseAllowList(text: String): List<String> =
-            text.split(',').map { it.trim() }.filter { it.isNotEmpty() }.distinctBy(::normalize)
+            sortedAllowList(text.split(Regex("[,\\r\\n]+")))
+
+        fun sortedAllowList(callsigns: Collection<String>): List<String> =
+            callsigns.map { it.trim() }
+                .filter { it.isNotEmpty() }
+                .distinctBy(::normalize)
+                .map { it.uppercase(Locale.ROOT) }
+                .sortedWith(String.CASE_INSENSITIVE_ORDER)
+
+        fun validateNewCallsign(value: String, allowedCallsigns: Collection<String>): String? {
+            if (ChatCommandValidation.callsign(value) == null) {
+                return "Enter a valid callsign (1-32 letters, numbers, spaces, dots, underscores, or hyphens)"
+            }
+            if (allowedCallsigns.any { normalize(it) == normalize(value) }) {
+                return "This callsign is already allowed"
+            }
+            return null
+        }
+
+        fun addAllowedCallsign(allowedCallsigns: Collection<String>, value: String): List<String>? {
+            if (validateNewCallsign(value, allowedCallsigns) != null) return null
+            return sortedAllowList(allowedCallsigns + value)
+        }
+
+        fun removeAllowedCallsign(allowedCallsigns: Collection<String>, value: String): List<String> =
+            sortedAllowList(allowedCallsigns.filterNot { normalize(it) == normalize(value) })
     }
 }

@@ -440,7 +440,7 @@ fun NavGraphBuilder.settingsGraph(repo: SettingsRepository, configState: State<T
             item {
                 WearTAKTitleChipWithState(
                     "Allowed Callsigns",
-                    config.chatCommandCallsigns.joinToString(", ").ifEmpty { "None" },
+                    if (config.chatCommandCallsigns.isEmpty()) "None" else "${config.chatCommandCallsigns.size} allowed",
                 ) { go("chat_command_callsigns") }
             }
         }
@@ -455,13 +455,25 @@ fun NavGraphBuilder.settingsGraph(repo: SettingsRepository, configState: State<T
     }
 
     composable("chat_command_callsigns") {
+        AllowedCallsignsPage(repo, config.chatCommandCallsigns, go, back)
+    }
+
+    composable("chat_command_callsigns_add") {
         val update = rememberUpdater(repo)
         WearTAKStringEntryPage(
-            item = config.chatCommandCallsigns.joinToString(", "),
-            label = "Allowed callsigns (comma separated)",
+            item = "",
+            label = "Callsign",
             onBack = back,
-            validate = { null },
-        ) { v -> update { it.copy(chatCommandCallsigns = ChatCommandAuthorizer.parseAllowList(v)) } }
+            validate = { ChatCommandAuthorizer.validateNewCallsign(it, config.chatCommandCallsigns) },
+        ) { value ->
+            update { current ->
+                current.copy(
+                    chatCommandCallsigns =
+                        ChatCommandAuthorizer.addAllowedCallsign(current.chatCommandCallsigns, value)
+                            ?: current.chatCommandCallsigns,
+                )
+            }
+        }
     }
     networkComposable("tak_servers", configState, back) { TakServersPage(repo, config, go, back) }
 
@@ -827,6 +839,58 @@ private fun ChannelsPage(server: TakServerConfig, back: () -> Unit) {
             item {
                 Spacer(Modifier.height(6.dp))
                 WearTAKTitleChip("Refresh") { if (channels?.status != TakChannelStatus.LOADING) refresh() }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalWearMaterialApi::class, ExperimentalWearFoundationApi::class)
+@Composable
+private fun AllowedCallsignsPage(
+    repo: SettingsRepository,
+    callsigns: List<String>,
+    go: Navigate,
+    back: () -> Unit,
+) {
+    val update = rememberUpdater(repo)
+    WearTAKPageWithBackArrow("Allowed Callsigns", back) {
+        item {
+            WearTAKTitleChip(
+                "Add Callsign",
+                icon = { Icon(Icons.Filled.Add, contentDescription = "Add callsign") },
+            ) { go("chat_command_callsigns_add") }
+        }
+        val sortedCallsigns = ChatCommandAuthorizer.sortedAllowList(callsigns)
+        if (sortedCallsigns.isEmpty()) {
+            item { Text("No callsigns allowed", textAlign = TextAlign.Center, color = Color.LightGray) }
+        }
+        itemsIndexed(sortedCallsigns, key = { _, callsign -> ChatCommandAuthorizer.normalize(callsign) }) { _, callsign ->
+            val revealState = rememberRevealState()
+            val scope = rememberCoroutineScope()
+            val remove = {
+                update { current ->
+                    current.copy(
+                        chatCommandCallsigns =
+                            ChatCommandAuthorizer.removeAllowedCallsign(current.chatCommandCallsigns, callsign),
+                    )
+                }
+            }
+            SwipeToRevealChip(
+                revealState = revealState,
+                modifier = Modifier.fillMaxWidth(),
+                primaryAction = {
+                    SwipeToRevealPrimaryAction(
+                        revealState = revealState,
+                        icon = { Icon(SwipeToRevealDefaults.Delete, "Remove") },
+                        label = { Text("Remove") },
+                        onClick = { remove() },
+                    )
+                },
+                onFullSwipe = { remove() },
+            ) {
+                WearTAKTitleChip(callsign) {
+                    scope.launch { revealState.animateTo(RevealValue.Revealing) }
+                }
             }
         }
     }
