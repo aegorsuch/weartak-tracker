@@ -16,7 +16,9 @@ object TakDatagramDecoder {
     fun decode(bytes: ByteArray, length: Int = bytes.size): String? {
         if (length <= 0) return null
         if ((bytes[0].toInt() and 0xff) != MAGIC) {
-            return String(bytes, 0, length, Charsets.UTF_8).takeIf { it.trimStart().startsWith("<") }
+            return String(bytes, 0, length, Charsets.UTF_8)
+                .trimStart { it.isWhitespace() || it == '\uFEFF' }
+                .takeIf { it.startsWith("<") }
         }
         if (length < 3 || bytes[1].toInt() != 1 || (bytes[2].toInt() and 0xff) != MAGIC) return null
         return try {

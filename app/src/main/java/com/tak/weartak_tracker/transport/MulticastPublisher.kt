@@ -38,10 +38,12 @@ class MulticastPublisher(private val onStarted: () -> Unit) {
             this.port = port
             socket = ms
             TrackerState.setEndpoint(Endpoint.MULTICAST, true)
+            Log.i(TAG, "Multicast publisher ready for ${address.trim()}:$port")
             onStarted()
         } catch (e: Exception) {
-            Log.w(TAG, "Unable to start multicast publisher", e)
+            Log.w(TAG, "Unable to start multicast publisher; will retry", e)
             close()
+            key = null
         }
     }
 

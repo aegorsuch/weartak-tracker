@@ -244,4 +244,68 @@ class TrackerCommandsTest {
         val xxe = "<!DOCTYPE e [<!ENTITY x 'y'>]><event><__chat/>#weartaktrackercommand</event>"
         assertNull(InboundChat.commandRequest(xxe, "ME", "s", 0))
     }
+
+    private val atakDirectChat =
+        """<?xml version="1.0" encoding="UTF-8" standalone="yes"?><event version="2.0" uid="GeoChat.ANDROID-tab.WEAROS_me.abc" type="b-t-f" time="2026-05-04T16:49:05.12Z" start="2026-05-04T16:49:05.12Z" stale="2026-05-05T16:49:05.12Z" how="h-g-i-g-o"><point lat="0" lon="0" hae="9999999" ce="9999999" le="9999999"/><detail><__chat parent="RootContactGroup" groupOwner="false" messageId="abc" chatroom="WT-BBFA" id="ROOM" senderCallsign="ODIN-ATAKDEV"><chatgrp uid0="ANDROID-tab" uid1="WEAROS_me" id="ROOM"/></__chat><link uid="ANDROID-tab" type="a-f-G-U-C" relation="p-p"/><remarks source="BAO.F.ATAK.ANDROID-tab" to="TO" time="2026-05-04T16:49:05.12Z">#weartaktrackercommandloadprofile name=odin-weartaktracker</remarks></detail></event>"""
+
+    @Test
+    fun atakDirectChatIsAcceptedWithAnyFractionDigits() {
+        val xml = atakDirectChat.replace("ROOM", "WEAROS_me").replace("TO", "WEAROS_me")
+        val req = InboundChat.commandRequest(xml, "WEAROS_me", "multicast:224.10.10.1:17012", 0, "WT-BBFA")
+        assertNotNull(req)
+        assertEquals("ODIN-ATAKDEV", req!!.senderCallsign)
+        assertEquals(java.time.Instant.parse("2026-05-04T16:49:05.120Z").toEpochMilli(), req.sentAtMs)
+        assertEquals(1_000L, InboundChat.parseTime("1970-01-01T00:00:01Z"))
+        assertEquals(1_000L, InboundChat.parseTime("1970-01-01T00:00:01.000000+00:00"))
+        assertNull(InboundChat.parseTime("garbage"))
+    }
+
+    @Test
+    fun directChatInSenderRoomCountsWhenAddressedToMe() {
+        val drops = mutableListOf<String>()
+        val byParticipant = atakDirectChat.replace("ROOM", "ANDROID-tab").replace("TO", "x")
+        assertNotNull(InboundChat.commandRequest(byParticipant, "WEAROS_me", "s", 0, "WT-BBFA"))
+        val byCallsign = byParticipant.replace("uid1=\"WEAROS_me\"", "uid1=\"other\"").replace("to=\"x\"", "to=\"wt-bbfa\"")
+        assertNotNull(InboundChat.commandRequest(byCallsign, "WEAROS_me", "s", 0, "WT-BBFA"))
+        val notMine = byParticipant.replace("uid1=\"WEAROS_me\"", "uid1=\"other\"")
+        assertNull(InboundChat.commandRequest(notMine, "WEAROS_me", "s", 0, "WT-BBFA") { drops += it })
+        val otherGroup = atakDirectChat.replace("ROOM", "some-group").replace("TO", "WEAROS_me")
+        assertNull(InboundChat.commandRequest(otherGroup, "WEAROS_me", "s", 0, "WT-BBFA") { drops += it })
+        assertEquals(2, drops.size)
+        assertTrue(drops.none { it.contains("odin-weartaktracker") })
+    }
+
+    @Test
+    fun protobufAtakDirectChatDecodesWithPointFields() {
+        val detail = "<__chat id='WEAROS_me' senderCallsign='ODIN-ATAKDEV' messageId='m2'><chatgrp uid0='ANDROID-tab' uid1='WEAROS_me' id='WEAROS_me'/></__chat>" +
+            "<remarks to='WEAROS_me'>#weartaktrackercommandsetteam Blue</remarks>"
+        val fixed64 = { f: Int -> byteArrayOf(((f shl 3) or 1).toByte()) + ByteArray(8) }
+        val event = field(1, "b-t-f".toByteArray()) + field(5, "GeoChat.x".toByteArray()) +
+            byteArrayOf(0x30) + varint(1_700_000_000_000) + byteArrayOf(0x38) + varint(1_700_000_000_000) +
+            field(9, "h-g-i-g-o".toByteArray()) + fixed64(10) + fixed64(11) + fixed64(12) + fixed64(13) + fixed64(14) +
+            field(15, field(1, detail.toByteArray()))
+        val xml = TakDatagramDecoder.decode(byteArrayOf(0xbf.toByte(), 1, 0xbf.toByte()) + field(2, event))
+        val req = InboundChat.commandRequest(xml!!, "WEAROS_me", "multicast:224.10.10.1:17012", 0, "WT-BBFA")
+        assertEquals(1_700_000_000_000, req?.sentAtMs)
+        assertEquals("<e/>", TakDatagramDecoder.decode("\uFEFF  <e/>".toByteArray()))
+    }
+
+    @Test
+    fun staleCommandFromAllowedSenderGetsReplyButUnknownSenderDoesNot() {
+        val replies = mutableListOf<String>()
+        val p = ChatCommandProcessor(
+            isEnabled = { true },
+            allowedCallsigns = { listOf("ODIN") },
+            handlers = emptyMap(),
+            reply = { _, m -> replies += m },
+            audit = {},
+            now = { 10 * 60_000L },
+        )
+        runBlocking {
+            p.handle(ChatCommandRequest("U1", "ODIN", "#weartaktrackercommandsetteam Blue", "a", 0, 0, "s"))
+            p.handle(ChatCommandRequest("U2", "EVE", "#weartaktrackercommandsetteam Blue", "b", 0, 0, "s"))
+        }
+        assertEquals(1, replies.size)
+        assertTrue(replies[0].contains("clock"))
+    }
 }

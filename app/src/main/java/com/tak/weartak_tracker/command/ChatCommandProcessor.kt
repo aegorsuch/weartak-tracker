@@ -35,7 +35,10 @@ class ChatCommandProcessor(
     suspend fun handle(request: ChatCommandRequest): Boolean {
         val parsed = ChatCommandParser.parse(request.text, positional)
         if (parsed is ChatCommandParse.NotACommand) return false
-        if (!isEnabled()) return false
+        if (!isEnabled()) {
+            audit("ignored command from ${request.senderCallsign}: commands disabled")
+            return false
+        }
 
         val messageKey = request.messageId ?: "${request.sentAtMs}:${request.text.hashCode()}"
         val decision = authorizer.authorize(
@@ -43,6 +46,10 @@ class ChatCommandProcessor(
         )
         if (decision != ChatCommandDecision.ALLOWED) {
             audit("ignored command from ${request.senderCallsign}: $decision")
+            // Allowed senders learn why; unknown senders get nothing so the feature can't be probed.
+            if (decision == ChatCommandDecision.STALE) {
+                reply(request, "Command rejected: message time is missing or more than 5 minutes off. Check both devices' clocks.")
+            }
             return true
         }
 

@@ -27,35 +27,58 @@ class MulticastChatReceiver(
     private var lock: WifiManager.MulticastLock? = null
     private var key: Pair<Set<Pair<String, Int>>, Network?>? = null
     private val sockets = mutableListOf<MulticastSocket>()
+    @Volatile private var lastDecodeLog = 0L
 
+    /** True while the requested listeners are all up (or none were requested). */
+    @Volatile var healthy = true
+        private set
+
+    /**
+     * Applies the wanted state. Unchanged state is a no-op unless a previous attempt failed, so callers can
+     * call this periodically to retry sockets that could not be bound or joined.
+     */
     @Synchronized
     fun configure(enabled: Boolean, groups: Set<Pair<String, Int>>, wifi: Network?) {
         val nextKey = (if (enabled && wifi != null) groups else emptySet()) to wifi
-        if (nextKey == key) return
+        if (nextKey == key && healthy) return
         key = nextKey
+        healthy = true
         stopLocked()
-        if (!enabled || wifi == null) return
+        if (!enabled || wifi == null) {
+            Log.i(TAG, "Mesh chat listener off (enabled=$enabled, wifi=${wifi != null})")
+            return
+        }
         val iface = runCatching { cm?.getLinkProperties(wifi)?.interfaceName?.let(NetworkInterface::getByName) }.getOrNull()
+        if (iface == null) {
+            // Link properties can lag onAvailable; listen anyway but try again shortly.
+            Log.i(TAG, "Wi-Fi interface not known yet; joining on the default interface and retrying")
+            healthy = false
+        }
         for ((address, port) in groups) {
+            var socket: MulticastSocket? = null
             try {
                 val group = InetAddress.getByName(address)
-                val socket = MulticastSocket(null).apply {
-                    reuseAddress = true
-                    soTimeout = 1000
-                    bind(InetSocketAddress(port))
-                }
-                wifi.bindSocket(socket)
+                val s = MulticastSocket(null)
+                socket = s
+                s.reuseAddress = true
+                s.soTimeout = 1000
+                s.bind(InetSocketAddress(port))
+                wifi.bindSocket(s)
                 if (iface != null) {
-                    socket.networkInterface = iface
-                    socket.joinGroup(InetSocketAddress(group, port), iface)
+                    s.networkInterface = iface
+                    s.joinGroup(InetSocketAddress(group, port), iface)
                 } else {
                     @Suppress("DEPRECATION")
-                    socket.joinGroup(group)
+                    s.joinGroup(group)
                 }
-                sockets += socket
-                Thread({ receive(socket, "multicast:$address:$port") }, "mcast-chat-$port").apply { isDaemon = true }.start()
+                sockets += s
+                val source = "multicast:$address:$port"
+                Thread({ receive(s, source) }, "mcast-chat-$port").apply { isDaemon = true }.start()
+                Log.i(TAG, "Listening for mesh chat on $address:$port (${iface?.name ?: "default interface"})")
             } catch (e: Exception) {
-                Log.w(TAG, "Unable to listen on multicast $address:$port", e)
+                runCatching { socket?.close() }
+                healthy = false
+                Log.w(TAG, "Unable to listen on multicast $address:$port; will retry", e)
             }
         }
         if (sockets.isNotEmpty()) {
@@ -69,10 +92,26 @@ class MulticastChatReceiver(
             try {
                 val packet = DatagramPacket(buffer, buffer.size)
                 socket.receive(packet)
-                TakDatagramDecoder.decode(packet.data.copyOf(packet.length))?.let { onEvent(sourceId, it) }
+                val bytes = packet.data.copyOf(packet.length)
+                val xml = TakDatagramDecoder.decode(bytes)
+                if (xml == null) {
+                    val now = System.currentTimeMillis()
+                    if (now - lastDecodeLog > 60_000) {
+                        lastDecodeLog = now
+                        Log.i(TAG, "Undecodable ${bytes.size}-byte datagram on $sourceId from ${packet.address?.hostAddress}")
+                    }
+                    continue
+                }
+                if (xml.contains("<__chat")) {
+                    Log.i(TAG, "Chat datagram on $sourceId from ${packet.address?.hostAddress} (${bytes.size} bytes)")
+                }
+                onEvent(sourceId, xml)
             } catch (_: SocketTimeoutException) {
             } catch (e: Exception) {
-                if (!socket.isClosed) Log.w(TAG, "Multicast receive failed on $sourceId", e)
+                if (!socket.isClosed) {
+                    healthy = false
+                    Log.w(TAG, "Multicast receive failed on $sourceId; will rebuild", e)
+                }
                 return
             }
         }
