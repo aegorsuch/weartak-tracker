@@ -213,7 +213,10 @@ The existing runner image must provide Python 3.9+, Git, and Android build-tools
 Presentation is read from the signed APK manifest, not guessed from its filename
 or the current source version. Notes include actual APK version/versionCode,
 global pipeline ID and project IID, the canonical pipeline URL,
-full source SHA, a separate artifact SHA256, and a readable labeled APK download.
+full source SHA, and a separate artifact SHA256. The visible body follows the
+watch template exactly: channel intro, those five bullets, and the fixed-anchor
+Source code archive warning. Download the named/labeled APK from GitHub's native
+Assets section; no separate download-link line is added to the notes.
 Only the bounded `tracker-ci-presentation` block is refreshed; manual notes
 outside it and the `tracker-ci-assets` ownership marker are preserved.
 
