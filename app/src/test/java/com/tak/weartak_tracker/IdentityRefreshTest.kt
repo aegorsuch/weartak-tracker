@@ -14,6 +14,7 @@ class IdentityRefreshTest {
         assertTrue(original.copy(callsign = "New Callsign").identityChangedFrom(original))
         assertTrue(original.copy(team = "Red").identityChangedFrom(original))
         assertTrue(original.copy(role = "HQ").identityChangedFrom(original))
+        assertTrue(original.copy(medicalProfile = original.medicalProfile.copy(birthYear = 1988)).identityChangedFrom(original))
     }
 
     @Test

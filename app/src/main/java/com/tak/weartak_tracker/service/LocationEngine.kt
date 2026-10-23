@@ -39,6 +39,7 @@ class LocationEngine(
     private var intervalSecs = 0
     private var periodic = false
     private var access = LocationAccess.NONE
+    private var oneShotSince = 0L
 
     private val periodicCallback = object : LocationCallback() {
         override fun onLocationResult(result: LocationResult) {
@@ -49,6 +50,7 @@ class LocationEngine(
     private val oneShotCallback = object : LocationCallback() {
         override fun onLocationResult(result: LocationResult) {
             fixSinceAlarm = true
+            oneShotSince = 0L
             handler.removeCallbacks(noFixCheck)
             releaseWakeLock()
             result.lastLocation?.let(onLocation)
@@ -96,8 +98,15 @@ class LocationEngine(
         if (intervalSecs > 0 && LocationAccess.current(context) != access) start(intervalSecs)
     }
 
-    /** Extra fix for alerts and saved identity changes, without changing the reporting schedule. */
+    /**
+     * Active high-accuracy fix for alerts, identity changes, manual PLI and start-up, without changing the
+     * reporting schedule. While one is still in flight (bounded by [ONE_SHOT_IN_FLIGHT_MS]) repeat calls are
+     * dropped, so repeated taps don't stack requests; the pending fix serves them all.
+     */
     fun requestSingleFix() {
+        val now = SystemClock.elapsedRealtime()
+        if (oneShotSince != 0L && now - oneShotSince < ONE_SHOT_IN_FLIGHT_MS) return
+        oneShotSince = now
         releaseWakeLock()
         wakeLock = power.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "WearTAKTracker:gps").apply {
             acquire(WAKELOCK_MS)
@@ -123,6 +132,7 @@ class LocationEngine(
     fun stop() {
         fused.removeLocationUpdates(periodicCallback)
         fused.removeLocationUpdates(oneShotCallback)
+        oneShotSince = 0L
         alarms.cancel(alarmIntent)
         handler.removeCallbacks(noFixCheck)
         releaseWakeLock()
@@ -158,5 +168,7 @@ class LocationEngine(
         private const val ALARM_EARLY_MS = 35L
         private const val WAKELOCK_MS = 10_000L
         private const val NO_FIX_FALLBACK_MS = 9_000L
+        /** Matches the wakelock: after this an unanswered one-shot is assumed lost and may be re-requested. */
+        private const val ONE_SHOT_IN_FLIGHT_MS = WAKELOCK_MS
     }
 }

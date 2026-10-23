@@ -42,6 +42,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -51,6 +52,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * The tracker's only long-running component: owns transports, GPS scheduling,
@@ -74,6 +76,10 @@ class TrackerService : Service() {
     private var config = TrackerConfig()
     private var lastFix: Fix? = null
     private var lastLocationElapsed = 0L
+    /** Elapsed time of the newest fix, so an alert press can briefly wait for the fix it requested. */
+    private val fixArrivals = MutableStateFlow(0L)
+    /** Position last sent for each active alert, so it can be updated as fresher fixes arrive. */
+    private val alertPositions = mutableMapOf<String, AlertPosition>()
     private var lastPliElapsed = 0L
     private var appliedInterval = 0
     private val movement = MovementClassifier()
@@ -146,6 +152,8 @@ class TrackerService : Service() {
 
         network.start()
         location.lastKnown { it?.let { loc -> if (lastFix == null) lastFix = loc.toFix() } }
+        // Starting tracking publishes the wearer's position, so get a fresh one rather than waiting for the schedule.
+        location.requestSingleFix()
 
         scope.launch {
             var previous: TrackerConfig? = null
@@ -230,13 +238,14 @@ class TrackerService : Service() {
             applyPhysio()
         }
         when (intent?.action) {
-            ACTION_REBROADCAST_PLI -> scope.launch { rebroadcastPli() }
+            ACTION_REBROADCAST_PLI -> scope.launch { manualPli() }
             ACTION_LOCATION_ALARM -> if (::location.isInitialized) location.onAlarm()
             ACTION_RAISE_ALERT -> {
                 val uid = intent.getStringExtra(EXTRA_UID)
                 val description = intent.getStringExtra(EXTRA_DESCRIPTION).orEmpty()
                 scope.launch {
                     val alert = forwarder.newAlert(description).let { if (uid != null) it.copy(uid = uid) else it }
+                    awaitFreshFix()
                     submit(alert)
                 }
             }
@@ -317,11 +326,15 @@ class TrackerService : Service() {
         val fix = loc.toFix()
         lastFix = fix
         lastLocationElapsed = SystemClock.elapsedRealtime()
+        fixArrivals.value = lastLocationElapsed
         TrackerState.lastFix.value = fix
         TrackerState.activity.value = movement.onSpeed(loc.usableSpeed())
         scope.launch {
             sendPli(fix)
-            if (isReady()) alertMutex.withLock { forwarder.flush() }
+            alertMutex.withLock {
+                if (isReady()) forwarder.flush()
+                updateActiveAlerts(fix)
+            }
         }
     }
 
@@ -383,7 +396,42 @@ class TrackerService : Service() {
         if (fix != null) sendPli(fix) else location.requestSingleFix()
     }
 
+    /** User-requested PLI: send the best fix now, and the fresh fix requested here sends another when it lands. */
+    private suspend fun manualPli() {
+        location.requestSingleFix()
+        lastFix?.let { sendPli(it) }
+    }
+
+    /**
+     * Alert press: actively request a fix and wait briefly for it, so the alert usually carries a current
+     * position. Never waits when the last fix is already fresh, nor longer than [ALERT_FIX_WAIT_MS].
+     */
+    private suspend fun awaitFreshFix() {
+        val pressed = SystemClock.elapsedRealtime()
+        location.requestSingleFix()
+        if (lastFix != null && pressed - lastLocationElapsed < FRESH_FIX_MS) return
+        withTimeoutOrNull(ALERT_FIX_WAIT_MS) { fixArrivals.first { it > pressed } }
+    }
+
+    /**
+     * While an alert is active, resend it when a newer fix arrives so its position follows the wearer.
+     * An alert sent with an old or missing position is updated by the first newer fix; after that,
+     * updates are limited to one per [ALERT_UPDATE_MIN_MS]. Caller holds [alertMutex].
+     */
+    private suspend fun updateActiveAlerts(fix: Fix) {
+        val active = forwarder.alerts.filter { it.state == AlertState.ALERT && !it.enqueued }
+        alertPositions.keys.retainAll(active.map { it.uid }.toSet())
+        val now = SystemClock.elapsedRealtime()
+        for (alert in active) {
+            val last = alertPositions[alert.uid] ?: continue
+            if (last.fixTimeMillis == fix.timeMillis) continue
+            if (last.fresh && now - last.sentElapsed < ALERT_UPDATE_MIN_MS) continue
+            sendAlert(alert)
+        }
+    }
+
     private suspend fun sendAlert(alert: ManualAlert): Boolean {
+        val fix = lastFix
         val xml = CotBuilder.emergency(
             alertUid = alert.uid,
             state = alert.state,
@@ -392,7 +440,7 @@ class TrackerService : Service() {
             priority = alert.priority,
             deviceUid = repo.deviceUid,
             callsign = config.callsign,
-            fix = lastFix,
+            fix = fix,
             time = CotTime.now(CotBuilder.ALERT_STALE_SECONDS),
         )
         var routes = 0
@@ -400,8 +448,22 @@ class TrackerService : Service() {
         if (tak.anyConnected) routes += tak.send(xml)
         if (config.sitxEnabled && sitx.connected) routes += withContext(Dispatchers.IO) { sitx.send(xml) }
         Log.i(TAG, "${alert.state} ${alert.uid} sent via $routes route(s)")
+        if (routes > 0) {
+            if (alert.state == AlertState.ALERT) {
+                val now = SystemClock.elapsedRealtime()
+                alertPositions[alert.uid] = AlertPosition(
+                    fixTimeMillis = fix?.timeMillis,
+                    fresh = fix != null && now - lastLocationElapsed < FRESH_FIX_MS,
+                    sentElapsed = now,
+                )
+            } else {
+                alertPositions.remove(alert.uid)
+            }
+        }
         return routes > 0
     }
+
+    private data class AlertPosition(val fixTimeMillis: Long?, val fresh: Boolean, val sentElapsed: Long)
 
     // ---- Helpers ----
 
@@ -495,6 +557,11 @@ class TrackerService : Service() {
         private const val TAG = "TrackerService"
         private const val NOTIFICATION_ID = 1
         private const val MAX_SPEED_ACCURACY_MPS = 2f
+        /** A fix newer than this is current enough to send an alert without waiting. */
+        private const val FRESH_FIX_MS = 3_000L
+        /** Longest an alert press waits for the fix it requested before sending with the best known one. */
+        private const val ALERT_FIX_WAIT_MS = 3_000L
+        private const val ALERT_UPDATE_MIN_MS = 10_000L
 
         const val ACTION_LOCATION_ALARM = "com.tak.weartak_tracker.LOCATION_ALARM"
         const val ACTION_REBROADCAST_PLI = "com.tak.weartak_tracker.REBROADCAST_PLI"
