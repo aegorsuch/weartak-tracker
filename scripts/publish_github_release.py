@@ -214,10 +214,6 @@ def release_presentation(env, version, version_code, digest, asset_name):
     build = f"GitLab pipeline **{pipeline_id}**"
     if pipeline_iid:
         build += f" (project pipeline **{pipeline_iid}**)"
-    download = (
-        f"https://github.com/{GITHUB_REPOSITORY}/releases/download/{RELEASE_TAG}/"
-        + urllib.parse.quote(asset_name, safe="")
-    )
     label = asset_name
     body = (
         "Automatically published stable WearOS Tracker main-channel build.\n\n"
@@ -226,7 +222,6 @@ def release_presentation(env, version, version_code, digest, asset_name):
         f"- Pipeline: {pipeline_url}\n"
         f"- Source commit: `{env['CI_COMMIT_SHA'].lower()}` on TAK.gov `main`\n"
         f"- SHA256: `{digest}`\n\n"
-        f"[Download {label}]({download})\n\n"
         "Install the APK above. GitHub's \"Source code\" archives come from the fixed "
         "release anchor tag, not from this build; the source commit above is "
         "authoritative and may not yet be mirrored to GitHub."

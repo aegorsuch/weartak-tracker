@@ -186,7 +186,23 @@ class ReleasePublisherTests(OfflineTests):
         self.assertIn("GitLab pipeline **1792575** (project pipeline **7**)", api.release["body"])
         self.assertIn(f"/{CANONICAL_PROJECT}/-/pipelines/1792575", api.release["body"])
         self.assertIn(f"`{COMMIT_SHA}` on TAK.gov `main`", api.release["body"])
-        self.assertIn(f"/releases/download/{RELEASE_TAG}/{APK_NAME}", api.release["body"])
+        digest = hashlib.sha256(self.apk_bytes).hexdigest()
+        expected = (
+            "Automatically published stable WearOS Tracker main-channel build.\n\n"
+            "- APK version: **5.8.4-p7+58fcc745** (versionCode **5860007**)\n"
+            "- Build: GitLab pipeline **1792575** (project pipeline **7**)\n"
+            f"- Pipeline: https://git.tak.gov/{CANONICAL_PROJECT}/-/pipelines/1792575\n"
+            f"- Source commit: `{COMMIT_SHA}` on TAK.gov `main`\n"
+            f"- SHA256: `{digest}`\n\n"
+            "Install the APK above. GitHub's \"Source code\" archives come from the fixed "
+            "release anchor tag, not from this build; the source commit above is "
+            "authoritative and may not yet be mirrored to GitHub."
+        )
+        generated = api.release["body"].split(PRESENTATION_START + "\n", 1)[1].split(
+            "\n" + PRESENTATION_END, 1,
+        )[0]
+        self.assertEqual(generated, expected)
+        self.assertNotIn("[Download ", api.release["body"])
         self.assertIn("- SHA256: `", api.release["body"])
         self.assertIn(hashlib.sha256(self.apk_bytes).hexdigest(), api.release["body"])
 
@@ -249,7 +265,7 @@ class ReleasePublisherTests(OfflineTests):
         self.assertIn("versionCode **585**", api.release["body"])
         self.assertIn("- APK version: **5.8.3**", api.release["body"])
         self.assertNotIn("- APK version: **5.8.3-p7", api.release["body"])
-        self.assertIn("WearTAK-Tracker-5.8.3-p7.apk", api.release["body"])
+        self.assertIn("WearTAK-Tracker-5.8.3-p7.apk", read_owned_names(api.release["body"]))
 
     def test_optional_iid_is_omitted_when_unavailable(self):
         api = FakeGitHubApi()
