@@ -39,9 +39,14 @@ import com.tak.weartak_tracker.transport.TakServerManager
 import com.tak.weartak_tracker.ui.MainActivity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
@@ -73,7 +78,9 @@ class TrackerService : Service() {
     private lateinit var forwarder: AlertForwarder
 
     private val alertMutex = Mutex()
-    private var config = TrackerConfig()
+    @Volatile private var config = TrackerConfig()
+    private val multicastKick = Channel<Unit>(Channel.CONFLATED)
+    private var multicastWorker: Job? = null
     private var lastFix: Fix? = null
     private var lastLocationElapsed = 0L
     /** Elapsed time of the newest fix, so an alert press can briefly wait for the fix it requested. */
@@ -128,18 +135,12 @@ class TrackerService : Service() {
             onServerConnected = { id -> channels.onConnected(id) },
             onChannelsChanged = { id -> channels.onServerNotice(id) },
             inboundEnabled = { config.chatCommandsEnabled },
-            onInboundEvent = { id, xml ->
-                InboundChat.commandRequest(xml, repo.deviceUid, id, System.currentTimeMillis())
-                    ?.let { scope.launch { chatCommands.handle(it) } }
-            },
+            onInboundEvent = { id, xml -> handleInboundChat(id, xml) },
         )
         channels = TakChannelManager(scope, tak, repo.deviceUid)
         sitx = SitxClient(repo, scope, repo.deviceUid) { scope.launch { onEndpointConnected() } }
         multicast = MulticastPublisher { scope.launch { onEndpointConnected() } }
-        multicastChat = MulticastChatReceiver(this) { source, xml ->
-            InboundChat.commandRequest(xml, repo.deviceUid, source, System.currentTimeMillis())
-                ?.let { scope.launch { chatCommands.handle(it) } }
-        }
+        multicastChat = MulticastChatReceiver(this, ::handleInboundChat)
         location = LocationEngine(this, ::onLocation) { lastFix?.let { scope.launch { sendPli(it) } } }
         forwarder = AlertForwarder(
             send = ::sendAlert,
@@ -190,6 +191,7 @@ class TrackerService : Service() {
                 .collect { still -> if (still) motion.arm() else motion.disarm() }
         }
         scope.launch { network.wifiNetwork.collect { configureMulticast() } }
+        multicastWorker = scope.launch(Dispatchers.IO) { runMulticastWorker() }
         scope.launch {
             network.defaultNetwork.drop(1).collect { net ->
                 if (net != null) {
@@ -306,6 +308,7 @@ class TrackerService : Service() {
             tak.stop()
             channels.clear()
             sitx.stop()
+            multicastWorker?.cancel()
             multicast.close()
             multicastChat.close()
             ditto.stop()
@@ -467,11 +470,29 @@ class TrackerService : Service() {
 
     // ---- Helpers ----
 
+    private fun handleInboundChat(source: String, xml: String) {
+        val request = InboundChat.commandRequest(
+            xml, repo.deviceUid, source, System.currentTimeMillis(), config.callsign,
+        ) { reason -> Log.i(TAG, "Chat command ignored: $reason") } ?: return
+        Log.i(TAG, "Chat command from ${request.senderCallsign} via $source")
+        scope.launch { chatCommands.handle(request) }
+    }
+
     private fun configureMulticast() {
-        val c = config
-        network.setMulticastEnabled(c.multicastEnabled)
-        val wifi = network.wifiNetwork.value
-        scope.launch(Dispatchers.IO) {
+        network.setMulticastEnabled(config.multicastEnabled)
+        multicastKick.trySend(Unit)
+    }
+
+    /**
+     * One worker applies multicast state, always reading the latest config and Wi-Fi network, so a stale
+     * call can't land after a newer one. It also re-applies periodically to retry sockets that failed.
+     */
+    private suspend fun runMulticastWorker() {
+        while (currentCoroutineContext().isActive) {
+            withTimeoutOrNull(MULTICAST_RETRY_MS) { multicastKick.receive() }
+            currentCoroutineContext().ensureActive()
+            val c = config
+            val wifi = network.wifiNetwork.value
             multicast.configure(c.multicastEnabled, c.multicastAddress, c.multicastPort, wifi)
             multicastChat.configure(
                 c.chatCommandsEnabled && c.multicastEnabled,
@@ -562,6 +583,7 @@ class TrackerService : Service() {
         /** Longest an alert press waits for the fix it requested before sending with the best known one. */
         private const val ALERT_FIX_WAIT_MS = 3_000L
         private const val ALERT_UPDATE_MIN_MS = 10_000L
+        private const val MULTICAST_RETRY_MS = 15_000L
 
         const val ACTION_LOCATION_ALARM = "com.tak.weartak_tracker.LOCATION_ALARM"
         const val ACTION_REBROADCAST_PLI = "com.tak.weartak_tracker.REBROADCAST_PLI"

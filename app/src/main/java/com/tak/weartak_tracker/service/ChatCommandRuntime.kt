@@ -54,7 +54,8 @@ object ChatCommandRuntime {
             reply = { request, message ->
                 val c = repo.config.first()
                 val xml = CotBuilder.chat(repo.deviceUid, c.callsign, request.senderUid, request.senderCallsign, message)
-                if (request.sourceServerId.startsWith(MULTICAST_SOURCE_PREFIX)) multicastChat(xml) else tak().send(xml)
+                val routes = if (request.sourceServerId.startsWith(MULTICAST_SOURCE_PREFIX)) multicastChat(xml) else tak().send(xml)
+                Log.i(TAG, "reply to ${request.senderCallsign} via ${request.sourceServerId}: $routes route(s)")
             },
             audit = { Log.i(TAG, it) },
             positional = ProfileHandler.POSITIONAL_KEYS,
