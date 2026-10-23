@@ -23,8 +23,9 @@ internal class SkinTempMonitor(context: Context, private val onChanged: () -> Un
     private val handler = Handler(Looper.getMainLooper())
     private var service: HealthTrackingService? = null
     private var tracker: HealthTracker? = null
-    private var enabled = false
-    private var worn = true
+    // Written on the main handler, read when PLI is built on other threads.
+    @Volatile private var enabled = false
+    @Volatile private var worn = true
 
     @Volatile private var lastTempF = Float.NaN
     @Volatile private var lastSampleElapsed = 0L
