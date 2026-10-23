@@ -3,6 +3,7 @@ package com.tak.weartak_tracker.cot
 import com.tak.weartak_tracker.command.ChatCommandParser
 import com.tak.weartak_tracker.command.ChatCommandRequest
 import org.w3c.dom.Element
+import org.xml.sax.SAXException
 import java.io.ByteArrayInputStream
 import java.time.Instant
 import java.time.OffsetDateTime
@@ -54,15 +55,28 @@ object InboundChat {
             onDrop("$reason (source $serverId)")
             return null
         }
+        val content = xml.trim { it.isWhitespace() || it == '\uFEFF' || it == '\u0000' }
+        if (content.contains("<!DOCTYPE", ignoreCase = true)) return drop("chat XML has a DOCTYPE")
         val doc = try {
             val factory = DocumentBuilderFactory.newInstance().apply {
-                setFeature("http://apache.org/xml/features/disallow-doctype-decl", true)
-                isXIncludeAware = false
                 isExpandEntityReferences = false
+                // Android's parser rejects these JAXP features; DOCTYPE is refused above and by the resolver.
+                listOf(
+                    "http://apache.org/xml/features/disallow-doctype-decl" to true,
+                    "http://xml.org/sax/features/external-general-entities" to false,
+                    "http://xml.org/sax/features/external-parameter-entities" to false,
+                ).forEach { (feature, enabled) ->
+                    try {
+                        setFeature(feature, enabled)
+                    } catch (_: Exception) {
+                    }
+                }
             }
-            factory.newDocumentBuilder().parse(ByteArrayInputStream(xml.toByteArray(Charsets.UTF_8)))
+            factory.newDocumentBuilder().apply {
+                setEntityResolver { _, _ -> throw SAXException("External entities are prohibited") }
+            }.parse(ByteArrayInputStream(content.toByteArray(Charsets.UTF_8)))
         } catch (error: Exception) {
-            return drop("unparseable chat XML")
+            return drop("unparseable chat XML (${error.javaClass.simpleName})")
         }
         val event = doc.documentElement.takeIf { it.tagName == "event" } ?: return drop("no event element")
         val chat = event.getElementsByTagName("__chat").item(0) as? Element ?: return drop("no __chat element")

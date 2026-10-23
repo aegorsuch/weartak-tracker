@@ -358,4 +358,50 @@ class TrackerCommandsTest {
         assertEquals(1, replies.size)
         assertTrue(replies[0].contains("clock"))
     }
+
+    /** Exact ATAK CIV mesh direct chat captured on 17012 (p18 retest); Android's parser rejects JAXP setFeature. */
+    @Test
+    fun capturedAtakMeshChatParsesWithAndroidStyleParser() {
+        val bytes = javaClass.classLoader!!.getResourceAsStream("atak-chat-17012.xml")!!.readBytes()
+        val key = "javax.xml.parsers.DocumentBuilderFactory"
+        val previous = System.getProperty(key)
+        System.setProperty(key, NoFeatureDocumentBuilderFactory::class.java.name)
+        try {
+            for (datagram in listOf(bytes, bytes + "\n".toByteArray(), bytes + byteArrayOf(0))) {
+                val xml = TakDatagramDecoder.decode(datagram)
+                assertNotNull(xml)
+                val drops = mutableListOf<String>()
+                val req = InboundChat.commandRequest(
+                    xml!!, "WEAROS_87ab3e96bef4bbfa", "multicast:224.10.10.1:17012", 0, "WT-BBFA", drops::add,
+                )
+                assertEquals(emptyList<String>(), drops)
+                assertEquals("ANDROID-2ded908bebdd29f7", req?.senderUid)
+                assertEquals("ODIN-ATAKDEV", req?.senderCallsign)
+                assertEquals("#weartaktrackercommandloadprofile name=odin-weartaktracker", req?.text)
+                assertEquals(java.time.Instant.parse("2026-10-23T22:18:00.278Z").toEpochMilli(), req?.sentAtMs)
+            }
+            val xxe = "<?xml version='1.0'?><!DOCTYPE e [<!ENTITY x SYSTEM 'file:///etc/passwd'>]><event><detail>" +
+                "<__chat id='ME' senderCallsign='A'><chatgrp uid0='U' id='ME'/></__chat>" +
+                "<remarks>#weartaktrackercommandsetteam &x;</remarks></detail></event>"
+            assertNull(InboundChat.commandRequest(xxe, "ME", "s", 0))
+        } finally {
+            if (previous == null) System.clearProperty(key) else System.setProperty(key, previous)
+        }
+    }
+}
+
+/** Mimics Android's DocumentBuilderFactory, which throws on unsupported JAXP features. */
+class NoFeatureDocumentBuilderFactory : javax.xml.parsers.DocumentBuilderFactory() {
+    private val delegate = javax.xml.parsers.DocumentBuilderFactory.newInstance(
+        "com.sun.org.apache.xerces.internal.jaxp.DocumentBuilderFactoryImpl", null,
+    )
+    override fun newDocumentBuilder(): javax.xml.parsers.DocumentBuilder {
+        delegate.isNamespaceAware = isNamespaceAware
+        delegate.isExpandEntityReferences = isExpandEntityReferences
+        return delegate.newDocumentBuilder()
+    }
+    override fun setAttribute(name: String?, value: Any?) = throw IllegalArgumentException(name)
+    override fun getAttribute(name: String?): Any = throw IllegalArgumentException(name)
+    override fun setFeature(name: String?, value: Boolean) = throw javax.xml.parsers.ParserConfigurationException(name)
+    override fun getFeature(name: String?): Boolean = throw javax.xml.parsers.ParserConfigurationException(name)
 }
