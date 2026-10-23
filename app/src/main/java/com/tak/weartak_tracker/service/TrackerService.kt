@@ -30,6 +30,7 @@ import com.tak.weartak_tracker.data.SettingsRepository
 import com.tak.weartak_tracker.data.TakServerConfig
 import com.tak.weartak_tracker.data.TrackerConfig
 import com.tak.weartak_tracker.data.TrackerState
+import com.tak.weartak_tracker.transport.MulticastChatReceiver
 import com.tak.weartak_tracker.transport.MulticastPublisher
 import com.tak.weartak_tracker.transport.NetworkMonitor
 import com.tak.weartak_tracker.transport.SitxClient
@@ -64,6 +65,7 @@ class TrackerService : Service() {
     private lateinit var channels: TakChannelManager
     private lateinit var sitx: SitxClient
     private lateinit var multicast: MulticastPublisher
+    private lateinit var multicastChat: MulticastChatReceiver
     private lateinit var ditto: DittoClient
     private lateinit var location: LocationEngine
     private lateinit var forwarder: AlertForwarder
@@ -110,7 +112,9 @@ class TrackerService : Service() {
         repo = (application as TrackerApp).settings
         network = NetworkMonitor(this)
         ditto = DittoClient(this)
-        chatCommands = ChatCommandRuntime.create(this, repo) { tak }
+        chatCommands = ChatCommandRuntime.create(this, repo, { tak }) { xml ->
+            multicast.sendTo(xml, MulticastChatReceiver.CHAT_ADDRESS, MulticastChatReceiver.CHAT_PORT)
+        }
         tak = TakServerManager(
             this, scope, repo.deviceUid,
             onConnected = { scope.launch { onEndpointConnected() } },
@@ -126,6 +130,10 @@ class TrackerService : Service() {
         channels = TakChannelManager(scope, tak, repo.deviceUid)
         sitx = SitxClient(repo, scope, repo.deviceUid) { scope.launch { onEndpointConnected() } }
         multicast = MulticastPublisher { scope.launch { onEndpointConnected() } }
+        multicastChat = MulticastChatReceiver(this) { source, xml ->
+            InboundChat.commandRequest(xml, repo.deviceUid, source, System.currentTimeMillis())
+                ?.let { scope.launch { chatCommands.handle(it) } }
+        }
         location = LocationEngine(this, ::onLocation) { lastFix?.let { scope.launch { sendPli(it) } } }
         forwarder = AlertForwarder(
             send = ::sendAlert,
@@ -290,6 +298,7 @@ class TrackerService : Service() {
             channels.clear()
             sitx.stop()
             multicast.close()
+            multicastChat.close()
             ditto.stop()
             network.stop()
         }
@@ -344,7 +353,7 @@ class TrackerService : Service() {
         var routes = 0
         if (tak.anyConnected) routes += tak.send(xml)
         routes += withContext(Dispatchers.IO) { sitx.send(xml) }
-        routes += multicast.send(xml)
+        routes += multicast.send(CotBuilder.meshContact(xml))
         if (routes > 0) TrackerState.lastPliMillis.value = System.currentTimeMillis()
         ditto.publishTrack(xml, fix, config, repo.deviceUid)
     }
@@ -400,7 +409,14 @@ class TrackerService : Service() {
         val c = config
         network.setMulticastEnabled(c.multicastEnabled)
         val wifi = network.wifiNetwork.value
-        scope.launch(Dispatchers.IO) { multicast.configure(c.multicastEnabled, c.multicastAddress, c.multicastPort, wifi) }
+        scope.launch(Dispatchers.IO) {
+            multicast.configure(c.multicastEnabled, c.multicastAddress, c.multicastPort, wifi)
+            multicastChat.configure(
+                c.chatCommandsEnabled && c.multicastEnabled,
+                setOf(c.multicastAddress.trim() to c.multicastPort, MulticastChatReceiver.CHAT_ADDRESS to MulticastChatReceiver.CHAT_PORT),
+                wifi,
+            )
+        }
     }
 
     /**

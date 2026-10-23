@@ -17,8 +17,16 @@ object ChatCommandParser {
     private val NAME = Regex("[a-z]{1,32}")
     private val KEY = Regex("[a-z][a-z0-9]{0,15}")
 
-    /** Anything not starting with the prefix is ordinary chat and is never inspected further. */
-    fun parse(text: String): ChatCommandParse {
+    private val KEY_VALUE_START = Regex("^[A-Za-z][A-Za-z0-9]{0,15}=")
+
+    /**
+     * Anything not starting with the prefix is ordinary chat and is never inspected further.
+     *
+     * Commands listed in [positional] also accept values without keys: one key takes the whole rest of
+     * the message (`setusertype Coalition Civilian`), several keys take `;`-separated values in order
+     * (`enrollserver OPS; tak.example.org; 8089; user; pass`, where the last value may contain `;`).
+     */
+    fun parse(text: String, positional: Map<String, List<String>> = emptyMap()): ChatCommandParse {
         val body = text.trim()
         if (!body.startsWith(PREFIX, ignoreCase = true)) return ChatCommandParse.NotACommand
         if (body.length > MAX_LENGTH) return ChatCommandParse.Malformed("too long")
@@ -26,6 +34,11 @@ object ChatCommandParser {
         val nameEnd = rest.indexOfFirst { it.isWhitespace() }.let { if (it < 0) rest.length else it }
         val name = rest.substring(0, nameEnd).lowercase()
         if (!NAME.matches(name)) return ChatCommandParse.Malformed("invalid command name")
+        val argText = rest.substring(nameEnd).trim()
+        val keys = positional[name]
+        if (keys != null && argText.isNotEmpty() && !KEY_VALUE_START.containsMatchIn(argText)) {
+            return parsePositional(name, argText, keys)
+        }
         val args = LinkedHashMap<String, String>()
         var i = nameEnd
         while (true) {
@@ -59,5 +72,20 @@ object ChatCommandParser {
             args[key] = value.toString()
         }
         return ChatCommandParse.Parsed(ChatCommand(name, args))
+    }
+
+    private fun parsePositional(name: String, argText: String, keys: List<String>): ChatCommandParse {
+        val values = if (keys.size == 1) {
+            val quoted = argText.length >= 2 && argText.startsWith('"') && argText.endsWith('"') &&
+                argText.count { it == '"' } == 2
+            listOf(if (quoted) argText.substring(1, argText.length - 1).trim() else argText)
+        } else {
+            argText.split(';', limit = keys.size).map { it.trim() }
+        }
+        if (values.size != keys.size) return ChatCommandParse.Malformed("expected ${keys.size} values separated by ;")
+        if (values.any { it.isEmpty() || it.length > MAX_VALUE_LENGTH || it.any(Char::isISOControl) }) {
+            return ChatCommandParse.Malformed("invalid argument value")
+        }
+        return ChatCommandParse.Parsed(ChatCommand(name, LinkedHashMap(keys.zip(values).toMap())))
     }
 }

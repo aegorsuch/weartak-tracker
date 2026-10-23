@@ -3,59 +3,81 @@ package com.tak.weartak_tracker.service
 import android.content.Context
 import android.util.Log
 import com.tak.weartak_tracker.command.ChatCommandProcessor
-import com.tak.weartak_tracker.command.IdentityHandler
-import com.tak.weartak_tracker.command.IdentityStore
+import com.tak.weartak_tracker.command.EnrollServerHandler
 import com.tak.weartak_tracker.command.LoadProfileHandler
 import com.tak.weartak_tracker.command.PresetServer
 import com.tak.weartak_tracker.command.PresetServerSink
 import com.tak.weartak_tracker.command.PresetSource
+import com.tak.weartak_tracker.command.ProfileHandler
+import com.tak.weartak_tracker.command.ProfileStore
+import com.tak.weartak_tracker.command.ProfileUpdate
 import com.tak.weartak_tracker.cot.CotBuilder
+import com.tak.weartak_tracker.data.ProfilePresets
 import com.tak.weartak_tracker.data.SettingsRepository
 import com.tak.weartak_tracker.data.TakServerConfig
+import com.tak.weartak_tracker.data.TrackerConfig
 import com.tak.weartak_tracker.transport.TakServerManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
-import java.io.File
 
-/** Builds the chat command processor over the tracker's settings and TAK server connections. */
+/** Builds the chat command processor over the tracker's settings, TAK server connections and mesh chat. */
 object ChatCommandRuntime {
     private const val TAG = "ChatCommands"
-    private const val MAX_PRESET_BYTES = 64 * 1024L
+    const val MULTICAST_SOURCE_PREFIX = "multicast:"
 
-    fun create(context: Context, repo: SettingsRepository, tak: () -> TakServerManager): ChatCommandProcessor {
-        val store = IdentityStore { callsign, team, role ->
-            repo.update { c ->
-                c.copy(callsign = callsign ?: c.callsign, team = team ?: c.team, role = role ?: c.role)
-            }
-        }
-        val identity = IdentityHandler(IdentityHandler.COMMAND_KEYS.getValue("setprofile"), store)
-        val handlers = IdentityHandler.COMMAND_KEYS.mapValues { (_, keys) -> IdentityHandler(keys, store)
-        } + ("loadprofile" to LoadProfileHandler(
-            source = PresetSource { name -> readPreset(context, name) },
-            identity = identity,
-            serverSink = PresetServerSink { servers -> addServers(repo, servers) },
-            networkLocked = { repo.config.first().networkPreferencesLocked },
-        ))
+    /**
+     * Replies go back the way the command came: over the TAK Server connections, or to the mesh chat
+     * group via [multicastChat] when the command arrived over multicast.
+     */
+    fun create(
+        context: Context,
+        repo: SettingsRepository,
+        tak: () -> TakServerManager,
+        multicastChat: suspend (String) -> Int,
+    ): ChatCommandProcessor {
+        val store = ProfileStore { update -> repo.update { c -> c.withProfile(update) } }
+        val networkLocked: suspend () -> Boolean = { repo.config.first().networkPreferencesLocked }
+        val sink = PresetServerSink { servers -> addServers(repo, servers) }
+        val handlers = ProfileHandler.COMMAND_KEYS.mapValues { (_, keys) -> ProfileHandler(keys, store) } +
+            ("loadprofile" to LoadProfileHandler(
+                source = PresetSource { name -> withContext(Dispatchers.IO) { ProfilePresets.read(context, name) } },
+                profile = ProfileHandler(ProfileHandler.PROFILE_KEYS, store),
+                serverSink = sink,
+                networkLocked = networkLocked,
+            )) +
+            ("enrollserver" to EnrollServerHandler(sink, networkLocked))
         return ChatCommandProcessor(
             isEnabled = { repo.config.first().chatCommandsEnabled },
             allowedCallsigns = { repo.config.first().chatCommandCallsigns },
             handlers = handlers,
             reply = { request, message ->
                 val c = repo.config.first()
-                tak().send(
-                    CotBuilder.chat(repo.deviceUid, c.callsign, request.senderUid, request.senderCallsign, message),
-                )
+                val xml = CotBuilder.chat(repo.deviceUid, c.callsign, request.senderUid, request.senderCallsign, message)
+                if (request.sourceServerId.startsWith(MULTICAST_SOURCE_PREFIX)) multicastChat(xml) else tak().send(xml)
             },
             audit = { Log.i(TAG, it) },
+            positional = ProfileHandler.POSITIONAL_KEYS,
         )
     }
 
-    private suspend fun readPreset(context: Context, name: String): String? = withContext(Dispatchers.IO) {
-        val dir = context.getExternalFilesDir("presets") ?: return@withContext null
-        val file = File(dir, "$name.json")
-        if (!file.isFile || file.length() > MAX_PRESET_BYTES) null else file.readText()
-    }
+    internal fun TrackerConfig.withProfile(u: ProfileUpdate): TrackerConfig = copy(
+        callsign = u.callsign ?: callsign,
+        team = u.team ?: team,
+        role = u.role ?: role,
+        medicalProfile = medicalProfile.let { m ->
+            m.copy(
+                heightFeet = u.heightFeet ?: m.heightFeet,
+                heightInches = u.heightInches ?: m.heightInches,
+                weightLbs = u.weightLbs ?: m.weightLbs,
+                birthYear = u.birthYear ?: m.birthYear,
+                sex = u.sex ?: m.sex,
+                userType = u.userType ?: m.userType,
+                pantsLengthInches = u.pantsLengthInches ?: m.pantsLengthInches,
+                waistInches = u.waistInches ?: m.waistInches,
+            )
+        },
+    )
 
     private suspend fun addServers(repo: SettingsRepository, servers: List<PresetServer>): Int {
         var added = 0

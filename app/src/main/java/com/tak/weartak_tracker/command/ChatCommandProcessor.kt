@@ -28,11 +28,12 @@ class ChatCommandProcessor(
     private val reply: suspend (ChatCommandRequest, String) -> Unit,
     private val audit: (String) -> Unit,
     private val now: () -> Long = System::currentTimeMillis,
-    private val authorizer: ChatCommandAuthorizer = ChatCommandAuthorizer()
+    private val authorizer: ChatCommandAuthorizer = ChatCommandAuthorizer(),
+    private val positional: Map<String, List<String>> = emptyMap()
 ) {
     /** Returns true when the message was a command and must not be shown as ordinary chat. */
     suspend fun handle(request: ChatCommandRequest): Boolean {
-        val parsed = ChatCommandParser.parse(request.text)
+        val parsed = ChatCommandParser.parse(request.text, positional)
         if (parsed is ChatCommandParse.NotACommand) return false
         if (!isEnabled()) return false
 

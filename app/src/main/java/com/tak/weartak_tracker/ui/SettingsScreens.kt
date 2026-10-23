@@ -44,6 +44,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -84,6 +85,10 @@ import com.tak.weartak_tracker.R
 import com.tak.weartak_tracker.cot.calculateExertion
 import com.tak.weartak_tracker.command.ChatCommandAuthorizer
 import com.tak.weartak_tracker.data.MULTICAST_PROTOCOLS
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Dispatchers
+import com.tak.weartak_tracker.data.PresetSummary
+import com.tak.weartak_tracker.data.ProfilePresets
 import com.tak.weartak_tracker.BuildConfig
 import com.tak.weartak_tracker.data.DEFAULT_SITX_CLIENT_ID
 import com.tak.weartak_tracker.data.DittoPdlSource
@@ -443,8 +448,16 @@ fun NavGraphBuilder.settingsGraph(repo: SettingsRepository, configState: State<T
                     if (config.chatCommandCallsigns.isEmpty()) "None" else "${config.chatCommandCallsigns.size} allowed",
                 ) { go("chat_command_callsigns") }
             }
+            item { WearTAKTitleChip("Profiles") { go("chat_command_profiles") } }
         }
     }
+
+    composable("chat_command_profiles") { PresetListPage(go, back) }
+
+    composable(
+        "chat_command_profile/{name}",
+        arguments = listOf(navArgument("name") { type = NavType.StringType }),
+    ) { entry -> PresetDetailPage(entry.arguments?.getString("name").orEmpty(), back) }
 
     composable("sensor_manager") {
         WearTAKPageWithBackArrow("Sensor Manager", back) {
@@ -839,6 +852,58 @@ private fun ChannelsPage(server: TakServerConfig, back: () -> Unit) {
             item {
                 Spacer(Modifier.height(6.dp))
                 WearTAKTitleChip("Refresh") { if (channels?.status != TakChannelStatus.LOADING) refresh() }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PresetListPage(go: Navigate, back: () -> Unit) {
+    val context = LocalContext.current
+    val names by produceState<List<String>?>(null) {
+        value = withContext(Dispatchers.IO) { ProfilePresets.names(context) }
+    }
+    WearTAKPageWithBackArrow("Profiles", back) {
+        val list = names
+        when {
+            list == null -> item { Text("Loading…", textAlign = TextAlign.Center, color = Color.LightGray) }
+            list.isEmpty() -> {
+                item { Text("No saved profiles", textAlign = TextAlign.Center, color = Color.LightGray) }
+                item {
+                    Text(
+                        "Push presets to files/presets/<name>.json",
+                        textAlign = TextAlign.Center,
+                        color = Color.LightGray,
+                    )
+                }
+            }
+            else -> list.forEach { name -> item { WearTAKTitleChip(name) { go("chat_command_profile/$name") } } }
+        }
+    }
+}
+
+/** View-only: profile values and server endpoints; server credentials are never shown. */
+@Composable
+private fun PresetDetailPage(name: String, back: () -> Unit) {
+    val context = LocalContext.current
+    val summary by produceState<PresetSummary?>(null, name) {
+        value = withContext(Dispatchers.IO) { ProfilePresets.summary(context, name) }
+    }
+    WearTAKPageWithBackArrow(name, back) {
+        val s = summary
+        when {
+            s == null -> item { Text("Loading…", textAlign = TextAlign.Center, color = Color.LightGray) }
+            !s.valid -> item { Text("Invalid preset", textAlign = TextAlign.Center, color = Color.LightGray) }
+            else -> {
+                if (s.profile.isEmpty()) item { Text("No profile fields", textAlign = TextAlign.Center, color = Color.LightGray) }
+                s.profile.forEach { (key, value) ->
+                    item { WearTAKTitleChipWithState(ProfilePresets.label(key), value) {} }
+                }
+                item { Text("Servers", textAlign = TextAlign.Center) }
+                if (s.servers.isEmpty()) item { Text("None", textAlign = TextAlign.Center, color = Color.LightGray) }
+                s.servers.forEach { server ->
+                    item { Text(server, textAlign = TextAlign.Center, color = Color.LightGray) }
+                }
             }
         }
     }

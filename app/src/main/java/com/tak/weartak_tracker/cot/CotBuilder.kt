@@ -179,6 +179,11 @@ object CotBuilder {
             )
     }
 
+    /** PLI for the mesh: the contact endpoint points ATAK's direct chat at the mesh chat group, like WearOS. */
+    fun meshContact(pliXml: String): String = pliXml.replace("endpoint='*:-1:stcp'", "endpoint='$MESH_CHAT_ENDPOINT'")
+
+    const val MESH_CHAT_ENDPOINT = "224.10.10.1:17012:udp"
+
     /** Direct GeoChat reply to [toUid], matching the WearTAK-CIV chat CoT. */
     fun chat(
         senderUid: String,
