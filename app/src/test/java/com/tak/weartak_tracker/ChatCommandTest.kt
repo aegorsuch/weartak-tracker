@@ -22,6 +22,28 @@ class ChatCommandTest {
     }
 
     @Test
+    fun positionalValuesForListedCommands() {
+        val keys = mapOf("setusertype" to listOf("usertype"), "enrollserver" to listOf("name", "url", "port", "username", "password"))
+        fun p(text: String) = ChatCommandParser.parse(text, keys)
+        assertEquals(
+            mapOf("usertype" to "Coalition Civilian"),
+            (p("#weartaktrackercommandsetusertype  Coalition Civilian ") as ChatCommandParse.Parsed).command.args,
+        )
+        assertEquals(
+            mapOf("usertype" to "Coalition Civilian"),
+            (p("#weartaktrackercommandsetusertype usertype=\"Coalition Civilian\"") as ChatCommandParse.Parsed).command.args,
+        )
+        assertEquals(
+            listOf("OPS", "tak.example.org", "8089", "u", "p;w"),
+            (p("#weartaktrackercommandenrollserver OPS; tak.example.org ;8089; u; p;w") as ChatCommandParse.Parsed)
+                .command.args.values.toList(),
+        )
+        assertTrue(p("#weartaktrackercommandenrollserver OPS; tak.example.org; 8089") is ChatCommandParse.Malformed)
+        assertTrue(p("#weartaktrackercommandenrollserver OPS;;8089;u;p") is ChatCommandParse.Malformed)
+        assertTrue(malformed("#weartaktrackercommandsetusertype Coalition Civilian"))
+    }
+
+    @Test
     fun parsesQuotedValuesWithSpacesAndEscapes() {
         val c = parsed("#weartaktrackercommandenrollserver name=\"TAK \\\"Ops\\\"\" url=cloud.tak-ops.com port=8089")
         assertEquals("TAK \"Ops\"", c.args["name"])

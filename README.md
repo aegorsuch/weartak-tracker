@@ -48,12 +48,20 @@ The location icon is white while reporting with precise location, yellow with ap
 
 ## Chat commands (WEARTAK-130)
 
-Settings > Tool Preferences > Plugins > Commands (off by default; the switch turns it on or off, and tapping the chip opens Allowed Callsigns). When on, a direct chat message to the tracker from an allow-listed callsign that starts with `#weartaktrackercommand` is run, and the tracker replies in chat. Other senders are ignored silently, and nothing is parsed from the server stream while the setting is off.
+Settings > Tool Preferences > Plugins > Commands (off by default; the switch turns it on or off, and tapping the chip opens Allowed Callsigns and Profiles). When on, a direct chat message to the tracker from an allow-listed callsign that starts with `#weartaktrackercommand` is run, and the tracker replies in chat. Commands arrive over TAK Server connections and, when TAK SA Multicast is on, over mesh chat (the configured multicast group plus ATAK's chat group `224.10.10.1:17012`, XML or TAK protocol v1), so a watch with no TAK Server can still be configured. Mesh replies go to `224.10.10.1:17012`, and multicast PLIs advertise that endpoint so ATAK direct chat reaches the watch. Other senders are ignored silently, and nothing is parsed while the setting is off.
 
 Allowed Callsigns shows one callsign per row in case-insensitive alphabetical order. Select **Add Callsign** to enter one callsign; entries are trimmed, displayed in uppercase, and cannot be added twice. Swipe a row or tap it to reveal **Remove**. Older comma-separated allow-lists are read alongside the current newline-separated format.
 
-- `#weartaktrackercommandsetcallsign callsign=ODIN`, `setteam team="Dark Green"`, `setrole role=K9`, `setprofile callsign=.. team=.. role=..`
-- `#weartaktrackercommandloadprofile name=odin-weartak` applies `Android/data/<package>/files/presets/<name>.json` (`{"profile":{"team":"Blue"},"servers":[{"name","url","port","username","password"}]}`). Credentials come only from that file, never from chat. Servers already configured are skipped, and servers are not touched when network settings are locked.
+**Profiles** lists the `loadprofile` presets saved on the watch. Select one to view its profile fields and servers (name, host and port); it is view-only and never shows server usernames or passwords.
+
+Profile commands match WearOS WearTAK. Each takes `key=value` or, for single-value commands, the bare value (`#weartaktrackercommandsetusertype Coalition Civilian`):
+
+- `setcallsign callsign=ODIN`, `setteam team="Dark Green"`, `setrole role=K9`
+- `setheight 5'8"` (feet 1-8, inches 0-11), `setweight 150` (lbs), `setbirthyear 1988`, `setsex Male`, `setusertype Coalition Civilian`
+- `setpants 30` (uniform pants length, 20-50 in; alias `setuniformpantslengthinches`), `setwaist 30` (20-60 in; alias `setwaistsize`)
+- `setprofile` takes any of `callsign team role height weight birthyear sex usertype pants waist`; every value is validated before anything changes.
+- `#weartaktrackercommandenrollserver OPS; tak.example.org; 8089; user; pass` (or `name=`, `url=`, `port=`, `username=`, `password=` arguments; port defaults to 8089) adds the server and enrolls for a client certificate with those credentials. Credentials are never logged or echoed in replies, but they do travel in the chat message, so use it only on trusted networks. Existing endpoints are skipped, and it is refused when network settings are locked.
+- `#weartaktrackercommandloadprofile name=odin-weartak` (or `loadprofile odin-weartak`) applies `Android/data/<package>/files/presets/<name>.json` (`{"profile":{"team":"Blue","pants":"30"},"servers":[{"name","url","port","username","password"}]}`, profile keys as for `setprofile`). Servers already configured are skipped, and servers are not touched when network settings are locked.
 
 Callsigns are not authenticated, so only allow-list callsigns you trust on your servers.
 ## Setup
@@ -87,7 +95,7 @@ Off by default (CIV defaults to on); enable it under **Callsign and Device Prefe
 ### BATDOK and medical profile
 **Callsign and Device Preferences > BATDOK** is on by default, matching WearTAK. It adds BATDOK-compatible `<_atmist_>` vital signs (heart rate and skin temperature in Fahrenheit/Celsius) to PLI while Physiological Monitoring is active. No vital sign is fabricated when a sensor reading is unavailable. Turning BATDOK off leaves the physio remarks, biometrics, and sensor collection on; turning Physiological Monitoring off omits all physiological PLI data. Manual-alert CoT is unchanged.
 
-Under **My User Metrics > Medical Profile (BATDOK)**, set birth year, height (feet/inches), weight (lbs), sex, blood type, allergies (multiple selections), user type, and resting heart rate. The profile persists across app restarts and is encrypted at rest. As in WearTAK's current CoT builder, only age (calculated from birth year) is included in the BATDOK block; the other profile fields are stored locally, not transmitted. Birth year and resting HR also drive the exertion value in remarks and biometrics. Unset birth year omits age rather than inventing one.
+Under **My User Metrics > Medical Profile (BATDOK)**, set birth year, height (feet/inches), weight (lbs), sex, blood type, allergies (multiple selections), user type, resting heart rate, and uniform pants length and waist size (inches, N/A until set). The profile persists across app restarts and is encrypted at rest. As in WearTAK's current CoT builder, only age (calculated from birth year) is included in the BATDOK block; the other profile fields are stored locally, not transmitted. Birth year and resting HR also drive the exertion value in remarks and biometrics. Unset birth year omits age rather than inventing one.
 
 On the emulator, set a heart rate with `adb emu sensor set heart-rate 72`.
 

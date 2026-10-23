@@ -1,14 +1,23 @@
 package com.tak.weartak_tracker
 
 import com.tak.weartak_tracker.command.ChatCommand
+import com.tak.weartak_tracker.command.ChatCommandHandler
+import com.tak.weartak_tracker.command.ChatCommandProcessor
 import com.tak.weartak_tracker.command.ChatCommandRequest
-import com.tak.weartak_tracker.command.IdentityHandler
-import com.tak.weartak_tracker.command.IdentityStore
+import com.tak.weartak_tracker.command.EnrollServerHandler
 import com.tak.weartak_tracker.command.LoadProfileHandler
+import com.tak.weartak_tracker.command.PresetServer
+import com.tak.weartak_tracker.command.ProfileHandler
 import com.tak.weartak_tracker.command.ProfilePresetParser
+import com.tak.weartak_tracker.command.ProfileStore
+import com.tak.weartak_tracker.command.ProfileUpdate
 import com.tak.weartak_tracker.cot.CotBuilder
 import com.tak.weartak_tracker.cot.CotEventFramer
 import com.tak.weartak_tracker.cot.InboundChat
+import com.tak.weartak_tracker.cot.TakDatagramDecoder
+import com.tak.weartak_tracker.data.MedicalProfile
+import com.tak.weartak_tracker.data.MedicalProfileCodec
+import com.tak.weartak_tracker.data.ProfilePresets
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -20,31 +29,158 @@ import org.junit.Test
 class TrackerCommandsTest {
     private val request = ChatCommandRequest("U1", "ODIN", "x", "m1", 0, 0, "s")
 
-    private class Recorder : IdentityStore {
-        var last: Triple<String?, String?, String?>? = null
-        override suspend fun apply(callsign: String?, team: String?, role: String?) {
-            last = Triple(callsign, team, role)
+    private class Recorder : ProfileStore {
+        var last: ProfileUpdate? = null
+        override suspend fun apply(update: ProfileUpdate) {
+            last = update
         }
     }
 
-    private fun run(h: IdentityHandler, name: String, vararg args: Pair<String, String>) =
+    private fun profile(rec: Recorder, name: String = "setprofile") =
+        ProfileHandler(ProfileHandler.COMMAND_KEYS.getValue(name), rec, currentYear = { 2026 })
+
+    private fun run(h: ChatCommandHandler, name: String, vararg args: Pair<String, String>) =
         runBlocking { h.execute(ChatCommand(name, args.toMap()), request) }
 
     @Test
     fun identityValidatesBeforeStoring() {
         val rec = Recorder()
-        val h = IdentityHandler(IdentityHandler.COMMAND_KEYS.getValue("setprofile"), rec)
+        val h = profile(rec)
         assertFalse(run(h, "setprofile", "team" to "Dark Green", "role" to "Nope").ok)
         assertNull(rec.last)
         assertTrue(run(h, "setprofile", "team" to "dark green", "role" to "K9").ok)
-        assertEquals(Triple(null, "Dark Green", "K9"), rec.last)
+        assertEquals(ProfileUpdate(team = "Dark Green", role = "K9"), rec.last)
     }
 
     @Test
     fun identityRejectsUnknownKeys() {
-        val h = IdentityHandler(setOf("team"), Recorder())
+        val h = ProfileHandler(setOf("team"), Recorder())
         assertFalse(run(h, "setteam", "role" to "K9").ok)
     }
+
+    @Test
+    fun profileFieldsMatchWearOs() {
+        val rec = Recorder()
+        val h = profile(rec)
+        val ok = run(
+            h, "setprofile", "height" to "5'8\"", "weight" to "150", "birthyear" to "1988", "sex" to "male",
+            "usertype" to "coalition civilian", "pants" to "30", "waist" to "30",
+        )
+        assertTrue(ok.message, ok.ok)
+        assertEquals(
+            ProfileUpdate(
+                heightFeet = 5, heightInches = 8, weightLbs = 150, birthYear = 1988, sex = "Male",
+                userType = "Coalition Civilian", pantsLengthInches = 30, waistInches = 30,
+            ),
+            rec.last,
+        )
+        rec.last = null
+        listOf(
+            "height" to "9'0", "height" to "5'12", "weight" to "0", "birthyear" to "2027", "sex" to "X",
+            "usertype" to "Alien", "pants" to "19", "pants" to "51", "waist" to "61",
+        ).forEach { assertFalse(it.toString(), run(h, "setprofile", it).ok) }
+        assertNull(rec.last)
+    }
+
+    @Test
+    fun longPantsAndWaistNamesAreAliases() {
+        val rec = Recorder()
+        assertTrue(run(profile(rec, "setuniformpantslengthinches"), "setuniformpantslengthinches", "pants" to "32").ok)
+        assertEquals(32, rec.last?.pantsLengthInches)
+        assertTrue(run(profile(rec, "setwaistsize"), "setwaistsize", "waist" to "34").ok)
+        assertEquals(34, rec.last?.waistInches)
+    }
+
+    @Test
+    fun enrollServerAddsWithoutEchoingCredentials() {
+        val added = mutableListOf<PresetServer>()
+        val h = EnrollServerHandler({ servers -> added += servers; servers.size }, { false })
+        val r = run(h, "enrollserver", "name" to "OPS", "url" to "tak.example.org", "port" to "8089",
+            "username" to "alice", "password" to "s3cret;x")
+        assertTrue(r.message, r.ok)
+        assertEquals(PresetServer("OPS", "tak.example.org", 8089, "alice", "s3cret;x"), added.single())
+        assertFalse(r.message.contains("alice") || r.message.contains("s3cret"))
+        assertFalse(run(h, "enrollserver", "name" to "OPS", "url" to "tak.example.org").ok)
+        val locked = EnrollServerHandler({ error("must not add") }, { true })
+        assertFalse(run(locked, "enrollserver", "name" to "OPS", "url" to "h", "username" to "u", "password" to "p").ok)
+        val dup = EnrollServerHandler({ 0 }, { false })
+        assertFalse(run(dup, "enrollserver", "name" to "OPS", "url" to "h", "username" to "u", "password" to "p").ok)
+    }
+
+    @Test
+    fun processorAcceptsBareAndSemicolonValues() {
+        val rec = Recorder()
+        val added = mutableListOf<PresetServer>()
+        val replies = mutableListOf<String>()
+        val handlers = ProfileHandler.COMMAND_KEYS.mapValues { (_, k) -> ProfileHandler(k, rec) } +
+            ("enrollserver" to EnrollServerHandler({ s -> added += s; s.size }, { false }))
+        val p = ChatCommandProcessor(
+            isEnabled = { true }, allowedCallsigns = { listOf("ODIN") }, handlers = handlers,
+            reply = { _, m -> replies += m }, audit = {}, now = { 1_000 },
+            positional = ProfileHandler.POSITIONAL_KEYS,
+        )
+        fun send(id: String, text: String) =
+            runBlocking { p.handle(ChatCommandRequest("U1", "ODIN", text, id, 1_000, 1_000, "multicast:x")) }
+        send("a", "#weartaktrackercommandsetusertype Coalition Civilian")
+        assertEquals("Coalition Civilian", rec.last?.userType)
+        send("b", "#weartaktrackercommandsetheight 5'8\"")
+        assertEquals(8, rec.last?.heightInches)
+        send("c", "#weartaktrackercommandenrollserver Ops; tak.example.org; 8089; alice; pa;ss")
+        assertEquals(PresetServer("Ops", "tak.example.org", 8089, "alice", "pa;ss"), added.single())
+        assertTrue(replies.none { it.contains("pa;ss") || it.contains("alice") })
+    }
+
+    @Test
+    fun presetSummaryNeverShowsCredentials() {
+        val json = """{"profile":{"team":"Blue","Callsign":"ODIN"},"servers":[{"name":"A","url":"a.example.org","port":8443,"username":"alice","password":"s3cret"}]}"""
+        val s = ProfilePresets.summarize("odin", json)
+        assertTrue(s.valid)
+        assertEquals(listOf("callsign" to "ODIN", "team" to "Blue"), s.profile)
+        assertEquals(listOf("A (a.example.org:8443)"), s.servers)
+        assertFalse(s.toString().contains("alice") || s.toString().contains("s3cret"))
+        assertFalse(ProfilePresets.summarize("bad", "nope").valid)
+    }
+
+    @Test
+    fun medicalProfileKeepsPantsAndWaist() {
+        val m = MedicalProfileCodec.decode(MedicalProfileCodec.encode(MedicalProfile(pantsLengthInches = 30, waistInches = 32)))
+        assertEquals(30, m.pantsLengthInches)
+        assertEquals(32, m.waistInches)
+        assertEquals(0, MedicalProfileCodec.decode("{}").pantsLengthInches)
+    }
+
+    @Test
+    fun takProtocolDatagramDecodesToChatEvent() {
+        val chat = "<__chat id='ME' senderCallsign='ODIN' messageId='m1'><chatgrp uid0='U1' id='ME'/></__chat>" +
+            "<remarks>#weartaktrackercommandsetteam Blue</remarks>"
+        val event = field(1, "b-t-f".toByteArray()) + field(5, "GeoChat.U1.ME.m1".toByteArray()) +
+            byteArrayOf(0x30) + varint(1_700_000_000_000) + field(15, field(1, chat.toByteArray()))
+        val datagram = byteArrayOf(0xbf.toByte(), 1, 0xbf.toByte()) + field(2, event)
+        val xml = TakDatagramDecoder.decode(datagram)
+        assertNotNull(xml)
+        val req = InboundChat.commandRequest(xml!!, "ME", "multicast:224.10.10.1:17012", 0)
+        assertEquals("#weartaktrackercommandsetteam Blue", req?.text)
+        assertEquals(1_700_000_000_000, req?.sentAtMs)
+        assertEquals("<event/>", TakDatagramDecoder.decode("<event/>".toByteArray()))
+        assertNull(TakDatagramDecoder.decode(byteArrayOf(0xbf.toByte(), 1, 0xbf.toByte(), 0x12, 0x7f)))
+    }
+
+    @Test
+    fun meshPliPointsDirectChatAtMeshGroup() {
+        val xml = "<contact endpoint='*:-1:stcp' callsign='T'/>"
+        assertEquals("<contact endpoint='224.10.10.1:17012:udp' callsign='T'/>", CotBuilder.meshContact(xml))
+    }
+
+    private fun varint(value: Long): ByteArray {
+        val out = mutableListOf<Byte>()
+        var v = value
+        while (v >= 0x80) { out += ((v and 0x7f) or 0x80).toByte(); v = v ushr 7 }
+        out += v.toByte()
+        return out.toByteArray()
+    }
+
+    private fun field(number: Int, payload: ByteArray) =
+        varint(((number shl 3) or 2).toLong()) + varint(payload.size.toLong()) + payload
 
     @Test
     fun presetParserRejectsBadServers() {
@@ -61,14 +197,14 @@ class TrackerCommandsTest {
         var added = 0
         val h = LoadProfileHandler(
             source = { json },
-            identity = IdentityHandler(IdentityHandler.COMMAND_KEYS.getValue("setprofile"), rec),
+            profile = profile(rec),
             serverSink = { added = it.size; it.size },
             networkLocked = { false },
         )
         val r = runBlocking { h.execute(ChatCommand("loadprofile", mapOf("name" to "odin-weartak")), request) }
         assertTrue(r.message, r.ok)
         assertEquals(1, added)
-        assertEquals("ODIN", rec.last?.first)
+        assertEquals("ODIN", rec.last?.callsign)
         assertFalse(r.message.contains("password"))
     }
 
@@ -77,7 +213,7 @@ class TrackerCommandsTest {
         val rec = Recorder()
         val json = """{"servers":[{"name":"A","url":"a.example.org","username":"u","password":"p"}]}"""
         val h = LoadProfileHandler(
-            { json }, IdentityHandler(setOf("team"), rec), { error("must not add") }, { true },
+            { json }, ProfileHandler(setOf("team"), rec), { error("must not add") }, { true },
         )
         assertFalse(runBlocking { h.execute(ChatCommand("loadprofile", mapOf("name" to "x")), request) }.ok)
     }

@@ -48,9 +48,20 @@ class MulticastPublisher(private val onStarted: () -> Unit) {
     suspend fun send(xml: String): Int = withContext(Dispatchers.IO) {
         val (s, g, p) = synchronized(this@MulticastPublisher) { Triple(socket, group, port) }
         if (s == null || g == null) return@withContext 0
+        sendPacket(s, xml, g, p)
+    }
+
+    /** Sends to a specific group, e.g. ATAK's mesh chat group for chat command replies. */
+    suspend fun sendTo(xml: String, address: String, port: Int): Int = withContext(Dispatchers.IO) {
+        val s = synchronized(this@MulticastPublisher) { socket } ?: return@withContext 0
+        val g = runCatching { InetAddress.getByName(address) }.getOrNull() ?: return@withContext 0
+        sendPacket(s, xml, g, port)
+    }
+
+    private fun sendPacket(s: MulticastSocket, xml: String, g: InetAddress, p: Int): Int {
         val bytes = xml.toByteArray(Charsets.UTF_8)
         if (bytes.size > 1300) Log.w(TAG, "Multicast CoT is ${bytes.size} bytes and may be fragmented")
-        try {
+        return try {
             s.send(DatagramPacket(bytes, bytes.size, g, p))
             1
         } catch (e: Exception) {

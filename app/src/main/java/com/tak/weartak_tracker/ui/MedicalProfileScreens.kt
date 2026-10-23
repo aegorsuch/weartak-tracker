@@ -29,6 +29,8 @@ private enum class MedicalNumber(
     HEIGHT_INCHES("height_inches", "Height (inches)", 0, 11, { it.heightInches }, { p, v -> p.copy(heightInches = v) }),
     WEIGHT("weight", "Weight (lbs)", 0, 1000, { it.weightLbs }, { p, v -> p.copy(weightLbs = v) }),
     RESTING_HR("resting_heart_rate", "Resting Heart Rate (bpm)", 1, 200, { it.restingHeartRateBpm }, { p, v -> p.copy(restingHeartRateBpm = v) }),
+    PANTS("uniform_pants_length", "Uniform Pants Length (in)", 20, 50, { it.pantsLengthInches }, { p, v -> p.copy(pantsLengthInches = v) }),
+    WAIST("uniform_waist_size", "Uniform Waist Size (in)", 20, 60, { it.waistInches }, { p, v -> p.copy(waistInches = v) }),
 }
 
 private enum class MedicalChoice(
@@ -62,6 +64,12 @@ fun NavGraphBuilder.medicalProfileGraph(repo: SettingsRepository, configState: S
                 ) { go("height") }
             }
             item { WearTAKTitleChipWithState("Weight", "${profile.weightLbs} lbs") { go("weight") } }
+            listOf(MedicalNumber.PANTS to "Uniform Pants Length", MedicalNumber.WAIST to "Uniform Waist Size").forEach { (number, title) ->
+                item {
+                    val value = number.get(profile)
+                    WearTAKTitleChipWithState(title, if (value == 0) "N/A" else "$value in") { go(number.route) }
+                }
+            }
             MedicalChoice.entries.take(2).forEach { choice ->
                 item { WearTAKTitleChipWithState(choice.title, choice.get(profile)) { go(choice.route) } }
             }
