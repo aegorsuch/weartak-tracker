@@ -73,7 +73,37 @@ class ChatCommandTest {
     }
 
     @Test
-    fun allowListParsingTrimsAndDeduplicates() {
-        assertEquals(listOf("A", "b"), ChatCommandAuthorizer.parseAllowList(" A, b ,a,, "))
+    fun allowListParsingTrimsDeduplicatesAndSortsForDisplay() {
+        assertEquals(listOf("A", "B"), ChatCommandAuthorizer.parseAllowList(" A, b ,a,, "))
+    }
+
+    @Test
+    fun allowListParsingMigratesCommaAndNewlineSeparatedValues() {
+        assertEquals(
+            listOf("ALPHA", "BRAVO", "ZULU"),
+            ChatCommandAuthorizer.parseAllowList("Zulu, alpha\nBRAVO\r\nalpha"),
+        )
+    }
+
+    @Test
+    fun allowedCallsignsAreValidatedAndAddedInUppercase() {
+        assertEquals(null, ChatCommandAuthorizer.validateNewCallsign(" alpha-1 ", emptyList()))
+        assertEquals(listOf("ALPHA-1"), ChatCommandAuthorizer.addAllowedCallsign(emptyList(), " alpha-1 "))
+
+        assertTrue(ChatCommandAuthorizer.validateNewCallsign("bad/callsign", emptyList())!!.contains("valid callsign"))
+        assertEquals(null, ChatCommandAuthorizer.addAllowedCallsign(emptyList(), "bad/callsign"))
+        assertEquals(
+            "This callsign is already allowed",
+            ChatCommandAuthorizer.validateNewCallsign("alpha-1", listOf("ALPHA-1")),
+        )
+        assertEquals(null, ChatCommandAuthorizer.addAllowedCallsign(listOf("ALPHA-1"), "alpha-1"))
+    }
+
+    @Test
+    fun removingCallsignIsCaseInsensitiveAndKeepsListSorted() {
+        assertEquals(
+            listOf("BRAVO"),
+            ChatCommandAuthorizer.removeAllowedCallsign(listOf("ALPHA", "bravo"), "alpha"),
+        )
     }
 }

@@ -10,6 +10,7 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import com.tak.weartak_tracker.command.ChatCommandAuthorizer
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -281,7 +282,7 @@ class SettingsRepository(private val context: Context) {
             networkPreferencesLocked = p[K.NETWORK_LOCKED] ?: false,
             chatCommandsEnabled = p[K.CHAT_COMMANDS] ?: false,
             sensorManagerEnabled = p[K.SENSOR_MANAGER] ?: false,
-            chatCommandCallsigns = p[K.CHAT_CALLSIGNS]?.lines()?.filter { it.isNotBlank() } ?: emptyList(),
+            chatCommandCallsigns = ChatCommandAuthorizer.parseAllowList(p[K.CHAT_CALLSIGNS].orEmpty()),
             dittoEnabled = p[K.DITTO_ENABLED] ?: false,
             dittoPdlSource = p[K.DITTO_PDL_SOURCE]?.let {
                 runCatching { DittoPdlSource.valueOf(it) }.getOrNull()
