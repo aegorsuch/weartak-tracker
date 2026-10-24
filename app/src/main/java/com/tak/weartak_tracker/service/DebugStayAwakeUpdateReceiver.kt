@@ -15,6 +15,8 @@ class DebugStayAwakeUpdateReceiver : BroadcastReceiver() {
             .setAction(DebugStayAwakeService.ACTION_RESTORE_AFTER_UPDATE)
         try {
             ContextCompat.startForegroundService(context, serviceIntent)
+        } catch (error: IllegalStateException) {
+            Log.w(TAG, "Cannot restore debug stay awake from background after update", error)
         } catch (error: SecurityException) {
             Log.e(TAG, "Cannot restore debug stay awake after update", error)
         }
