@@ -13,17 +13,17 @@ import org.json.JSONObject
 import java.time.Year
 import java.time.Instant
 
-class DittoPdlUpdate(val source: DittoPdlSource, val customPdl: String?, val enabled: Boolean?) {
-    override fun toString(): String = "DittoPdlUpdate(source=$source, enabled=$enabled)"
+class DittoPdlUpdate(val source: DittoPdlSource, val customPdl: String?) {
+    override fun toString(): String = "DittoPdlUpdate(source=$source)"
 }
 
-data class DittoPdlApplyResult(val enabled: Boolean, val applied: Boolean, val locked: Boolean = false)
+data class DittoPdlApplyResult(val applied: Boolean, val locked: Boolean = false)
 
 fun interface DittoPdlStore {
     suspend fun apply(update: DittoPdlUpdate): DittoPdlApplyResult
 }
 
-class SetDittoPdlHandler(
+class SetPdlHandler(
     private val communityIdentity: () -> String,
     private val store: DittoPdlStore,
     private val networkLocked: suspend () -> Boolean,
@@ -31,14 +31,13 @@ class SetDittoPdlHandler(
 ) : ChatCommandHandler {
     override suspend fun execute(command: ChatCommand, request: ChatCommandRequest): ChatCommandResult {
         val args = command.args
-        val community = args["source"] == "community"
-        val custom = args.containsKey("pdl")
-        if ((args.keys - setOf("source", "pdl", "enabled")).isNotEmpty() ||
-            community == custom || (args.containsKey("source") && !community) ||
-            (args.containsKey("enabled") && args["enabled"] !in setOf("true", "false"))
-        ) return ChatCommandResult(false, "Ditto not changed: invalid arguments")
+        if (args.keys != setOf("pdl")) {
+            return ChatCommandResult(false, "Command rejected: setpdl needs community or one encoded PDL")
+        }
+        val value = args.getValue("pdl")
+        val community = value.equals("community", true)
         if (networkLocked()) return ChatCommandResult(false, "Ditto not changed: settings locked")
-        val pdl = (if (community) communityIdentity() else args.getValue("pdl")).trim()
+        val pdl = (if (community) communityIdentity() else value).trim()
         val license = try {
             require(pdl.length <= ChatCommandParser.MAX_PDL_LENGTH)
             DittoCommunityLicenseHelper.parse(pdl).also { require(it.expiresAtMillis > now()) }
@@ -47,13 +46,12 @@ class SetDittoPdlHandler(
         }
         val result = store.apply(DittoPdlUpdate(
             if (community) DittoPdlSource.COMMUNITY else DittoPdlSource.CUSTOM,
-            if (custom) pdl else null,
-            args["enabled"]?.toBooleanStrict(),
+            if (community) null else pdl,
         ))
         if (result.locked) return ChatCommandResult(false, "Ditto not changed: settings locked")
         if (!result.applied) return ChatCommandResult(false, "Ditto update failed")
         return ChatCommandResult(true, "Ditto updated: source=${if (community) "community" else "custom"} " +
-            "app=${license.appId.take(8)} expiry=${Instant.ofEpochMilli(license.expiresAtMillis)} enabled=${result.enabled}")
+            "app=${license.appId.take(8)} expiry=${Instant.ofEpochMilli(license.expiresAtMillis)}")
     }
 }
 
