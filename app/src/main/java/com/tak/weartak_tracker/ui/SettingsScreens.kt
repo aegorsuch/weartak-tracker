@@ -441,26 +441,41 @@ fun NavGraphBuilder.settingsGraph(repo: SettingsRepository, configState: State<T
         val currentConfig by repo.config.collectAsStateWithLifecycle(initialValue = config)
         val context = LocalContext.current
         val scope = rememberCoroutineScope()
-        WearTAKPageWithBackArrow("MOPP", back) {
+        var candidate by rememberSaveable { mutableStateOf(currentConfig.moppStatus.name) }
+        var saving by remember { mutableStateOf(false) }
+        WearTAKPageWithBackArrow("PPE Status", back) {
             item {
                 Icon(painterResource(R.drawable.mopp_mask), contentDescription = "Protective mask", modifier = Modifier.size(32.dp))
             }
             item { Text("PPE Status: ${currentConfig.moppStatus.label}", textAlign = TextAlign.Center) }
-            item { Text("Manual status saved on this watch. Not transmitted.", textAlign = TextAlign.Center, color = Color.LightGray) }
+            item { Text("Choose a status, then Save. Local only; not transmitted.", textAlign = TextAlign.Center, color = Color.LightGray) }
             MoppStatus.entries.forEach { status ->
                 item {
                     WearTAKSelectableChip(
-                        selected = currentConfig.moppStatus == status,
+                        selected = candidate == status.name,
                         title = status.label,
                         item = status,
                         list = MoppStatus.entries,
-                        onClick = {
-                            scope.launch {
-                                repo.update { it.copy(moppStatus = status) }
-                                Toast.makeText(context, "PPE status saved: ${status.label}", Toast.LENGTH_SHORT).show()
-                            }
-                        },
+                        onClick = { if (!saving) candidate = status.name },
                     )
+                }
+            }
+            item {
+                WearTAKTitleChip(if (saving) "Saving..." else "Save", enabled = !saving) {
+                    val selected = MoppStatus.fromStored(candidate)
+                    saving = true
+                    scope.launch {
+                        try {
+                            repo.update { it.copy(moppStatus = selected) }
+                            Toast.makeText(context, "PPE status saved: ${selected.label}", Toast.LENGTH_SHORT).show()
+                            back()
+                        } catch (error: java.io.IOException) {
+                            android.util.Log.w("MoppStatus", "Unable to save PPE status", error)
+                            Toast.makeText(context, "Unable to save PPE status. Try again.", Toast.LENGTH_LONG).show()
+                        } finally {
+                            saving = false
+                        }
+                    }
                 }
             }
         }
