@@ -69,7 +69,7 @@ object CotBuilder {
             "hae" to "%.1f".format(Locale.US, fix?.hae ?: 0.0),
             "ce" to ce, "le" to le,
         )
-        val ppeRemarks = moppStatus.takeUnless { it == MoppStatus.NONE }?.label
+        val ppeRemarks = moppStatus.takeUnless { it == MoppStatus.NONE }?.label?.replace(" ", "")
         val wearerDetail = if (physio != null) {
             physioDetail(uid, physio, time, includeBatdok, ageYears, ppeRemarks)
         } else ppeRemarks?.let { element("remarks", content = esc(it)) } ?: ""

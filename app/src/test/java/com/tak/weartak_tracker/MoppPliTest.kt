@@ -21,11 +21,11 @@ class MoppPliTest {
     @Test
     fun noneOmitsRemarksButZeroThroughFourPublishSavedLevelWithoutFabricatedPhysio() {
         assertEquals(0, pli(MoppStatus.NONE).getElementsByTagName("remarks").length)
-        for (status in MoppStatus.entries.filter { it != MoppStatus.NONE }) {
+        for ((level, status) in MoppStatus.entries.filter { it != MoppStatus.NONE }.withIndex()) {
             val doc = pli(status)
             val remarks = doc.getElementsByTagName("remarks")
             assertEquals(1, remarks.length)
-            assertEquals(status.label, remarks.item(0).textContent)
+            assertEquals("MOPP$level", remarks.item(0).textContent)
             assertEquals(0, doc.getElementsByTagName("biometrics").length)
             assertEquals(0, doc.getElementsByTagName("_atmist_").length)
             assertFalse(remarks.item(0).textContent.contains("WearTAK PLI"))
@@ -41,7 +41,7 @@ class MoppPliTest {
                 val remarks = doc.getElementsByTagName("remarks")
                 assertEquals(1, remarks.length)
                 val expected = "Exert:0.50%;HR:72;SkinTemp:98.6" +
-                    if (status == MoppStatus.NONE) "" else "\n${status.label}"
+                    if (status == MoppStatus.NONE) "" else "\nMOPP${status.ordinal - 1}"
                 assertEquals(expected, remarks.item(0).textContent)
                 assertEquals(1, doc.getElementsByTagName("biometrics").length)
                 assertEquals("72", doc.getElementsByTagName("hr").item(0).textContent)
