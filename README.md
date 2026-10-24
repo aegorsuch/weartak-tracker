@@ -23,6 +23,17 @@ For an LTE deployment, disable **TAK SA Multicast** under Network Preferences: i
 While **TAK SA Multicast** is enabled and Tracker is running, Tracker actively requests local Wi-Fi (internet is not required) and holds a non-reference-counted high-performance Wi-Fi lock. This best-effort retention keeps Wi-Fi demand across network loss, without keeping the screen or CPU awake or changing the default/LTE route. Disabling multicast or stopping Tracker releases both; failed acquisition rolls back the lock and can retry on the next settings/network update. PLI publishing is send-only; only the mesh chat-command listener (when Commands is also on) holds a multicast receive lock. This uses extra battery and cannot override disabled Wi-Fi, pin an SSID, or guarantee screen-off delivery. On Android 14+, high-performance mode maps to low-latency mode, which only takes effect while the app is foreground and the screen is on; the active network request remains the source of Wi-Fi demand.
 
 ## Features
+Plugin rows retain their existing status and separate toggle/navigation actions, with proportionally fitted 24 dp artwork and visible labels. Icons do not activate unfunded integrations. Commands uses original WearTAK megaphone artwork; Sensor Manager uses a neutral radio-wave glyph; MOPP retains its mask. The following integration assets are reused unchanged from WearTAK-WearOS under the user's confirmed 2026-10-21 permission (not a claim of a public redistribution license):
+
+| Entry | Asset provenance |
+| --- | --- |
+| Ditto Edge Sync | Existing ATAK Ditto `ic_ditto_menu`, four original paths/colors, transparent bounds trimmed (`ic_integration_ditto.xml`). |
+| Everywhere Comms | Approved white globe crop of [official logo](https://everywherecomms.com/cdn/shop/files/everywhere_logo_white.png?v=1727986047), 192 px (`ic_integration_everywhere.png`). |
+| GoTenna | Approved [official favicon](https://gotenna.com/cdn/shop/files/favicon.webp?v=1680207627), original 100 px WebP (`ic_integration_gotenna.webp`). |
+| Somewear Labs | Approved [official 192 px symbol](https://somewearlabs.com/wp-content/uploads/2026/07/cropped-somewear-favicon-rounded-corners-192x192.png) (`ic_integration_somewear.png`). |
+
+Only Ditto is exact ATAK plugin artwork; other marks are approved company assets. No new remote artwork or absent DataSync row was added.
+
 - Reports position (PLI) to one or more TAK Servers (TLS, enrollment on 8446), Sit(x) TAK, and TAK SA UDP multicast.
 - Constant or dynamic reporting (stationary / on foot / vehicle / while alerting intervals). Dynamic reporting classifies movement from GPS speed (like ATAK) and uses the significant-motion sensor to leave the stationary interval as soon as the wearer moves.
 - PLI stale time is twice the active reporting interval plus 15 seconds (60-second reporting expires after 135 seconds). When reporting stops, the last transmitted PLI expires naturally; no immediate clear message is sent. Manual alerts retain their 15-minute stale time.

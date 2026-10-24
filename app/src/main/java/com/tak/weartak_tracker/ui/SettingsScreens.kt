@@ -125,6 +125,26 @@ internal val PLUGIN_TITLES = listOf(
     "Commands", DITTO_PLUGIN_NAME, "Everywhere Comms", "GoTenna", "MOPP", "Sensor Manager", "Somewear Labs",
 ).sortedWith(String.CASE_INSENSITIVE_ORDER)
 
+internal fun pluginIconResource(title: String): Int = when (title) {
+    "Commands" -> R.drawable.ic_commands_megaphone
+    DITTO_PLUGIN_NAME -> R.drawable.ic_integration_ditto
+    "Everywhere Comms" -> R.drawable.ic_integration_everywhere
+    "GoTenna" -> R.drawable.ic_integration_gotenna
+    "Somewear Labs" -> R.drawable.ic_integration_somewear
+    "Sensor Manager" -> R.drawable.ic_plugin_sensor
+    "MOPP" -> R.drawable.mopp_mask
+    else -> error("Unknown Tracker plugin")
+}
+
+@Composable
+private fun PluginRowIcon(title: String) {
+    Image(
+        painter = painterResource(pluginIconResource(title)),
+        contentDescription = null,
+        modifier = Modifier.padding(end = 6.dp).size(24.dp),
+    )
+}
+
 // Navigation/lazy controls can retain callbacks. A tap must invert the live setting, not an old checked value.
 internal fun dittoToggleCallback(config: State<TrackerConfig>, onToggle: (Boolean) -> Unit): (Boolean) -> Unit =
     { onToggle(!config.value.dittoEnabled) }
@@ -358,7 +378,7 @@ fun NavGraphBuilder.settingsGraph(repo: SettingsRepository, configState: State<T
                         when (title) {
                             "Commands" -> {
                                 WearTAKSplitToggleChip(
-                                    appIcon = {},
+                                    appIcon = { PluginRowIcon(title) },
                                     title = title,
                                     label = if (currentConfig.chatCommandsEnabled) "Enabled" else "Disabled",
                                     checked = currentConfig.chatCommandsEnabled,
@@ -368,7 +388,7 @@ fun NavGraphBuilder.settingsGraph(repo: SettingsRepository, configState: State<T
                             }
                             DITTO_PLUGIN_NAME -> {
                                 WearTAKSplitToggleChip(
-                                    appIcon = {},
+                                    appIcon = { PluginRowIcon(title) },
                                     title = title,
                                     label = when (currentConfig.dittoPdlSource) {
                                         DittoPdlSource.COMMUNITY -> "Community"
@@ -408,12 +428,12 @@ fun NavGraphBuilder.settingsGraph(repo: SettingsRepository, configState: State<T
                             "MOPP" -> {
                                 WearTAKTitleChip(
                                     title = "MOPP",
-                                    icon = { Icon(painterResource(R.drawable.mopp_mask), contentDescription = null, modifier = Modifier.size(24.dp)) },
+                                    icon = { PluginRowIcon(title) },
                                 ) { go("mopp_status") }
                             }
                             "Sensor Manager" -> {
                                 WearTAKSplitToggleChip(
-                                    appIcon = {},
+                                    appIcon = { PluginRowIcon(title) },
                                     title = title,
                                     label = "Unfunded Request",
                                     checked = currentConfig.sensorManagerEnabled,
@@ -423,7 +443,7 @@ fun NavGraphBuilder.settingsGraph(repo: SettingsRepository, configState: State<T
                             }
                             else -> {
                                 WearTAKSplitToggleChip(
-                                    appIcon = {},
+                                    appIcon = { PluginRowIcon(title) },
                                     title = title,
                                     label = "Unfunded Request",
                                     checked = false,

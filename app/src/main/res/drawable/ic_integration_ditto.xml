@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Ditto ATAK ic_ditto_menu; original paths/colors, transparent margins trimmed. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="21.037dp" android:height="24dp"
+    android:viewportWidth="284" android:viewportHeight="324">
+    <group android:translateX="-46" android:translateY="-46">
+        <path android:fillColor="#FFF6F6F6" android:pathData="M170,240l0,-64l-4,-4l-64,0l-4,4l0,64l4,4l64,0l4,-4z" />
+        <path android:fillColor="#FFF6F6F6" android:pathData="M50,260l-4,4l0,38l4,4l38,0l4,-4l0,-38l-4,-4l-38,0z" />
+        <path android:fillColor="#FFF6F6F6" android:pathData="M50,110l-4,4l0,38l4,4l38,0l4,-4l0,-38l-4,-4l-38,0z" />
+        <path android:fillColor="#FFF6F6F6" android:pathData="M326,162h-72l-4,-4v-62l-4,-4h-64l-4,-4v-38l-4,-4h-44l-4,4v46l4,4h48l4,4v62l4,4h68l4,4v68l-4,4h-68l-4,4v62l-4,4h-48l-4,4v46l4,4h44l4,-4v-38l4,-4h64l4,-4v-62l4,-4h72l4,-4v-84l-4,-4Z" />
+    </group>
+</vector>
