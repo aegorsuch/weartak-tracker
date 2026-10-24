@@ -70,6 +70,7 @@ class DittoClientTest {
         assertEquals(1, sessions.size)
         assertEquals(4, session.starts)
         assertEquals(4, ready)
+        assertEquals(4L, client.readyGeneration)
         assertEquals(3, session.pauses)
         assertEquals(0, session.closes)
         assertTrue(errors.isEmpty())
@@ -80,6 +81,7 @@ class DittoClientTest {
         client.configure(enabled)
         publish()
         client.configure(enabled.copy(dittoEnabled = false))
+        assertEquals(null, client.readyGeneration)
         publish()
         assertEquals(1, sessions.single().documents.size)
         client.configure(enabled)
@@ -209,6 +211,7 @@ class DittoClientTest {
         readyClient.configure(enabled)
         assertEquals(1, session.documents.size)
         assertEquals("self", session.documents.single()["_id"])
+        assertEquals(1_000L, session.documents.single()["n"])
         assertTrue(session.chats.isEmpty())
     }
 

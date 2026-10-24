@@ -126,6 +126,8 @@ class DittoClient internal constructor(
     private var ditto: DittoPeerSession? = null
     private var activePdl: String? = null
     private var syncing = false
+    private var generation = 0L
+    val readyGeneration: Long? get() = generation.takeIf { syncing }
 
     fun configure(config: TrackerConfig): DittoState {
         val pdl = when (config.dittoPdlSource) {
@@ -180,6 +182,7 @@ class DittoClient internal constructor(
             if (!syncing) {
                 instance.startSync()
                 syncing = true
+                generation++
                 onReady()
             }
             DittoState.Active
@@ -202,8 +205,8 @@ class DittoClient internal constructor(
         }
     }
 
-    fun publishTrack(xml: String, fix: Fix, config: TrackerConfig, uid: String) {
-        val instance = ditto?.takeIf { syncing } ?: return
+    fun publishTrack(xml: String, fix: Fix, config: TrackerConfig, uid: String): Int {
+        val instance = ditto?.takeIf { syncing } ?: return 0
         val now = System.currentTimeMillis()
         val stale = now + 3_000L * ReportingStrategy.intervalSecs(config, TrackerState.isAlerting, TrackerState.activity.value)
         val detail = DETAIL_PATTERN.find(xml)?.value ?: "<detail/>"
@@ -227,7 +230,7 @@ class DittoClient internal constructor(
             "j" to fix.lat,
             "k" to (fix.le.takeIf { it.isFinite() && it >= 0f }?.toDouble() ?: 9_999_999.0),
             "l" to fix.lon,
-            "n" to now,
+            "n" to fix.timeMillis,
             "o" to stale,
             "p" to "m-g",
             "q" to "Undefined",
@@ -238,8 +241,10 @@ class DittoClient internal constructor(
         )
         try {
             instance.publish(document)
+            return 1
         } catch (error: DittoError) {
             logError("Ditto Edge Sync track update failed", error)
+            return 0
         }
     }
 

@@ -56,6 +56,8 @@ class SitxClient(
     private var reconnectAttempt = 0
 
     val connected: Boolean get() = socketOpen
+    @Volatile private var generation = 0L
+    val readyGeneration: Long? get() = generation.takeIf { socketOpen }
 
     fun update(config: TrackerConfig) {
         callsign = config.callsign
@@ -330,6 +332,7 @@ class SitxClient(
         socket = http.newWebSocket(request, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
                 if (socket !== webSocket) return
+                generation++
                 socketOpen = true
                 reconnectAttempt = 0
                 TrackerState.sitx.value = SitxState.Connected(group.name)
