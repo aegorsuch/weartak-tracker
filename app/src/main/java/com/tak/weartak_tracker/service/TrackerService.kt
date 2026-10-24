@@ -95,6 +95,8 @@ class TrackerService : Service() {
     private lateinit var physio: PhysioMonitor
     private var physioActive = false
     private val pliRefresh = PliRefreshCoordinator(scope, { rebroadcastPli() })
+    private val outboundRefresh = OutboundPliRefresh()
+    private var identityRefreshPending = false
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -207,7 +209,9 @@ class TrackerService : Service() {
                 }
                 configureDitto(c)
                 configureMulticast()
+                outboundRefresh.update(readyPliRoutes())
                 if (identityChanged) {
+                    identityRefreshPending = true
                     location.requestSingleFix()
                     pliRefresh.request()
                 }
@@ -376,7 +380,18 @@ class TrackerService : Service() {
     }
 
     private suspend fun sendPli(fix: Fix) {
+        val access = LocationAccess.current(this)
+        if (!access.granted) return
+        outboundRefresh.update(readyPliRoutes())
+        if (lastFixAccess != access ||
+            (outboundRefresh.needed && !fix.isCurrentPliFix(SystemClock.elapsedRealtime(), FRESH_FIX_MS))
+        ) {
+            requestRefreshFix()
+            return
+        }
+        val pending = outboundRefresh.snapshot()
         pliRefresh.onPliSent()
+        identityRefreshPending = false
         val xml = CotBuilder.pli(
             uid = repo.deviceUid,
             callsign = config.callsign,
@@ -386,7 +401,7 @@ class TrackerService : Service() {
             fix = fix,
             time = CotTime.now(CotBuilder.pliStaleSeconds(
                 ReportingStrategy.intervalSecs(config, TrackerState.isAlerting, TrackerState.activity.value),
-            )),
+            ), if (pending.isEmpty()) System.currentTimeMillis() else fix.timeMillis),
             physio = if (physioActive) {
                 val bpm = physio.bpm
                 Physio(
@@ -403,11 +418,26 @@ class TrackerService : Service() {
         lastPliElapsed = SystemClock.elapsedRealtime()
         // Same routing as CIV: TAK when connected, SITX and multicast whenever available.
         var routes = 0
-        if (tak.anyConnected) routes += tak.send(xml)
-        routes += withContext(Dispatchers.IO) { sitx.send(xml) }
-        routes += multicast.send(CotBuilder.meshContact(xml))
+        val sent = mutableMapOf<String, Long>()
+        if (tak.anyConnected) {
+            val delivered = tak.sendWithGenerations(xml)
+            routes += delivered.size
+            delivered.forEach { (id, generation) -> sent["tak:$id"] = generation }
+        }
+        val sitxGeneration = sitx.readyGeneration
+        val sitxRoutes = withContext(Dispatchers.IO) { sitx.send(xml) }
+        routes += sitxRoutes
+        if (sitxRoutes > 0 && sitxGeneration != null) sent["sitx"] = sitxGeneration
+        val multicastGeneration = multicast.readyGeneration
+        val multicastRoutes = multicast.send(CotBuilder.meshContact(xml))
+        routes += multicastRoutes
+        if (multicastRoutes > 0 && multicastGeneration != null) sent["multicast"] = multicastGeneration
         if (routes > 0) TrackerState.lastPliMillis.value = System.currentTimeMillis()
-        ditto.publishTrack(xml, fix, config, repo.deviceUid)
+        val dittoGeneration = ditto.readyGeneration
+        if (ditto.publishTrack(xml, fix, config, repo.deviceUid) > 0 && dittoGeneration != null) {
+            sent["ditto"] = dittoGeneration
+        }
+        outboundRefresh.onPublished(sent.filter { (source, generation) -> pending[source] == generation })
     }
 
     // ---- Alerts ----
@@ -427,11 +457,29 @@ class TrackerService : Service() {
 
     private suspend fun onEndpointConnected() {
         alertMutex.withLock { if (isReady()) forwarder.flush() }
-        pliRefresh.request()
+        requestOutboundRefresh()
+    }
+
+    private fun readyPliRoutes(): Map<String, Long> = buildMap {
+        tak.readyGenerations.forEach { (id, generation) -> put("tak:$id", generation) }
+        if (config.sitxEnabled) sitx.readyGeneration?.let { put("sitx", it) }
+        if (config.multicastEnabled) multicast.readyGeneration?.let { put("multicast", it) }
+        if (config.dittoEnabled) ditto.readyGeneration?.let { put("ditto", it) }
+    }
+
+    private fun requestOutboundRefresh() {
+        outboundRefresh.update(readyPliRoutes())
+        if (outboundRefresh.needed) pliRefresh.request()
     }
 
     private suspend fun rebroadcastPli() {
-        refreshCurrentPli(lastFix, lastFixAccess, LocationAccess.current(this), location::requestSingleFix, ::sendPli)
+        outboundRefresh.update(readyPliRoutes())
+        if (!outboundRefresh.needed && !identityRefreshPending) return
+        refreshCurrentPli(lastFix, lastFixAccess, LocationAccess.current(this), ::requestRefreshFix, ::sendPli)
+    }
+
+    private fun requestRefreshFix() {
+        if (outboundRefresh.takeFixRequest()) location.requestSingleFix()
     }
 
     /** User-requested PLI: send the best fix now, and the fresh fix requested here sends another when it lands. */
@@ -598,6 +646,7 @@ class TrackerService : Service() {
         course = if (hasBearing()) bearing else 0f,
         speed = if (hasSpeed()) speed else 0f,
         timeMillis = time,
+        elapsedRealtimeMillis = elapsedRealtimeNanos.takeIf { it > 0 }?.div(1_000_000),
     )
 
     companion object {

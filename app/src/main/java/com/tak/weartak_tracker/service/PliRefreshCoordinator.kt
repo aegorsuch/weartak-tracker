@@ -22,7 +22,6 @@ internal class PliRefreshCoordinator(
             pending = null
             refresh()
         }
-
     }
 
     fun onPliSent() {

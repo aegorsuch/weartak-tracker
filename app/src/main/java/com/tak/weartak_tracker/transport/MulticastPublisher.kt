@@ -17,6 +17,8 @@ class MulticastPublisher(private val onStarted: () -> Unit) {
     private var port = 0
     private var key: Triple<Boolean, String, Int>? = null
     private var network: Network? = null
+    private var generation = 0L
+    val readyGeneration: Long? @Synchronized get() = generation.takeIf { socket != null }
 
     val running: Boolean get() = socket != null
 
@@ -37,6 +39,7 @@ class MulticastPublisher(private val onStarted: () -> Unit) {
             group = InetAddress.getByName(address.trim())
             this.port = port
             socket = ms
+            generation++
             TrackerState.setEndpoint(Endpoint.MULTICAST, true)
             Log.i(TAG, "Multicast publisher ready for ${address.trim()}:$port")
             onStarted()

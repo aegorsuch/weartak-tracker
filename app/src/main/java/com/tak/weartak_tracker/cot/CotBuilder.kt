@@ -27,6 +27,7 @@ data class Fix(
     val course: Float,
     val speed: Float,
     val timeMillis: Long,
+    val elapsedRealtimeMillis: Long? = null,
 )
 
 enum class AlertState { ALERT, CANCEL }

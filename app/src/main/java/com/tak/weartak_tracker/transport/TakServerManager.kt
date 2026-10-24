@@ -49,6 +49,7 @@ class TakServerManager(
         /** Plain socket while connecting, then the TLS socket layered on it; closing either aborts I/O. */
         @Volatile var socket: Socket? = null
         @Volatile var output: OutputStream? = null
+        @Volatile var readyGeneration = 0L
         @Volatile var credentials: TakCertificates.Credentials? = null
         @Volatile var enrollmentInProgress = false
         val lock = Any()
@@ -57,8 +58,12 @@ class TakServerManager(
     private val connections = ConcurrentHashMap<String, Connection>()
     private var servers: List<TakServerConfig> = emptyList()
     private val credentialMutex = Mutex()
+    private val readyGeneration = java.util.concurrent.atomic.AtomicLong()
 
     val anyConnected: Boolean get() = connections.values.any { it.output != null }
+    val readyGenerations: Map<String, Long> get() = connections.entries
+        .filter { it.value.output != null && it.value.readyGeneration > 0 }
+        .associate { it.key to it.value.readyGeneration }
 
     fun update(newServers: List<TakServerConfig>) {
         if (newServers == servers) return
@@ -125,17 +130,20 @@ class TakServerManager(
     }
 
     /** Writes [xml] to every connected server; returns how many accepted it. */
-    suspend fun send(xml: String): Int = withContext(Dispatchers.IO) {
+    suspend fun send(xml: String): Int = sendWithGenerations(xml).size
+
+    internal suspend fun sendWithGenerations(xml: String): Map<String, Long> = withContext(Dispatchers.IO) {
         val bytes = xml.toByteArray(Charsets.UTF_8)
-        var sent = 0
-        for (c in connections.values) {
+        val sent = mutableMapOf<String, Long>()
+        for ((id, c) in connections) {
             val out = c.output ?: continue
+            val generation = c.readyGeneration
             try {
                 synchronized(c.lock) {
                     out.write(bytes)
                     out.flush()
                 }
-                sent++
+                sent[id] = generation
             } catch (e: Exception) {
                 Log.w(TAG, "Write to ${c.server.endpointKey} failed", e)
                 runCatching { c.socket?.close() }
@@ -292,6 +300,7 @@ class TakServerManager(
                 }
                 currentCoroutineContext().ensureActive()
                 c.credentials = creds
+                c.readyGeneration = readyGeneration.incrementAndGet()
                 c.output = socket.outputStream
                 attempt = 0
                 setState(c, TakStatus.CONNECTED, "Certificate: ${creds.source}")
