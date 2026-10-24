@@ -206,7 +206,7 @@ class DittoClientTest {
     fun pluginNameAndAlphabeticalPositionMatchWearTak() {
         assertEquals("Ditto Edge Sync", DITTO_PLUGIN_NAME)
         assertEquals(listOf(
-            "Commands", "Ditto Edge Sync", "Everywhere Comms", "GoTenna", "Sensor Manager", "Somewear Labs",
+            "Commands", "Ditto Edge Sync", "Everywhere Comms", "GoTenna", "MOPP", "Sensor Manager", "Somewear Labs",
         ), PLUGIN_TITLES)
     }
 

@@ -85,6 +85,7 @@ import com.tak.weartak_tracker.R
 import com.tak.weartak_tracker.cot.calculateExertion
 import com.tak.weartak_tracker.command.ChatCommandAuthorizer
 import com.tak.weartak_tracker.data.MULTICAST_PROTOCOLS
+import com.tak.weartak_tracker.data.MoppStatus
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.first
 import com.tak.weartak_tracker.service.ChatCommandRuntime
@@ -121,7 +122,7 @@ private const val INTERVAL_MIN = 1
 private const val INTERVAL_MAX = 1_000_000
 internal const val DITTO_PLUGIN_NAME = "Ditto Edge Sync"
 internal val PLUGIN_TITLES = listOf(
-    "Commands", DITTO_PLUGIN_NAME, "Everywhere Comms", "GoTenna", "Sensor Manager", "Somewear Labs",
+    "Commands", DITTO_PLUGIN_NAME, "Everywhere Comms", "GoTenna", "MOPP", "Sensor Manager", "Somewear Labs",
 ).sortedWith(String.CASE_INSENSITIVE_ORDER)
 
 // Navigation/lazy controls can retain callbacks. A tap must invert the live setting, not an old checked value.
@@ -404,6 +405,12 @@ fun NavGraphBuilder.settingsGraph(repo: SettingsRepository, configState: State<T
                                     onClick = { go("ditto_identity") },
                                 )
                             }
+                            "MOPP" -> {
+                                WearTAKTitleChip(
+                                    title = "MOPP",
+                                    icon = { Icon(painterResource(R.drawable.mopp_mask), contentDescription = null, modifier = Modifier.size(24.dp)) },
+                                ) { go("mopp_status") }
+                            }
                             "Sensor Manager" -> {
                                 WearTAKSplitToggleChip(
                                     appIcon = {},
@@ -427,6 +434,35 @@ fun NavGraphBuilder.settingsGraph(repo: SettingsRepository, configState: State<T
                         }
                     }
                 }
+        }
+    }
+
+    composable("mopp_status") {
+        val currentConfig by repo.config.collectAsStateWithLifecycle(initialValue = config)
+        val context = LocalContext.current
+        val scope = rememberCoroutineScope()
+        WearTAKPageWithBackArrow("MOPP", back) {
+            item {
+                Icon(painterResource(R.drawable.mopp_mask), contentDescription = "Protective mask", modifier = Modifier.size(32.dp))
+            }
+            item { Text("PPE Status: ${currentConfig.moppStatus.label}", textAlign = TextAlign.Center) }
+            item { Text("Manual status saved on this watch. Not transmitted.", textAlign = TextAlign.Center, color = Color.LightGray) }
+            MoppStatus.entries.forEach { status ->
+                item {
+                    WearTAKSelectableChip(
+                        selected = currentConfig.moppStatus == status,
+                        title = status.label,
+                        item = status,
+                        list = MoppStatus.entries,
+                        onClick = {
+                            scope.launch {
+                                repo.update { it.copy(moppStatus = status) }
+                                Toast.makeText(context, "PPE status saved: ${status.label}", Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                    )
+                }
+            }
         }
     }
 
