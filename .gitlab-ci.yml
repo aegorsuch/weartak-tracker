@@ -20,6 +20,7 @@ stages:
       [ -n "${RELEASE_STORE_PASSWORD:-}" ] || { echo "ERROR: RELEASE_STORE_PASSWORD missing"; exit 1; }
       [ -n "${RELEASE_KEY_ALIAS:-}" ] || { echo "ERROR: RELEASE_KEY_ALIAS missing"; exit 1; }
       [ -n "${RELEASE_KEY_PASSWORD:-}" ] || { echo "ERROR: RELEASE_KEY_PASSWORD missing"; exit 1; }
+      [ -n "${DITTO_COMMUNITY_IDENTITY:-}" ] || { echo "ERROR: DITTO_COMMUNITY_IDENTITY missing"; exit 1; }
       umask 077
       printf '%s' "$WEARTAK_RELEASE_KEYSTORE_B64" | base64 -d > "$CI_PROJECT_DIR/release.jks"
       export RELEASE_KEYSTORE_FILE="$CI_PROJECT_DIR/release.jks"

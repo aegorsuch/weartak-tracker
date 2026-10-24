@@ -36,9 +36,10 @@ android {
             versionName baseVersionName
         }
         setProperty("archivesBaseName", "WearTAK-Tracker-${baseVersionName}-${versionCode}")
+        // CI's protected DITTO_COMMUNITY_IDENTITY wins so a Gradle property can never shadow it.
         def dittoCommunityIdentity = (
-                project.findProperty("dittoCommunityIdentity") ?:
                 System.getenv("DITTO_COMMUNITY_IDENTITY") ?:
+                project.findProperty("dittoCommunityIdentity") ?:
                 localBuildProperties.getProperty("dittoCommunityIdentity") ?:
                 ""
         ).toString().trim()
