@@ -66,7 +66,10 @@ class DittoClient internal constructor(
     private val createSession: (DittoCommunityLicense) -> DittoPeerSession,
     private val communityIdentity: () -> String,
     private val now: () -> Long = System::currentTimeMillis,
-    private val logError: (String, Throwable) -> Unit = { message, error -> Log.e(TAG, message, error); Unit },
+    private val logError: (String, Throwable) -> Unit = { message, error ->
+        Log.e(TAG, "$message (${error.javaClass.simpleName})")
+        Unit
+    },
 ) {
     constructor(context: Context) : this(
         createSession = { AndroidDittoPeerSession(context.applicationContext, it) },
@@ -91,7 +94,11 @@ class DittoClient internal constructor(
             } catch (error: DittoError) {
                 logError("Ditto Edge Sync failed to stop", error)
                 stop()
-                DittoState.Error(error.message ?: "Ditto Edge Sync failed to stop")
+                DittoState.Error("Ditto Edge Sync failed to stop")
+            } catch (error: IllegalStateException) {
+                logError("Ditto Edge Sync failed to stop", error)
+                stop()
+                DittoState.Error("Ditto Edge Sync failed to stop")
             }
         }
 
@@ -127,11 +134,19 @@ class DittoClient internal constructor(
         } catch (error: DittoError) {
             logError("Ditto Edge Sync failed to start", error)
             stop()
-            DittoState.Error(error.message ?: "Ditto Edge Sync failed to start")
+            DittoState.Error("Ditto Edge Sync failed to start")
         } catch (error: SecurityException) {
             logError("Ditto Edge Sync requires nearby-device permissions", error)
             stop()
             DittoState.Error("Nearby-device permissions are required for Ditto Edge Sync")
+        } catch (error: IllegalArgumentException) {
+            logError("Invalid Ditto Edge Sync configuration", error)
+            stop()
+            DittoState.Error("Invalid Ditto Edge Sync configuration")
+        } catch (error: IllegalStateException) {
+            logError("Ditto Edge Sync failed to start", error)
+            stop()
+            DittoState.Error("Ditto Edge Sync failed to start")
         }
     }
 
@@ -185,6 +200,8 @@ class DittoClient internal constructor(
             try {
                 instance.close()
             } catch (error: DittoError) {
+                logError("Ditto Edge Sync close failed", error)
+            } catch (error: IllegalStateException) {
                 logError("Ditto Edge Sync close failed", error)
             }
         }

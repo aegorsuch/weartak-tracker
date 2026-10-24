@@ -36,8 +36,7 @@ class CotEventFramer(private val maxBytes: Int = 64 * 1024) {
 
 object InboundChat {
     /**
-     * Returns a command request when [xml] is a chat command to this device. Only setdittopdl also accepts
-     * group/broadcast conversations; all other commands remain direct-only. Like WearOS, a direct
+     * Returns a command request from a direct, broadcast or member-group chat. Like WearOS, a direct
      * message counts when its conversation id is this device, or when it is the sender's own id (ATAK's
      * reply form) and the chatgrp members or the remarks `to` name this device. [onDrop] gets the reason a
      * command-looking chat was ignored; it never includes message text.
@@ -52,7 +51,7 @@ object InboundChat {
     ): ChatCommandRequest? {
         if (!xml.contains("<__chat") || (
                 !xml.contains(ChatCommandParser.PREFIX, ignoreCase = true) &&
-                    !xml.contains(ChatCommandParser.DITTO_PREFIX, ignoreCase = true)
+                    !xml.contains(ChatCommandParser.COMMON_PREFIX, ignoreCase = true)
             )) return null
         fun drop(reason: String): ChatCommandRequest? {
             onDrop("$reason (source $serverId)")
@@ -101,7 +100,6 @@ object InboundChat {
         val addressedToMe = myUid in participants || to == myUid ||
             (myCallsign.isNotBlank() && to.equals(myCallsign, ignoreCase = true))
         val direct = roomId == myUid || ((roomId.isBlank() || roomId == senderUid) && addressedToMe)
-        if (!direct && !ChatCommandParser.isDittoCommand(text)) return drop("not a direct chat to this device (room ${roomId.take(64)})")
         if (!direct && roomId.isBlank()) return drop("no chat conversation")
         if (!direct && roomId != "All Chat Rooms" && myUid !in participants) return drop("not a member of the chat group")
         val sentAt = parseTime(event.getAttribute("time")) ?: parseTime(remarks.getAttribute("time")) ?: 0L

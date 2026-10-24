@@ -238,9 +238,9 @@ class TrackerCommandsTest {
     }
 
     @Test
-    fun inboundIgnoresOtherRoomsAndDoctype() {
+    fun inboundAcceptsBroadcastAndStillRejectsDoctype() {
         val groupMsg = "<event><detail><__chat id='All Chat Rooms' senderCallsign='A' messageId='1'><chatgrp uid0='U1' id='All Chat Rooms'/></__chat><remarks>#weartaktrackercommandsetteam team=Blue</remarks></detail></event>"
-        assertNull(InboundChat.commandRequest(groupMsg, "ME", "s", 0))
+        assertEquals("All Chat Rooms", InboundChat.commandRequest(groupMsg, "ME", "s", 0)!!.replyRoomId)
         val xxe = "<!DOCTYPE e [<!ENTITY x 'y'>]><event><__chat/>#weartaktrackercommand</event>"
         assertNull(InboundChat.commandRequest(xxe, "ME", "s", 0))
     }
@@ -270,8 +270,8 @@ class TrackerCommandsTest {
         val notMine = byParticipant.replace("uid1=\"WEAROS_me\"", "uid1=\"other\"")
         assertNull(InboundChat.commandRequest(notMine, "WEAROS_me", "s", 0, "WT-BBFA") { drops += it })
         val otherGroup = atakDirectChat.replace("ROOM", "some-group").replace("TO", "WEAROS_me")
-        assertNull(InboundChat.commandRequest(otherGroup, "WEAROS_me", "s", 0, "WT-BBFA") { drops += it })
-        assertEquals(2, drops.size)
+        assertEquals("some-group", InboundChat.commandRequest(otherGroup, "WEAROS_me", "s", 0, "WT-BBFA")!!.replyRoomId)
+        assertEquals(1, drops.size)
         assertTrue(drops.none { it.contains("odin-weartaktracker") })
     }
 

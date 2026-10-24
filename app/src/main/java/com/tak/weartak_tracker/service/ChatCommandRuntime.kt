@@ -9,7 +9,7 @@ import com.tak.weartak_tracker.command.ChatCommandResult
 import com.tak.weartak_tracker.command.CustomAlertSink
 import com.tak.weartak_tracker.command.DittoPdlApplyResult
 import com.tak.weartak_tracker.command.DittoPdlStore
-import com.tak.weartak_tracker.command.SetDittoPdlHandler
+import com.tak.weartak_tracker.command.SetPdlHandler
 import com.tak.weartak_tracker.command.EnrollServerHandler
 import com.tak.weartak_tracker.command.LoadProfileHandler
 import com.tak.weartak_tracker.command.PresetServer
@@ -53,7 +53,7 @@ object ChatCommandRuntime {
         val handlers = ProfileHandler.COMMAND_KEYS.mapValues { (_, keys) -> ProfileHandler(keys, store) } +
             ("loadprofile" to loadProfileHandler(context, repo)) +
             ("enrollserver" to EnrollServerHandler(sink, networkLocked)) +
-            ("setdittopdl" to SetDittoPdlHandler(
+            ("setpdl" to SetPdlHandler(
                 communityIdentity = { BuildConfig.DITTO_COMMUNITY_IDENTITY },
                 networkLocked = networkLocked,
                 store = DittoPdlStore { update ->
@@ -63,14 +63,13 @@ object ChatCommandRuntime {
                         if (locked) c else c.copy(
                             dittoPdlSource = update.source,
                             dittoCustomPdl = update.customPdl ?: c.dittoCustomPdl,
-                            dittoEnabled = update.enabled ?: c.dittoEnabled,
                         )
                     }
                     val c = repo.current()
-                    if (locked) DittoPdlApplyResult(c.dittoEnabled, applied = false, locked = true)
+                    if (locked) DittoPdlApplyResult(applied = false, locked = true)
                     else {
                         val state = applyDitto(c)
-                        DittoPdlApplyResult(c.dittoEnabled, state == DittoState.Active || state == DittoState.Disabled)
+                        DittoPdlApplyResult(state == DittoState.Active || state == DittoState.Disabled)
                     }
                 },
             ))

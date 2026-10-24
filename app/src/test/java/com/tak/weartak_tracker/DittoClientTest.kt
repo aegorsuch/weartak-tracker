@@ -4,7 +4,7 @@ import androidx.compose.runtime.mutableStateOf
 import com.tak.weartak_tracker.command.ChatCommand
 import com.tak.weartak_tracker.command.ChatCommandRequest
 import com.tak.weartak_tracker.command.DittoPdlApplyResult
-import com.tak.weartak_tracker.command.SetDittoPdlHandler
+import com.tak.weartak_tracker.command.SetPdlHandler
 import com.tak.weartak_tracker.cot.Fix
 import com.tak.weartak_tracker.data.DittoPdlSource
 import com.tak.weartak_tracker.data.DittoState
@@ -119,34 +119,35 @@ class DittoClientTest {
     }
 
     @Test
-    fun commandChangesRunningIdentityAndCanDisableThenReenableIt() = runBlocking {
+    fun commandChangesRunningIdentityAndPreservesToggleState() = runBlocking {
         var config = enabled
         client.configure(config)
         val old = sessions.single()
-        val handler = SetDittoPdlHandler(
+        val handler = SetPdlHandler(
             communityIdentity = { community },
             store = { update ->
                 config = config.copy(
                     dittoPdlSource = update.source,
                     dittoCustomPdl = update.customPdl ?: config.dittoCustomPdl,
-                    dittoEnabled = update.enabled ?: config.dittoEnabled,
                 )
                 val state = client.configure(config)
-                DittoPdlApplyResult(config.dittoEnabled, state == DittoState.Active || state == DittoState.Disabled)
+                DittoPdlApplyResult(state == DittoState.Active || state == DittoState.Disabled)
             },
             networkLocked = { false }, now = { 1_000L },
         )
         val request = ChatCommandRequest("sender", "ODIN", "", "m1", 1_000L, 1_000L, "s1")
-        assertTrue(handler.execute(ChatCommand("setdittopdl", mapOf("pdl" to pdl("custom"))), request).ok)
+        assertTrue(handler.execute(ChatCommand("setpdl", mapOf("pdl" to pdl("custom"))), request).ok)
         assertEquals(1, old.closes)
         assertEquals(2, sessions.size)
-        assertTrue(handler.execute(ChatCommand("setdittopdl",
-            mapOf("pdl" to pdl("custom"), "enabled" to "false")), request).ok)
-        assertEquals(1, sessions.last().pauses)
-        assertTrue(handler.execute(ChatCommand("setdittopdl",
-            mapOf("pdl" to pdl("custom"), "enabled" to "true")), request).ok)
-        assertEquals(2, sessions.last().starts)
+        config = config.copy(dittoEnabled = false)
+        client.configure(config)
+        assertTrue(handler.execute(ChatCommand("setpdl", mapOf("pdl" to "community")), request).ok)
+        assertEquals(false, config.dittoEnabled)
+        assertEquals(1, sessions.last().closes)
         assertEquals(2, sessions.size)
+        config = config.copy(dittoEnabled = true)
+        assertEquals(DittoState.Active, client.configure(config))
+        assertEquals(3, sessions.size)
     }
 
     @Test
@@ -182,6 +183,23 @@ class DittoClientTest {
         assertEquals(1, errors.size)
         assertEquals(DittoState.Active, client.configure(enabled))
         assertEquals(2, sessions.size)
+    }
+
+    @Test
+    fun invalidSdkConfigurationReturnsRedactedErrorWithoutKillingSettingsUpdates() {
+        var fail = true
+        val client = DittoClient(
+            createSession = {
+                if (fail) throw IllegalArgumentException("secret-key-value")
+                FakeSession()
+            },
+            communityIdentity = { community },
+            now = { 1_000L },
+            logError = { _, _ -> },
+        )
+        assertEquals(DittoState.Error("Invalid Ditto Edge Sync configuration"), client.configure(enabled))
+        fail = false
+        assertEquals(DittoState.Active, client.configure(enabled))
     }
 
     @Test

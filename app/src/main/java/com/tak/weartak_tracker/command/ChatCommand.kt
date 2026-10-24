@@ -14,22 +14,16 @@ object ChatCommandParser {
     const val MAX_LENGTH = 768
     const val MAX_ARGS = 12
     const val MAX_VALUE_LENGTH = 128
-    const val DITTO_PREFIX = "#weartakcommandsetdittopdl"
+    const val COMMON_PREFIX = "#weartakcommand"
     const val MAX_PDL_LENGTH = 16_384
-    const val MAX_DITTO_COMMAND_LENGTH = 17_408
+    const val MAX_PDL_COMMAND_LENGTH = 17_408
     private val NAME = Regex("[a-z]{1,32}")
     private val KEY = Regex("[a-z][a-z0-9]{0,15}")
 
     private val KEY_VALUE_START = Regex("^[A-Za-z][A-Za-z0-9]{0,15}=")
 
     fun hasCommandPrefix(text: String): Boolean = text.startsWith(PREFIX, ignoreCase = true) ||
-        (text.startsWith(DITTO_PREFIX, ignoreCase = true) &&
-            (text.length == DITTO_PREFIX.length || text[DITTO_PREFIX.length].isWhitespace()))
-
-    fun isDittoCommand(text: String): Boolean =
-        text.trim().takeWhile { !it.isWhitespace() }.let {
-            it.equals(DITTO_PREFIX, true) || it.equals("${PREFIX}setdittopdl", true)
-        }
+        text.startsWith(COMMON_PREFIX, ignoreCase = true)
 
     /**
      * Anything not starting with the prefix is ordinary chat and is never inspected further.
@@ -41,14 +35,23 @@ object ChatCommandParser {
     fun parse(text: String, positional: Map<String, List<String>> = emptyMap()): ChatCommandParse {
         val body = text.trim()
         if (!hasCommandPrefix(body)) return ChatCommandParse.NotACommand
-        val prefixLength = if (body.startsWith(PREFIX, true)) PREFIX.length else "#weartakcommand".length
+        val prefixLength = if (body.startsWith(PREFIX, true)) PREFIX.length else COMMON_PREFIX.length
         val rest = body.substring(prefixLength)
         val nameEnd = rest.indexOfFirst { it.isWhitespace() }.let { if (it < 0) rest.length else it }
         val name = rest.substring(0, nameEnd).lowercase()
         if (!NAME.matches(name)) return ChatCommandParse.Malformed("invalid command name")
-        val maxLength = if (name == "setdittopdl") MAX_DITTO_COMMAND_LENGTH else MAX_LENGTH
+        val maxLength = if (name == "setpdl") MAX_PDL_COMMAND_LENGTH else MAX_LENGTH
         if (body.length > maxLength) return ChatCommandParse.Malformed("too long")
         val argText = rest.substring(nameEnd).trim()
+        if (name == "setpdl") {
+            if (argText.isEmpty() || argText.any(Char::isWhitespace)) {
+                return ChatCommandParse.Malformed("setpdl needs community or one encoded PDL")
+            }
+            if (argText.length > MAX_PDL_LENGTH || argText.any(Char::isISOControl)) {
+                return ChatCommandParse.Malformed("invalid argument value")
+            }
+            return ChatCommandParse.Parsed(ChatCommand(name, mapOf("pdl" to argText)))
+        }
         val keys = positional[name]
         if (keys != null && argText.isNotEmpty() && !KEY_VALUE_START.containsMatchIn(argText)) {
             return parsePositional(name, argText, keys)
@@ -80,8 +83,7 @@ object ChatCommandParser {
             } else {
                 while (i < rest.length && !rest[i].isWhitespace()) value.append(rest[i++])
             }
-            val maxValueLength = if (name == "setdittopdl" && key == "pdl") MAX_PDL_LENGTH else MAX_VALUE_LENGTH
-            if (value.isEmpty() || value.length > maxValueLength || value.any { it.isISOControl() }) {
+            if (value.isEmpty() || value.length > MAX_VALUE_LENGTH || value.any { it.isISOControl() }) {
                 return ChatCommandParse.Malformed("invalid argument value")
             }
             args[key] = value.toString()
