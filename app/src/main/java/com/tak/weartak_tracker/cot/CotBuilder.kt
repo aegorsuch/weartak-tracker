@@ -195,7 +195,7 @@ object CotBuilder {
 
     const val MESH_CHAT_ENDPOINT = "224.10.10.1:17012:udp"
 
-    /** Direct GeoChat reply to [toUid], matching the WearTAK-CIV chat CoT. */
+    /** GeoChat reply; [groupMembers] preserves a group conversation instead of opening a direct chat. */
     fun chat(
         senderUid: String,
         senderCallsign: String,
@@ -204,9 +204,14 @@ object CotBuilder {
         message: String,
         messageId: String = java.util.UUID.randomUUID().toString(),
         nowMillis: Long = System.currentTimeMillis(),
+        groupMembers: List<String>? = null,
     ): String {
         val t = CotTime.now(60, nowMillis).startCot
-        val chatGroup = element("chatgrp", listOf("uid0" to esc(senderUid), "id" to esc(toUid), "uid1" to esc(toUid)))
+        val broadcast = groupMembers != null && toUid == "All Chat Rooms"
+        val members = if (broadcast) listOf(toUid)
+        else (groupMembers ?: listOf(toUid)).filter { it != senderUid && (groupMembers == null || it != toUid) }.distinct()
+        val chatGroup = element("chatgrp", listOf("uid0" to esc(senderUid), "id" to esc(toUid)) +
+            members.mapIndexed { i, uid -> "uid${i + 1}" to esc(uid) })
         val chat = element(
             "__chat",
             listOf(
@@ -215,10 +220,11 @@ object CotBuilder {
             ),
             chatGroup,
         )
+        val destinations = members.joinToString("") { element("dest", listOf("uid" to esc(it))) }
         val detail = chat +
             element("link", listOf("uid" to esc(senderUid), "type" to SELF_TYPE, "relation" to "p-p")) +
             element("remarks", listOf("source" to esc(senderUid), "to" to esc(toUid), "time" to t), esc(message)) +
-            element("marti", content = element("dest", listOf("uid" to esc(toUid))))
+            (if (broadcast) "" else element("marti", content = destinations))
         return event(
             listOf(
                 "version" to "2.0", "uid" to esc("GeoChat.$senderUid.$toUid.$messageId"), "type" to "b-t-f",

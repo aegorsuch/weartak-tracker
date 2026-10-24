@@ -7,6 +7,9 @@ import com.tak.weartak_tracker.command.ChatCommandProcessor
 import com.tak.weartak_tracker.command.ChatCommandRequest
 import com.tak.weartak_tracker.command.ChatCommandResult
 import com.tak.weartak_tracker.command.CustomAlertSink
+import com.tak.weartak_tracker.command.DittoPdlApplyResult
+import com.tak.weartak_tracker.command.DittoPdlStore
+import com.tak.weartak_tracker.command.SetDittoPdlHandler
 import com.tak.weartak_tracker.command.EnrollServerHandler
 import com.tak.weartak_tracker.command.LoadProfileHandler
 import com.tak.weartak_tracker.command.PresetServer
@@ -17,6 +20,8 @@ import com.tak.weartak_tracker.command.ProfileStore
 import com.tak.weartak_tracker.command.ProfileUpdate
 import com.tak.weartak_tracker.cot.CotBuilder
 import com.tak.weartak_tracker.data.CustomAlerts
+import com.tak.weartak_tracker.data.DittoState
+import com.tak.weartak_tracker.BuildConfig
 import com.tak.weartak_tracker.data.ProfilePresets
 import com.tak.weartak_tracker.data.SettingsRepository
 import com.tak.weartak_tracker.data.TakServerConfig
@@ -39,6 +44,7 @@ object ChatCommandRuntime {
         context: Context,
         repo: SettingsRepository,
         tak: () -> TakServerManager,
+        applyDitto: (TrackerConfig) -> DittoState,
         multicastChat: suspend (String) -> Int,
     ): ChatCommandProcessor {
         val store = ProfileStore { update -> repo.update { c -> c.withProfile(update) } }
@@ -46,14 +52,35 @@ object ChatCommandRuntime {
         val sink = PresetServerSink { servers -> addServers(repo, servers) }
         val handlers = ProfileHandler.COMMAND_KEYS.mapValues { (_, keys) -> ProfileHandler(keys, store) } +
             ("loadprofile" to loadProfileHandler(context, repo)) +
-            ("enrollserver" to EnrollServerHandler(sink, networkLocked))
+            ("enrollserver" to EnrollServerHandler(sink, networkLocked)) +
+            ("setdittopdl" to SetDittoPdlHandler(
+                communityIdentity = { BuildConfig.DITTO_COMMUNITY_IDENTITY },
+                networkLocked = networkLocked,
+                store = DittoPdlStore { update ->
+                    var locked = false
+                    repo.update { c ->
+                        locked = c.networkPreferencesLocked
+                        if (locked) c else c.copy(
+                            dittoPdlSource = update.source,
+                            dittoCustomPdl = update.customPdl ?: c.dittoCustomPdl,
+                            dittoEnabled = update.enabled ?: c.dittoEnabled,
+                        )
+                    }
+                    val c = repo.current()
+                    if (locked) DittoPdlApplyResult(c.dittoEnabled, applied = false, locked = true)
+                    else {
+                        val state = applyDitto(c)
+                        DittoPdlApplyResult(c.dittoEnabled, state == DittoState.Active || state == DittoState.Disabled)
+                    }
+                },
+            ))
         return ChatCommandProcessor(
             isEnabled = { repo.config.first().chatCommandsEnabled },
             allowedCallsigns = { repo.config.first().chatCommandCallsigns },
             handlers = handlers,
             reply = { request, message ->
                 val c = repo.config.first()
-                val xml = CotBuilder.chat(repo.deviceUid, c.callsign, request.senderUid, request.senderCallsign, message)
+                val xml = replyXml(repo.deviceUid, c.callsign, request, message)
                 val routes = if (request.sourceServerId.startsWith(MULTICAST_SOURCE_PREFIX)) multicastChat(xml) else tak().send(xml)
                 Log.i(TAG, "reply to ${request.senderCallsign} via ${request.sourceServerId}: $routes route(s)")
             },
@@ -61,6 +88,13 @@ object ChatCommandRuntime {
             positional = ProfileHandler.POSITIONAL_KEYS,
         )
     }
+
+    internal fun replyXml(uid: String, callsign: String, request: ChatCommandRequest, message: String): String =
+        CotBuilder.chat(
+            uid, callsign, request.replyRoomId ?: request.senderUid,
+            request.replyRoomName ?: request.senderCallsign, message,
+            groupMembers = request.replyRoomId?.let { request.replyMemberUids },
+        )
 
     /** loadprofile over this device's presets; chat and the Profiles screen share it. */
     fun loadProfileHandler(context: Context, repo: SettingsRepository): LoadProfileHandler = LoadProfileHandler(

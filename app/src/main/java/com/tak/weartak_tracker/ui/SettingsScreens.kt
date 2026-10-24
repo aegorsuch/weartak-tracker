@@ -119,6 +119,14 @@ import kotlinx.coroutines.launch
 
 private const val INTERVAL_MIN = 1
 private const val INTERVAL_MAX = 1_000_000
+internal const val DITTO_PLUGIN_NAME = "Ditto Edge Sync"
+internal val PLUGIN_TITLES = listOf(
+    "Commands", DITTO_PLUGIN_NAME, "Everywhere Comms", "GoTenna", "Sensor Manager", "Somewear Labs",
+).sortedWith(String.CASE_INSENSITIVE_ORDER)
+
+// Navigation/lazy controls can retain callbacks. A tap must invert the live setting, not an old checked value.
+internal fun dittoToggleCallback(config: State<TrackerConfig>, onToggle: (Boolean) -> Unit): (Boolean) -> Unit =
+    { onToggle(!config.value.dittoEnabled) }
 
 internal fun serversAlphabetically(servers: List<TakServerConfig>): List<TakServerConfig> =
     servers.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.name })
@@ -324,19 +332,26 @@ fun NavGraphBuilder.settingsGraph(repo: SettingsRepository, configState: State<T
     }
 
     composable("plugins") {
+        val currentConfig by repo.config.collectAsStateWithLifecycle(initialValue = config)
+        val dittoState by TrackerState.ditto.collectAsStateWithLifecycle()
         val update = rememberUpdater(repo)
         val context = LocalContext.current
+        LaunchedEffect(dittoState) {
+            val error = dittoState as? DittoState.Error
+            if (error != null) Toast.makeText(context, error.message, Toast.LENGTH_LONG).show()
+        }
+        fun enableDitto() {
+            repo.updateAsync(onUpdated = { TrackerService.start(context) }) { it.copy(dittoEnabled = true) }
+        }
         val dittoPermissions = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { results ->
             if (results.values.all { it }) {
-                update { it.copy(dittoEnabled = true) }
-                TrackerService.start(context)
+                enableDitto()
             } else {
-                Toast.makeText(context, "Nearby permissions are required for Ditto peer-to-peer sync", Toast.LENGTH_LONG).show()
+                Toast.makeText(context, "Nearby permissions are required for Ditto Edge Sync", Toast.LENGTH_LONG).show()
             }
         }
         WearTAKPageWithBackArrow("Plugins", back) {
-            listOf("Commands", "Ditto", "Everywhere Comms", "GoTenna", "Sensor Manager", "Somewear Labs")
-                .sortedWith(String.CASE_INSENSITIVE_ORDER)
+            PLUGIN_TITLES
                 .forEach { title ->
                     item {
                         when (title) {
@@ -344,45 +359,44 @@ fun NavGraphBuilder.settingsGraph(repo: SettingsRepository, configState: State<T
                                 WearTAKSplitToggleChip(
                                     appIcon = {},
                                     title = title,
-                                    label = if (config.chatCommandsEnabled) "Enabled" else "Disabled",
-                                    checked = config.chatCommandsEnabled,
+                                    label = if (currentConfig.chatCommandsEnabled) "Enabled" else "Disabled",
+                                    checked = currentConfig.chatCommandsEnabled,
                                     onCheckedChange = { on -> update { it.copy(chatCommandsEnabled = on) } },
                                     onClick = { go("chat_commands") },
                                 )
                             }
-                            "Ditto" -> {
+                            DITTO_PLUGIN_NAME -> {
                                 WearTAKSplitToggleChip(
                                     appIcon = {},
                                     title = title,
-                                    label = when (config.dittoPdlSource) {
+                                    label = when (currentConfig.dittoPdlSource) {
                                         DittoPdlSource.COMMUNITY -> "Community"
-                                        DittoPdlSource.CUSTOM -> config.dittoCustomPdl.ifBlank { "No custom PDL saved" }
+                                        DittoPdlSource.CUSTOM -> currentConfig.dittoCustomPdl.ifBlank { "No custom PDL saved" }
                                     },
-                                    checked = config.dittoEnabled,
-                                    onCheckedChange = { on ->
+                                    checked = currentConfig.dittoEnabled,
+                                    onCheckedChange = dittoToggleCallback(configState) { on ->
                                         if (!on) {
                                             update { it.copy(dittoEnabled = false) }
-                                            return@WearTAKSplitToggleChip
+                                            return@dittoToggleCallback
                                         }
-                                        val pdl = when (config.dittoPdlSource) {
+                                        val pdl = when (configState.value.dittoPdlSource) {
                                             DittoPdlSource.COMMUNITY -> BuildConfig.DITTO_COMMUNITY_IDENTITY
-                                            DittoPdlSource.CUSTOM -> config.dittoCustomPdl
+                                            DittoPdlSource.CUSTOM -> configState.value.dittoCustomPdl
                                         }
                                         val identityError = try {
                                             val license = com.tak.weartak_tracker.service.DittoCommunityLicenseHelper.parse(pdl)
-                                            if (license.expiresAtMillis <= System.currentTimeMillis()) "Ditto identity has expired" else null
+                                            if (license.expiresAtMillis <= System.currentTimeMillis()) "Ditto Edge Sync identity has expired" else null
                                         } catch (error: IllegalArgumentException) {
-                                            error.message ?: "Invalid Ditto identity"
+                                            error.message ?: "Invalid Ditto Edge Sync identity"
                                         }
                                         if (identityError != null) {
                                             Toast.makeText(context, identityError, Toast.LENGTH_LONG).show()
                                             go("ditto_identity")
-                                            return@WearTAKSplitToggleChip
+                                            return@dittoToggleCallback
                                         }
                                         val missing = dittoRuntimePermissions(context)
                                         if (missing.isEmpty()) {
-                                            update { it.copy(dittoEnabled = true) }
-                                            TrackerService.start(context)
+                                            enableDitto()
                                         } else {
                                             dittoPermissions.launch(missing)
                                         }
@@ -395,7 +409,7 @@ fun NavGraphBuilder.settingsGraph(repo: SettingsRepository, configState: State<T
                                     appIcon = {},
                                     title = title,
                                     label = "Unfunded Request",
-                                    checked = config.sensorManagerEnabled,
+                                    checked = currentConfig.sensorManagerEnabled,
                                     onCheckedChange = { on -> update { it.copy(sensorManagerEnabled = on) } },
                                     onClick = { go("sensor_manager") },
                                 )
@@ -425,15 +439,15 @@ fun NavGraphBuilder.settingsGraph(repo: SettingsRepository, configState: State<T
         val update = rememberUpdater(repo)
         WearTAKStringEntryPage(
             item = currentConfig.dittoCustomPdl,
-            label = "Ditto Community PDL",
+            label = "Ditto Edge Sync Community PDL",
             onBack = back,
             keyboardType = KeyboardType.Ascii,
             validate = { value ->
                 try {
                     val license = com.tak.weartak_tracker.service.DittoCommunityLicenseHelper.parse(value)
-                    if (license.expiresAtMillis <= System.currentTimeMillis()) "Ditto identity has expired" else null
+                    if (license.expiresAtMillis <= System.currentTimeMillis()) "Ditto Edge Sync identity has expired" else null
                 } catch (error: IllegalArgumentException) {
-                    error.message ?: "Invalid Ditto identity"
+                    error.message ?: "Invalid Ditto Edge Sync identity"
                 }
             },
             confirmFunction = { value ->
@@ -601,7 +615,7 @@ private fun DittoIdentityPage(
     var showPdlHelp by rememberSaveable { mutableStateOf(false) }
     val communityAvailable = BuildConfig.DITTO_COMMUNITY_IDENTITY.isNotBlank()
     val currentState = state
-    WearTAKPageWithBackArrow("Ditto Identity", back) {
+    WearTAKPageWithBackArrow("$DITTO_PLUGIN_NAME Identity", back) {
         item {
             WearTAKSelectableChip(
                 selected = config.dittoPdlSource == DittoPdlSource.COMMUNITY,
@@ -648,10 +662,10 @@ private fun DittoIdentityPage(
         item {
             Text(
                 when (currentState) {
-                    DittoState.Disabled -> "Ditto sync is off"
-                    DittoState.NeedsIdentity -> "Set a Ditto identity to start sync"
-                    DittoState.Starting -> "Starting Ditto peer-to-peer sync"
-                    DittoState.Active -> "Ditto peer-to-peer sync is active"
+                    DittoState.Disabled -> "$DITTO_PLUGIN_NAME is off"
+                    DittoState.NeedsIdentity -> "Set a $DITTO_PLUGIN_NAME identity to start sync"
+                    DittoState.Starting -> "Starting $DITTO_PLUGIN_NAME"
+                    DittoState.Active -> "$DITTO_PLUGIN_NAME is active"
                     is DittoState.Error -> currentState.message
                 },
                 fontSize = 11.sp,

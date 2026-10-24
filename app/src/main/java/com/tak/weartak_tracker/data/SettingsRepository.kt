@@ -183,8 +183,16 @@ class SettingsRepository(private val context: Context) {
     suspend fun current(): TrackerConfig = config.first()
 
     /** Applies [transform] in a repository-owned scope so the write completes even if the calling screen closes. */
-    fun updateAsync(transform: (TrackerConfig) -> TrackerConfig) {
-        writeScope.launch { update(transform) }
+    fun updateAsync(transform: (TrackerConfig) -> TrackerConfig) = updateAsync({}, transform)
+
+    fun updateAsync(
+        onUpdated: () -> Unit,
+        transform: (TrackerConfig) -> TrackerConfig,
+    ) {
+        writeScope.launch {
+            update(transform)
+            onUpdated()
+        }
     }
 
     private val writeScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
