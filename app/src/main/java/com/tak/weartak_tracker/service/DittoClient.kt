@@ -110,11 +110,17 @@ class DittoClient internal constructor(
         Log.e(TAG, "$message (${error.javaClass.simpleName})")
         Unit
     },
+    private val onReady: () -> Unit = {},
 ) {
-    constructor(context: Context, onChat: (Map<String, Any?>, String) -> Unit = { _, _ -> }) : this(
+    constructor(
+        context: Context,
+        onReady: () -> Unit = {},
+        onChat: (Map<String, Any?>, String) -> Unit = { _, _ -> },
+    ) : this(
         createSession = { AndroidDittoPeerSession(context.applicationContext, it) },
         communityIdentity = { BuildConfig.DITTO_COMMUNITY_IDENTITY },
         onChat = onChat,
+        onReady = onReady,
     )
 
     private var ditto: DittoPeerSession? = null
@@ -171,8 +177,11 @@ class DittoClient internal constructor(
             instance.deviceName = config.callsign
             // The toggle pauses/resumes the existing SDK session; only identity changes or service
             // shutdown close the database. A paused instance must explicitly start syncing again.
-            if (!syncing) instance.startSync()
-            syncing = true
+            if (!syncing) {
+                instance.startSync()
+                syncing = true
+                onReady()
+            }
             DittoState.Active
         } catch (error: DittoError) {
             logError("Ditto Edge Sync failed to start", error)

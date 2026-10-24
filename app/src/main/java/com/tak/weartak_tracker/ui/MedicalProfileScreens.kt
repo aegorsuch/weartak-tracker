@@ -52,6 +52,7 @@ fun NavGraphBuilder.medicalProfileGraph(repo: SettingsRepository, configState: S
 
     composable("my_user_metrics") {
         WearTAKPageWithBackArrow("My User Metrics", back) {
+            item { PhysioToggle(repo, configState.value) }
             item { WearTAKTitleChip("Medical Profile (BATDOK)") { go("medical_profile_batdok") } }
         }
     }
