@@ -189,7 +189,7 @@ Configure these masked CI/CD variables in the **Tracker** GitLab project:
 | `RELEASE_STORE_PASSWORD` | Tracker keystore password |
 | `RELEASE_KEY_ALIAS` | Tracker signing-key alias |
 | `RELEASE_KEY_PASSWORD` | Tracker signing-key password |
-| `DITTO_COMMUNITY_IDENTITY` | Optional Community identity for builds that include it |
+| `DITTO_COMMUNITY_IDENTITY` | Required for release jobs: authorized ATAK Community PDL (raw encoded, no quotes); masked and protected |
 | `GITHUB_RELEASE_TOKEN` | Fine-grained GitHub token restricted to `aegorsuch/weartak-tracker` with Contents read/write permission; masked and protected |
 
 Protect the signing variables and ensure `main` and release tags are protected so
@@ -270,9 +270,9 @@ Run the publisher's offline mocked-API tests without credentials or network acce
 py -3 -m unittest discover -s tests -p 'test_publish_github_release.py'
 ```
 
-Ditto defaults to the Community PDL. Provide `dittoCommunityIdentity` in the ignored root `local.properties`,
-through Gradle properties, or with the `DITTO_COMMUNITY_IDENTITY` environment variable for builds that include the
-Community identity; keep the license out of source control. A custom PDL can also be entered on the watch under
+Ditto defaults to the Community PDL. The `DITTO_COMMUNITY_IDENTITY` environment variable takes precedence, then the
+`dittoCommunityIdentity` Gradle property, then the ignored root `local.properties`; release CI fails if the variable is
+missing. Keep the license out of source control. A custom PDL can also be entered on the watch under
 **Plugins > Ditto > Ditto Identity**.
 The Ditto plugin subtitle shows Community or the saved custom PDL (truncated to fit); the switch controls sync.
 Plugins are listed alphabetically. Everywhere Comms, GoTenna and Somewear Labs display **Unfunded Request**;
