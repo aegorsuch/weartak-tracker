@@ -115,11 +115,18 @@ class TrackerService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        if (!(application as TrackerApp).uiResumed) {
+            TrackingResume.show(this)
+            stopSelf()
+            return
+        }
         if (!goForeground()) {
+            TrackingResume.show(this)
             stopSelf()
             return
         }
         TrackerState.serviceRunning.value = true
+        TrackingResume.clear(this)
         TrackerState.locationAccess.value = LocationAccess.current(this)
         repo = (application as TrackerApp).settings
         network = NetworkMonitor(this)
@@ -225,7 +232,12 @@ class TrackerService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (!::location.isInitialized) {
+            stopSelf()
+            return START_NOT_STICKY
+        }
         if (!goForeground()) {
+            TrackingResume.show(this)
             stopSelf()
             return START_NOT_STICKY
         }
@@ -506,7 +518,10 @@ class TrackerService : Service() {
         return try {
             startForeground(NOTIFICATION_ID, notification(getString(R.string.notification_starting)), foregroundTypes())
             true
-        } catch (e: Exception) {
+        } catch (e: IllegalStateException) {
+            Log.w(TAG, "Unable to start foreground service", e)
+            false
+        } catch (e: SecurityException) {
             Log.w(TAG, "Unable to start foreground service", e)
             false
         }
@@ -587,9 +602,18 @@ class TrackerService : Service() {
         const val EXTRA_DESCRIPTION = "description"
 
         fun start(context: Context, action: String? = null, extras: Intent.() -> Unit = {}) {
-            if (!LocationAccess.current(context).granted) return
             val intent = Intent(context, TrackerService::class.java).setAction(action).apply(extras)
-            ContextCompat.startForegroundService(context, intent)
+            requestTrackingStart(
+                locationGranted = LocationAccess.current(context).granted,
+                serviceRunning = TrackerState.serviceRunning.value,
+                uiResumed = (context.applicationContext as TrackerApp).uiResumed,
+                start = { ContextCompat.startForegroundService(context, intent) },
+                deferred = { TrackingResume.show(context) },
+                failed = { error ->
+                    Log.w(TAG, "Tracking start rejected; waiting for user to resume", error)
+                    TrackingResume.show(context)
+                },
+            )
         }
 
         fun stop(context: Context) {

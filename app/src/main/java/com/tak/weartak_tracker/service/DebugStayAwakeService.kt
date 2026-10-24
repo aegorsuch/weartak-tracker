@@ -56,7 +56,17 @@ class DebugStayAwakeService : Service() {
             }
         }
 
-        showNotification()
+        try {
+            showNotification()
+        } catch (error: IllegalStateException) {
+            Log.w(TAG, "Cannot promote debug stay awake from background", error)
+            finishSession()
+            return START_NOT_STICKY
+        } catch (error: SecurityException) {
+            Log.e(TAG, "Cannot promote debug stay awake", error)
+            finishSession()
+            return START_NOT_STICKY
+        }
         if (mutableActive.value) return START_NOT_STICKY
 
         try {
