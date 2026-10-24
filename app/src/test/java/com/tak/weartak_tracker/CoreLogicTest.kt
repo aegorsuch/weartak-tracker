@@ -4,6 +4,7 @@ import com.tak.weartak_tracker.cot.AlertState
 import com.tak.weartak_tracker.cot.CotBuilder
 import com.tak.weartak_tracker.cot.CotTime
 import com.tak.weartak_tracker.cot.Physio
+import com.tak.weartak_tracker.cot.StandardEmergencyType
 import com.tak.weartak_tracker.data.Activity
 import com.tak.weartak_tracker.data.ManualAlert
 import com.tak.weartak_tracker.data.TrackerConfig
@@ -109,7 +110,7 @@ class CoreLogicTest {
                 "u1", "cs", null, CotTime.now(CotBuilder.ALERT_STALE_SECONDS, 0),
             )
             assertTrue(xml.contains("alertDescription='$description'"))
-            assertTrue(xml.contains("<emergency type='$description'>cs</emergency>"))
+            assertTrue(xml.contains("<emergency type='${StandardEmergencyType.emergencyType(description)}'>cs</emergency>"))
         }
         assertEquals(descriptions, sent.map { it.description })
         assertTrue(forwarder.pending.isEmpty())

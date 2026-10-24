@@ -1,25 +1,31 @@
 package com.tak.weartak_tracker.ui
 
-import android.Manifest
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.wrapContentHeight
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Clear
 import androidx.compose.material3.AlertDialog
@@ -29,22 +35,21 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
-import androidx.compose.material3.TextField
-import androidx.compose.material3.TextFieldDefaults
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.TextFieldValue
@@ -54,44 +59,38 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.wear.compose.foundation.lazy.ScalingLazyColumn
+import androidx.wear.compose.foundation.lazy.items
+import androidx.wear.compose.foundation.lazy.rememberScalingLazyListState
 import androidx.wear.compose.material.Icon
 import androidx.wear.compose.material.MaterialTheme.colors
+import androidx.wear.compose.material.PositionIndicator
+import androidx.wear.compose.material.Scaffold
 import androidx.wear.compose.material.Text
 import com.tak.weartak_tracker.R
 import com.tak.weartak_tracker.cot.AlertState
+import com.tak.weartak_tracker.data.CustomAlerts
 import com.tak.weartak_tracker.data.LocationAccess
+import com.tak.weartak_tracker.data.PRESET_MANUAL_ALERTS
 import com.tak.weartak_tracker.data.SettingsRepository
 import com.tak.weartak_tracker.data.TrackerState
 import com.tak.weartak_tracker.service.AlertForwarder
 import com.tak.weartak_tracker.service.TrackerService
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 import java.util.UUID
 
-internal val MANUAL_ALERT_OPTIONS = listOf(
-    "911 Alert",
-    "Gate Runner",
-    "Geofence Breached",
-    "Gunshot",
-    "Gunshot Injury",
-    "In Contact",
-    "Injury",
-    "Ring The Bell",
-    "UAS",
-    "Vehicle",
-).sorted()
+internal val MANUAL_ALERT_OPTIONS = PRESET_MANUAL_ALERTS
 
 private fun displayType(description: String) =
     description.trim().takeUnless { it.isEmpty() || it == AlertForwarder.DEFAULT_DESCRIPTION }
 
 /**
- * Preset selections send immediately; custom text sends on confirm. When alerting,
- * ask to cancel the last alert. A result dialog follows.
+ * Preset and saved custom alerts send on tap. When alerting, ask to cancel the last alert.
+ * A result dialog follows.
  */
 @Composable
-fun SosScreen(repo: SettingsRepository, exit: () -> Unit) {
+fun SosScreen(repo: SettingsRepository, customAlerts: List<String>, exit: () -> Unit, addCustomAlert: () -> Unit) {
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
     val alerts by TrackerState.alerts.collectAsStateWithLifecycle()
     var pendingUid by rememberSaveable { mutableStateOf<String?>(null) }
     var pendingCancel by rememberSaveable { mutableStateOf(false) }
@@ -117,12 +116,14 @@ fun SosScreen(repo: SettingsRepository, exit: () -> Unit) {
     val uid = pendingUid
     if (uid == null) {
         if (active == null) {
-            TextSelectionScreen(
-                titleText = "Manual Alert",
-                buttonOptions = MANUAL_ALERT_OPTIONS,
-                onConfirm = { text ->
+            ManualAlertListScreen(
+                presets = MANUAL_ALERT_OPTIONS,
+                customAlerts = customAlerts,
+                onSend = { text ->
                     request(false, UUID.randomUUID().toString(), text.trim().ifEmpty { AlertForwarder.DEFAULT_DESCRIPTION })
                 },
+                onAdd = addCustomAlert,
+                onDelete = { text -> repo.updateAsync { it.copy(customAlerts = CustomAlerts.remove(it.customAlerts, text)) } },
                 onCancel = exit,
             )
         } else {
@@ -161,89 +162,164 @@ fun SosScreen(repo: SettingsRepository, exit: () -> Unit) {
     }
 }
 
-/** Custom text with backspace and X / check buttons, plus a 2-column tap-to-send preset grid. */
+/**
+ * One full-width, single-line row per alert, then a "+" row that adds a custom alert. Saved custom
+ * alerts can be deleted. The cancel button sits below the list, so it never covers a row.
+ */
 @Composable
-fun TextSelectionScreen(titleText: String, buttonOptions: List<String>, onConfirm: (String) -> Unit, onCancel: () -> Unit) {
-    var value by rememberSaveable(stateSaver = TextFieldValue.Saver) { mutableStateOf(TextFieldValue("")) }
-    WearTAKPageWithConfirmCancel(
-        title = titleText,
-        onClickConfirm = { onConfirm(value.text) },
-        onClickCancel = onCancel,
-    ) {
-        item {
-            Row(modifier = Modifier.padding(bottom = 5.dp), verticalAlignment = Alignment.CenterVertically) {
-                TextField(
-                    value = value,
-                    onValueChange = { value = it },
-                    placeholder = { Text("") },
-                    modifier = if (value.text.isEmpty()) {
-                        Modifier.fillMaxWidth().weight(.8F).height(30.dp)
-                    } else {
-                        Modifier.fillMaxWidth().weight(.8F).defaultMinSize(minHeight = 30.dp).wrapContentHeight()
-                    },
-                    colors = TextFieldDefaults.colors(
-                        focusedContainerColor = Color.DarkGray,
-                        unfocusedContainerColor = Color.DarkGray,
-                        focusedIndicatorColor = Color.Transparent,
-                        unfocusedIndicatorColor = Color.Transparent,
-                        unfocusedTextColor = Color.White,
-                        focusedTextColor = Color.White,
-                    ),
-                    shape = RoundedCornerShape(50),
-                    maxLines = 3,
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                )
-                Spacer(modifier = Modifier.width(5.dp))
-                IconButton(
-                    onClick = {
-                        if (value.text.isNotEmpty()) {
-                            val newText = value.text.dropLast(1)
-                            value = value.copy(text = newText, selection = TextRange(newText.length))
-                        }
-                    },
-                    modifier = Modifier.size(35.dp),
-                    colors = IconButtonDefaults.iconButtonColors(contentColor = Color.Black, containerColor = Color.Unspecified),
-                ) {
-                    Icon(
-                        painter = painterResource(R.drawable.backspace),
-                        contentDescription = "Backspace",
-                        tint = colors.primary,
-                        modifier = Modifier.size(25.dp),
+fun ManualAlertListScreen(
+    presets: List<String>,
+    customAlerts: List<String>,
+    onSend: (String) -> Unit,
+    onAdd: () -> Unit,
+    onDelete: (String) -> Unit,
+    onCancel: () -> Unit,
+) {
+    var confirmDelete by rememberSaveable { mutableStateOf<String?>(null) }
+    val listState = rememberScalingLazyListState()
+    Scaffold(positionIndicator = { PositionIndicator(scalingLazyListState = listState) }) {
+        Column(
+            modifier = Modifier.fillMaxSize().background(colors.background).padding(horizontal = 7.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            ScalingLazyColumn(
+                state = listState,
+                modifier = Modifier.fillMaxWidth().weight(1f),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                item {
+                    Text(
+                        text = "Manual Alert",
+                        fontSize = 17.sp,
+                        textAlign = TextAlign.Center,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.padding(bottom = 4.dp),
                     )
                 }
+                items(presets) { option -> ManualAlertRow(option, onClick = { onSend(option) }) }
+                items(customAlerts) { option ->
+                    ManualAlertRow(option, onClick = { onSend(option) }, onDelete = { confirmDelete = option })
+                }
+                item { AddCustomAlertRow(onAdd) }
+            }
+            Box(Modifier.padding(top = 4.dp, bottom = 8.dp)) {
+                IconButton(
+                    onClick = onCancel,
+                    modifier = Modifier.size(40.dp).border(1.dp, color = Color.Black, shape = CircleShape),
+                    colors = IconButtonDefaults.iconButtonColors(contentColor = Color.Red, containerColor = Color.DarkGray),
+                ) { Icon(imageVector = Icons.Filled.Close, contentDescription = "Cancel", tint = Color.Red) }
             }
         }
-        buttonOptions.chunked(2).forEach { row ->
-            item {
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(bottom = 5.dp),
-                    horizontalArrangement = Arrangement.spacedBy(7.dp),
-                ) {
-                    row.forEach { option ->
-                        Button(
-                            onClick = { onConfirm(option) },
-                            colors = ButtonDefaults.buttonColors(containerColor = Color.DarkGray, contentColor = Color.White),
-                            shape = RoundedCornerShape(size = 10.dp),
-                            modifier = Modifier.weight(1f),
-                        ) {
-                            Text(
-                                text = option,
-                                color = Color.White,
-                                fontWeight = FontWeight.SemiBold,
-                                fontSize = 10.sp,
-                                textAlign = TextAlign.Center,
-                                maxLines = 2,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        }
-                    }
-                    if (row.size == 1) Spacer(Modifier.weight(1f))
-                }
+    }
+    val pending = confirmDelete
+    WearTAKAlertDialog(
+        show = pending != null,
+        onDismissRequest = { confirmDelete = null },
+        text = { Text("Delete $pending?", textAlign = TextAlign.Center, fontSize = 14.sp) },
+        confirmButton = {
+            Button(
+                onClick = {
+                    confirmDelete = null
+                    pending?.let(onDelete)
+                },
+                colors = ButtonDefaults.buttonColors(containerColor = Color.Red, contentColor = Color.White),
+            ) { Text("Delete", color = Color.White) }
+        },
+        dismissButton = {
+            Button(
+                onClick = { confirmDelete = null },
+                colors = ButtonDefaults.buttonColors(containerColor = Color.Gray, contentColor = Color.White),
+            ) { Text("Cancel", color = Color.White) }
+        },
+    )
+}
+
+private val ALERT_ROW_SHAPE = RoundedCornerShape(20.dp)
+
+/** A 911-style row: red outline and alert icon, white label on one line. */
+@Composable
+private fun ManualAlertRow(text: String, onClick: () -> Unit, onDelete: (() -> Unit)? = null) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(40.dp)
+            .clip(ALERT_ROW_SHAPE)
+            .border(2.dp, Color.Red, ALERT_ROW_SHAPE)
+            .background(Color.DarkGray)
+            .clickable(onClick = onClick)
+            .padding(start = 10.dp, end = if (onDelete == null) 10.dp else 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(painterResource(R.drawable.tak_alert_icon), contentDescription = null, tint = Color.Red, modifier = Modifier.size(18.dp))
+        Spacer(Modifier.width(6.dp))
+        Text(
+            text = text,
+            color = Color.White,
+            fontWeight = FontWeight.SemiBold,
+            fontSize = 13.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
+        if (onDelete != null) {
+            IconButton(onClick = onDelete, modifier = Modifier.size(36.dp)) {
+                Icon(Icons.Filled.Delete, contentDescription = "Delete $text", tint = Color.LightGray, modifier = Modifier.size(20.dp))
             }
         }
     }
 }
 
+@Composable
+private fun AddCustomAlertRow(onClick: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(40.dp)
+            .clip(ALERT_ROW_SHAPE)
+            .border(2.dp, Color.Gray, ALERT_ROW_SHAPE)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(Icons.Filled.Add, contentDescription = "Add custom alert", tint = Color.White, modifier = Modifier.size(24.dp))
+    }
+}
+
+/** Text entry for a new custom alert; saving adds it to the Manual Alert list without sending it. */
+@Composable
+fun CustomAlertEntryPage(repo: SettingsRepository, saved: List<String>, onBack: () -> Unit) {
+    val context = LocalContext.current
+    var value by rememberSaveable(stateSaver = TextFieldValue.Saver) { mutableStateOf(TextFieldValue("")) }
+    fun save() {
+        val error = CustomAlerts.validationError(saved, value.text)
+        if (error != null) {
+            Toast.makeText(context, error, Toast.LENGTH_SHORT).show()
+            return
+        }
+        repo.updateAsync { c -> CustomAlerts.add(c.customAlerts, value.text)?.let { c.copy(customAlerts = it) } ?: c }
+        onBack()
+    }
+    Column(
+        modifier = Modifier.fillMaxSize().background(colors.background).padding(horizontal = 16.dp, vertical = 12.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        OutlinedTextField(
+            value = value,
+            onValueChange = { value = it },
+            singleLine = true,
+            placeholder = { Text(text = CUSTOM_ALERT_HINT, color = Color.Gray, maxLines = 1) },
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+            keyboardActions = KeyboardActions(onDone = { save() }),
+            textStyle = TextStyle(color = Color.White),
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Spacer(Modifier.height(10.dp))
+        WearTAKConfirmCancelButtons(onClickCancel = onBack, onClickConfirm = { save() })
+    }
+}
+
+const val CUSTOM_ALERT_HINT = "Type Custom Alert"
 /** CIV's ConfirmationAlertPage as shown while alerting (red background). */
 @Composable
 fun ConfirmationAlertPage(text: String, onConfirm: () -> Unit, onDismiss: () -> Unit) {

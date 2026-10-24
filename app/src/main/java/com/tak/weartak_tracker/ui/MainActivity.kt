@@ -131,7 +131,10 @@ private fun TrackerNav(repo: SettingsRepository) {
     val home: () -> Unit = { nav.popBackStack("main_screen", inclusive = false) }
     SwipeDismissableNavHost(navController = nav, startDestination = "main_screen") {
         composable("main_screen") { MainScreen(currentConfig.value, go) }
-        composable("sos_screen") { SosScreen(repo, home) }
+        composable("sos_screen") {
+            SosScreen(repo, currentConfig.value.customAlerts, home) { nav.navigate("custom_alert_entry") }
+        }
+        composable("custom_alert_entry") { CustomAlertEntryPage(repo, currentConfig.value.customAlerts, back) }
         settingsGraph(repo, currentConfig, go, back)
     }
 }
