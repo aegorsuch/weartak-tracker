@@ -24,6 +24,8 @@ import java.net.InetSocketAddress
 import java.net.Socket
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import javax.net.ssl.SSLException
 import javax.net.ssl.SSLSocket
 
@@ -54,6 +56,7 @@ class TakServerManager(
 
     private val connections = ConcurrentHashMap<String, Connection>()
     private var servers: List<TakServerConfig> = emptyList()
+    private val credentialMutex = Mutex()
 
     val anyConnected: Boolean get() = connections.values.any { it.output != null }
 
@@ -141,6 +144,22 @@ class TakServerManager(
         sent
     }
 
+    suspend fun sendTo(serverId: String, xml: String): Int = withContext(Dispatchers.IO) {
+        val connection = connections[serverId] ?: return@withContext 0
+        val output = connection.output ?: return@withContext 0
+        try {
+            synchronized(connection.lock) {
+                output.write(xml.toByteArray(Charsets.UTF_8))
+                output.flush()
+            }
+            1
+        } catch (error: java.io.IOException) {
+            Log.w(TAG, "Command reply write failed (${error.javaClass.simpleName})")
+            runCatching { connection.socket?.close() }
+            0
+        }
+    }
+
     /** Channel API client for a connected server, or null when it isn't connected. */
     internal fun channelApi(serverId: String): TakChannelApi? {
         val c = connections[serverId]?.takeIf { it.output != null } ?: return null
@@ -154,10 +173,72 @@ class TakServerManager(
         return TakChannelApi(host, TakCertificates.socketFactory(creds, host, server.apiTlsName, discover))
     }
 
-    private fun start(server: TakServerConfig) {
+    private fun start(server: TakServerConfig, ready: Pair<SSLSocket, TakCertificates.Credentials>? = null) {
         val c = Connection(server)
+        if (ready != null) {
+            c.socket = ready.first
+            c.output = ready.first.outputStream
+            c.credentials = ready.second
+        }
         connections[server.id] = c
-        c.job = scope.launch(Dispatchers.IO) { run(c) }
+        c.job = scope.launch(Dispatchers.IO) { run(c, ready) }
+    }
+
+    /**
+     * Keep the old socket/credential live until staged credentials pass a real hostname-checked TLS
+     * handshake. The verified socket becomes the connection; there is no second-handshake gap.
+     */
+    internal suspend fun installIdentity(
+        server: TakServerConfig,
+        credentials: TakCertificates.Credentials,
+        commit: suspend () -> Boolean,
+        rollback: () -> Unit,
+    ): Boolean = credentialMutex.withLock {
+        if (servers.none { it.id == server.id && it.connectionKey == server.connectionKey } ||
+            !isConnectable(server) || servers.takeWhile { it.id != server.id }.any {
+                isConnectable(it) && it.endpointKey == server.endpointKey
+            }
+        ) return@withLock false
+        var candidate: SSLSocket? = null
+        var adopted = false
+        val retainedCredentials = credentials.copy(password = credentials.password.copyOf())
+        try {
+            withContext(Dispatchers.IO) {
+                val plain = Socket()
+                try {
+                    plain.connect(InetSocketAddress(server.address.trim(), server.port), 15_000)
+                    val tls = TakCertificates.socketFactory(credentials, server.address.trim(), server.tlsName)
+                        .createSocket(plain, server.tlsName.ifBlank { server.address.trim() }, server.port, true) as SSLSocket
+                    candidate = tls
+                    tls.soTimeout = 15_000
+                    tls.startHandshake()
+                    tls.soTimeout = 0
+                } catch (error: Exception) {
+                    plain.close()
+                    throw error
+                }
+            }
+            val socket = requireNotNull(candidate)
+            commitVerifiedIdentity(
+                stillValid = { servers.any { it.id == server.id && it.connectionKey == server.connectionKey } },
+                commit = commit,
+                activate = {
+                    val old = connections[server.id]
+                    start(server, socket to retainedCredentials)
+                    adopted = true
+                    old?.let { close(it, "client identity replaced after verified TLS handshake") }
+                },
+                rollback = rollback,
+            )
+        } finally {
+            if (!adopted) {
+                try {
+                    candidate?.close()
+                } finally {
+                    retainedCredentials.password.fill('\u0000')
+                }
+            }
+        }
     }
 
     private fun close(c: Connection, reason: String) {
@@ -171,15 +252,18 @@ class TakServerManager(
         c.socket = null
     }
 
-    private suspend fun run(c: Connection) {
+    private suspend fun run(c: Connection, ready: Pair<SSLSocket, TakCertificates.Credentials>? = null) {
         val id = c.server.id
         var attempt = 0
+        var initial = ready
         while (currentCoroutineContext().isActive && connections[id] === c) {
             val server = c.server
             var sslFailure = false
             try {
                 setState(c, TakStatus.CONNECTING)
-                val creds = TakCertificates.obtain(context, server, deviceUid) {
+                val prepared = initial
+                initial = null
+                val creds = prepared?.second ?: TakCertificates.obtain(context, server, deviceUid) {
                     c.enrollmentInProgress = true
                     setState(c, TakStatus.ENROLLING)
                 }
@@ -187,23 +271,25 @@ class TakServerManager(
                 currentCoroutineContext().ensureActive()
                 setState(c, TakStatus.CONNECTING)
                 val host = server.address.trim()
-                val plain = Socket()
-                c.socket = plain
-                plain.keepAlive = true
-                plain.tcpNoDelay = true
-                plain.connect(InetSocketAddress(host, server.port), 15_000)
-                // SNI uses the discovered TLS name, else the configured host (not sent for IP literals). The
-                // factory's trust manager rejects certificates not issued for host/tlsName during the handshake.
-                val sniHost = server.tlsName.ifBlank { host }
-                val discover = if (server.tlsName.isBlank()) { name: String ->
-                    Log.i(TAG, "Discovered TLS name $name for ${server.endpointKey}")
-                    c.server = c.server.copy(tlsName = name)
-                    onTlsNameDiscovered(server, false, name)
-                } else null
-                val factory = TakCertificates.socketFactory(creds, host, server.tlsName, discover)
-                val socket = factory.createSocket(plain, sniHost, server.port, true) as SSLSocket
-                c.socket = socket
-                socket.startHandshake()
+                val socket = prepared?.first ?: run {
+                    val plain = Socket()
+                    c.socket = plain
+                    plain.keepAlive = true
+                    plain.tcpNoDelay = true
+                    plain.connect(InetSocketAddress(host, server.port), 15_000)
+                    // Keep the established hostname/CA-scoped TLS discovery rules on reconnect.
+                    val sniHost = server.tlsName.ifBlank { host }
+                    val discover = if (server.tlsName.isBlank()) { name: String ->
+                        Log.i(TAG, "Discovered TLS name $name for ${server.endpointKey}")
+                        c.server = c.server.copy(tlsName = name)
+                        onTlsNameDiscovered(server, false, name)
+                    } else null
+                    val factory = TakCertificates.socketFactory(creds, host, server.tlsName, discover)
+                    val socket = factory.createSocket(plain, sniHost, server.port, true) as SSLSocket
+                    c.socket = socket
+                    socket.startHandshake()
+                    socket
+                }
                 currentCoroutineContext().ensureActive()
                 c.credentials = creds
                 c.output = socket.outputStream

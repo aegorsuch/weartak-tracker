@@ -1,7 +1,9 @@
 package com.tak.weartak_tracker.command
 
 /** A remote command sent as a chat message: `#weartaktrackercommand<name> key=value key2="quoted value"`. */
-data class ChatCommand(val name: String, val args: Map<String, String>)
+data class ChatCommand(val name: String, val args: Map<String, String>) {
+    override fun toString(): String = "ChatCommand(name=$name, args=redacted)"
+}
 
 sealed interface ChatCommandParse {
     object NotACommand : ChatCommandParse
@@ -17,6 +19,8 @@ object ChatCommandParser {
     const val COMMON_PREFIX = "#weartakcommand"
     const val MAX_PDL_LENGTH = 16_384
     const val MAX_PDL_COMMAND_LENGTH = 17_408
+    const val MAX_P12_HEX_LENGTH = 32_768
+    const val MAX_P12_COMMAND_LENGTH = 34_816
     private val NAME = Regex("[a-z]{1,32}")
     private val KEY = Regex("[a-z][a-z0-9]{0,15}")
 
@@ -39,10 +43,31 @@ object ChatCommandParser {
         val rest = body.substring(prefixLength)
         val nameEnd = rest.indexOfFirst { it.isWhitespace() }.let { if (it < 0) rest.length else it }
         val name = rest.substring(0, nameEnd).lowercase()
-        if (!NAME.matches(name)) return ChatCommandParse.Malformed("invalid command name")
-        val maxLength = if (name == "setpdl") MAX_PDL_COMMAND_LENGTH else MAX_LENGTH
+        if (name != "usep12" && !NAME.matches(name)) return ChatCommandParse.Malformed("invalid command name")
+        val maxLength = when (name) {
+            "setpdl" -> MAX_PDL_COMMAND_LENGTH
+            "usep12" -> MAX_P12_COMMAND_LENGTH
+            else -> MAX_LENGTH
+        }
         if (body.length > maxLength) return ChatCommandParse.Malformed("too long")
         val argText = rest.substring(nameEnd).trim()
+        if (name == "toggleditto") {
+            if (!argText.equals("on", true) && !argText.equals("off", true)) {
+                return ChatCommandParse.Malformed("toggleditto needs exactly on or off")
+            }
+            return ChatCommandParse.Parsed(ChatCommand(name, mapOf("state" to argText.lowercase())))
+        }
+        if (name == "usep12") {
+            val hex = argText.takeWhile { !it.isWhitespace() }
+            if (hex.isEmpty() || hex.length > MAX_P12_HEX_LENGTH || hex.length % 2 != 0 ||
+                hex.any { it !in '0'..'9' && it !in 'a'..'f' && it !in 'A'..'F' }
+            ) return ChatCommandParse.Malformed("usep12 needs bounded hexadecimal PKCS12 data")
+            val options = parse("${PREFIX}certoptions ${argText.substring(hex.length).trim()}")
+            if (options !is ChatCommandParse.Parsed ||
+                options.command.args.keys.any { it != "password" && it != "server" }
+            ) return ChatCommandParse.Malformed("usep12 accepts only password and server options")
+            return ChatCommandParse.Parsed(ChatCommand(name, options.command.args + ("hex" to hex)))
+        }
         if (name == "setpdl") {
             if (argText.isEmpty() || argText.any(Char::isWhitespace)) {
                 return ChatCommandParse.Malformed("setpdl needs community or one encoded PDL")

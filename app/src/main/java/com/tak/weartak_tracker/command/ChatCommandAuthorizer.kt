@@ -11,7 +11,8 @@ enum class ChatCommandDecision { ALLOWED, SENDER_NOT_ALLOWED, STALE, DUPLICATE }
  */
 class ChatCommandAuthorizer(
     private val maxAgeMs: Long = 5 * 60_000L,
-    private val maxRemembered: Int = 128
+    private val maxRemembered: Int = 128,
+    private val claim: ((String, Long) -> Boolean)? = null,
 ) {
     private val seen = LinkedHashSet<String>()
 
@@ -31,6 +32,9 @@ class ChatCommandAuthorizer(
             return ChatCommandDecision.STALE
         }
         val key = "$sender|$messageKey"
+        if (claim != null) {
+            return if (claim.invoke(key, nowMs)) ChatCommandDecision.ALLOWED else ChatCommandDecision.DUPLICATE
+        }
         if (!seen.add(key)) return ChatCommandDecision.DUPLICATE
         while (seen.size > maxRemembered) seen.remove(seen.first())
         return ChatCommandDecision.ALLOWED
