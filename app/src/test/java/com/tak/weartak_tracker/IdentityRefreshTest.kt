@@ -1,6 +1,7 @@
 package com.tak.weartak_tracker
 
 import com.tak.weartak_tracker.data.TrackerConfig
+import com.tak.weartak_tracker.data.MoppStatus
 import com.tak.weartak_tracker.service.identityChangedFrom
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -24,5 +25,16 @@ class IdentityRefreshTest {
         assertFalse(original.copy(developerMode = true).identityChangedFrom(original))
         assertFalse(original.copy(physioMonitoring = true).identityChangedFrom(original))
         assertFalse(original.copy(constantInterval = original.constantInterval + 1).identityChangedFrom(original))
+    }
+
+    @Test
+    fun savedPpeChangesIncludingClearingAndLevelZeroTriggerRefresh() {
+        for (status in MoppStatus.entries) {
+            val saved = original.copy(moppStatus = status)
+            assertFalse(saved.identityChangedFrom(saved))
+            for (next in MoppStatus.entries.filter { it != status }) {
+                assertTrue(saved.copy(moppStatus = next).identityChangedFrom(saved))
+            }
+        }
     }
 }

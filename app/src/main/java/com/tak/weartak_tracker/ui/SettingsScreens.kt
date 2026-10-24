@@ -468,7 +468,7 @@ fun NavGraphBuilder.settingsGraph(repo: SettingsRepository, configState: State<T
                 Icon(painterResource(R.drawable.mopp_mask), contentDescription = "Protective mask", modifier = Modifier.size(32.dp))
             }
             item { Text("PPE Status: ${currentConfig.moppStatus.label}", textAlign = TextAlign.Center) }
-            item { Text("Choose a status, then Save. Local only; not transmitted.", textAlign = TextAlign.Center, color = Color.LightGray) }
+            item { Text("Save to include PPE in outgoing PLI. None omits PPE. Back discards changes.", textAlign = TextAlign.Center, color = Color.LightGray) }
             MoppStatus.entries.forEach { status ->
                 item {
                     WearTAKSelectableChip(

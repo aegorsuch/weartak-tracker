@@ -1,5 +1,6 @@
 package com.tak.weartak_tracker.cot
 
+import com.tak.weartak_tracker.data.MoppStatus
 import java.text.SimpleDateFormat
 import java.time.Instant
 import java.util.Date
@@ -58,6 +59,7 @@ object CotBuilder {
         physio: Physio? = null,
         includeBatdok: Boolean = true,
         ageYears: Int? = null,
+        moppStatus: MoppStatus = MoppStatus.NONE,
     ): String {
         val ce = fix?.ce?.takeIf { !it.isNaN() }?.toInt() ?: 9999
         val le = fix?.le?.takeIf { !it.isNaN() }?.toInt() ?: 9999
@@ -67,9 +69,13 @@ object CotBuilder {
             "hae" to "%.1f".format(Locale.US, fix?.hae ?: 0.0),
             "ce" to ce, "le" to le,
         )
+        val ppeRemarks = moppStatus.takeUnless { it == MoppStatus.NONE }?.label
+        val wearerDetail = if (physio != null) {
+            physioDetail(uid, physio, time, includeBatdok, ageYears, ppeRemarks)
+        } else ppeRemarks?.let { element("remarks", content = esc(it)) } ?: ""
         val detail =
             element("status", listOf("readiness" to "true", "battery" to battery)) +
-                (physio?.let { physioDetail(uid, it, time, includeBatdok, ageYears) } ?: "") +
+                wearerDetail +
                 element("contact", listOf("endpoint" to "*:-1:stcp", "callsign" to esc(callsign))) +
                 element("__group", listOf("role" to esc(role), "name" to esc(team))) +
                 element("track", listOf("course" to (fix?.course?.toInt() ?: 0), "speed" to (fix?.speed?.toInt() ?: 0))) +
@@ -149,15 +155,20 @@ object CotBuilder {
         )
     }
 
-    /** CIV's physio remarks plus BATDOK and `<biometrics>` device blocks. */
-    private fun physioDetail(uid: String, physio: Physio, time: CotTime, includeBatdok: Boolean, ageYears: Int?): String {
+    /** CIV's physio remarks plus saved PPE, BATDOK and `<biometrics>` device blocks. */
+    private fun physioDetail(
+        uid: String, physio: Physio, time: CotTime, includeBatdok: Boolean, ageYears: Int?, ppeRemarks: String?,
+    ): String {
         val hr = physio.heartRateBpm?.takeIf { it > 0 }?.toString() ?: NA
         val skinF = physio.skinTempF?.takeIf { it.isFinite() && it != -1f }
         val skt = skinF?.let { String.format(Locale.US, "%.1f", it) } ?: NA
         // CIV transmits a reserve fraction (0.5 means 50%), including in its legacy "%" remarks.
         val exert = physio.exertion?.takeIf { hr != NA && it.isFinite() && it >= 0 }
             ?.let { String.format(Locale.US, "%.2f", it) } ?: NA
-        val remarks = element("remarks", content = "Exert:$exert%;HR:$hr;SkinTemp:$skt")
+        val remarks = element(
+            "remarks",
+            content = esc(listOfNotNull("Exert:$exert%;HR:$hr;SkinTemp:$skt", ppeRemarks).joinToString("\n")),
+        )
         val readings = buildList {
             if (hr != NA) add("HR,$hr")
             if (skinF != null) {
