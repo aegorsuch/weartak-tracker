@@ -120,6 +120,7 @@ data class TrackerConfig(
     val dittoCustomPdl: String = "",
     val sensorManagerEnabled: Boolean = false,
     val customAlerts: List<String> = emptyList(),
+    val moppStatus: MoppStatus = MoppStatus.NONE,
 )
 
 /** SITX OAuth device-flow state (persisted encrypted). */
@@ -165,6 +166,7 @@ class SettingsRepository(private val context: Context) {
         val DITTO_PDL_SOURCE = stringPreferencesKey("ditto_pdl_source")
         val DITTO_CUSTOM_PDL = stringPreferencesKey("ditto_custom_pdl.enc")
         val CUSTOM_ALERTS = stringPreferencesKey("custom_manual_alerts")
+        val MOPP_STATUS = stringPreferencesKey("manual_mopp_status")
     }
 
     @SuppressLint("HardwareIds")
@@ -230,6 +232,7 @@ class SettingsRepository(private val context: Context) {
             p[K.SITX_URL] = n.sitxUrl.trim()
             p[K.PHYSIO] = n.physioMonitoring
             p[K.BATDOK] = n.batdokEnabled
+            p[K.MOPP_STATUS] = n.moppStatus.name
             if (n.customAlerts != old.customAlerts) p[K.CUSTOM_ALERTS] = CustomAlerts.encode(n.customAlerts)
             if (n.medicalProfile != old.medicalProfile) {
                 p[K.MEDICAL_PROFILE] = SecretBox.encrypt(MedicalProfileCodec.encode(n.medicalProfile))
@@ -300,5 +303,6 @@ class SettingsRepository(private val context: Context) {
             } ?: DittoPdlSource.COMMUNITY,
             dittoCustomPdl = SecretBox.decrypt(p[K.DITTO_CUSTOM_PDL]).orEmpty(),
             customAlerts = CustomAlerts.decode(p[K.CUSTOM_ALERTS]),
+            moppStatus = MoppStatus.fromStored(p[K.MOPP_STATUS]),
         )
 }
