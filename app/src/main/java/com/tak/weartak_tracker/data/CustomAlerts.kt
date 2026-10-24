@@ -33,14 +33,14 @@ val PRESET_MANUAL_ALERTS = listOf(
 
 /** Saved custom manual alerts: single-line, de-duplicated (case-insensitively, including presets) and capped. */
 object CustomAlerts {
-    const val MAX_LENGTH = 40
+    const val MAX_LENGTH = 60
     const val MAX_COUNT = 20
 
     /** The single-line text to save, or null when blank, too long or containing control characters. */
     fun normalize(text: String?): String? {
         val raw = text ?: return null
-        if (raw.any { it.isISOControl() && it != '\n' && it != '\r' && it != '\t' }) return null
-        val value = raw.trim().replace(Regex("\\s+"), " ")
+        if (raw.any { it.isISOControl() }) return null
+        val value = raw.map { if (it.isWhitespace()) ' ' else it }.joinToString("").trim().replace(Regex(" +"), " ")
         return value.takeIf { it.isNotEmpty() && it.length <= MAX_LENGTH }
     }
 
@@ -60,6 +60,7 @@ object CustomAlerts {
     fun validationError(saved: List<String>, text: String): String? {
         val value = normalize(text)
         return when {
+            text.any { it.isISOControl() } -> "Alert must be single-line text without control characters"
             text.isBlank() -> "Please enter an alert"
             value == null && text.trim().length > MAX_LENGTH -> "Alert must be $MAX_LENGTH characters or fewer"
             value == null -> "Alert can't contain control characters"
@@ -81,6 +82,7 @@ object CustomAlerts {
     fun decode(json: String?): List<String> {
         if (json.isNullOrBlank()) return emptyList()
         val array = runCatching { JSONArray(json) }.getOrNull() ?: return emptyList()
-        return merge(emptyList(), (0 until array.length()).map { array.optString(it) }).first
+        // Loading is not a new addition: retain legacy text/order even when current validation rejects it.
+        return (0 until array.length()).mapNotNull { array.opt(it) as? String }
     }
 }

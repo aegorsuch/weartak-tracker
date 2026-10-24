@@ -210,7 +210,8 @@ object ProfilePresetParser {
             !root.has(CUSTOM_ALERTS_KEY) -> emptyList()
             else -> root.optJSONArray(CUSTOM_ALERTS_KEY)?.let(::customAlerts) ?: listOf(null)
         }
-        if (servers.any { it == null } || alerts.any { it == null }) null
+        if (servers.any { it == null } || alerts.any { it == null } ||
+            alerts.filterNotNull().distinctBy { it.lowercase() }.size > CustomAlerts.MAX_COUNT) null
         else ProfilePreset(profile, servers.filterNotNull(), alerts.filterNotNull().distinctBy { it.lowercase() })
     } catch (error: JSONException) {
         null

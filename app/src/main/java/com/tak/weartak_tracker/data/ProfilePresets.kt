@@ -99,7 +99,7 @@ object ProfilePresets {
             )
         }
         val root = JSONObject().put("profile", profile).put("servers", servers)
-        config.customAlerts.mapNotNull(CustomAlerts::normalize).takeIf { it.isNotEmpty() }?.let {
+        config.customAlerts.takeIf { it.isNotEmpty() }?.let {
             root.put(ProfilePresetParser.CUSTOM_ALERTS_KEY, JSONArray(it))
         }
         return root.toString(2)
