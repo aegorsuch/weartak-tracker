@@ -13,6 +13,8 @@ import com.tak.weartak_tracker.cot.CotTime
 import com.tak.weartak_tracker.data.CustomAlerts
 import com.tak.weartak_tracker.data.ProfilePresets
 import com.tak.weartak_tracker.data.TrackerConfig
+import com.tak.weartak_tracker.data.manualAlertOptions
+import java.util.Locale
 import com.tak.weartak_tracker.service.AlertForwarder
 import com.tak.weartak_tracker.service.AlertResendPolicy
 import com.tak.weartak_tracker.ui.CUSTOM_ALERT_HINT
@@ -24,6 +26,34 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ManualAlertTest {
+    @Test
+    fun pickerCombinesBuiltinsAndCustomsAlphabeticallyWithoutChangingSavedOrderOrLabels() {
+        val saved = listOf("Zulu", "alpha", "Bravo")
+        val options = manualAlertOptions(listOf("Vehicle", "911 Alert", "Injury"), saved, Locale.US)
+        assertEquals(listOf("911 Alert", "alpha", "Bravo", "Injury", "Vehicle", "Zulu"), options.map { it.label })
+        assertEquals(listOf("Zulu", "alpha", "Bravo"), saved)
+        assertEquals(listOf("alpha", "Bravo", "Zulu"), options.filter { it.custom }.map { it.label })
+        assertNull(CustomAlerts.add(saved, "ALPHA"))
+        assertNull(CustomAlerts.add(saved, "injury"))
+    }
+
+    @Test
+    fun sortedCustomDeletionTargetsOriginalLabelAndLeavesPresetsAndOtherSavedAlerts() {
+        val saved = listOf("Zulu", "Alpha", "Bravo")
+        val target = manualAlertOptions(listOf("Injury"), saved, Locale.US).first { it.label == "Bravo" }
+        assertTrue(target.custom)
+        val remaining = CustomAlerts.remove(saved, target.label)
+        assertEquals(listOf("Zulu", "Alpha"), remaining)
+        assertEquals(listOf("Alpha", "Injury", "Zulu"), manualAlertOptions(listOf("Injury"), remaining, Locale.US).map { it.label })
+        assertTrue(!manualAlertOptions(listOf("Injury"), saved).first { it.label == "Injury" }.custom)
+    }
+
+    @Test
+    fun pickerUsesRequestedLocaleAndStableCaseInsensitiveOrdering() {
+        val options = manualAlertOptions(listOf("zebra"), listOf("alpha", "Alpha", "Älg"), Locale.forLanguageTag("sv-SE"))
+        assertEquals(listOf("alpha", "Alpha", "zebra", "Älg"), options.map { it.label })
+    }
+
     private val time = CotTime.now(CotBuilder.ALERT_STALE_SECONDS, 0)
 
     private fun alertXml(description: String, state: AlertState = AlertState.ALERT) =

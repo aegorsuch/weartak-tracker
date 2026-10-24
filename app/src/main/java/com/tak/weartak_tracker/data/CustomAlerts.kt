@@ -1,6 +1,21 @@
 package com.tak.weartak_tracker.data
 
 import org.json.JSONArray
+import java.text.Collator
+import java.util.Locale
+
+data class ManualAlertOption(val label: String, val custom: Boolean)
+
+/** Sort only the picker presentation; labels and saved custom-alert order remain unchanged. */
+fun manualAlertOptions(
+    presets: List<String>,
+    customAlerts: List<String>,
+    locale: Locale = Locale.getDefault(),
+): List<ManualAlertOption> {
+    val collator = Collator.getInstance(locale).apply { strength = Collator.SECONDARY }
+    return (presets.map { ManualAlertOption(it, false) } + customAlerts.map { ManualAlertOption(it, true) })
+        .sortedWith { a, b -> collator.compare(a.label, b.label) }
+}
 
 /** Built-in manual alerts, alphabetical. */
 val PRESET_MANUAL_ALERTS = listOf(

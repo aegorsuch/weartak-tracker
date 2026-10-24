@@ -1,6 +1,7 @@
 package com.tak.weartak_tracker.ui
 
 import android.widget.Toast
+import com.tak.weartak_tracker.data.manualAlertOptions
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -197,9 +198,12 @@ fun ManualAlertListScreen(
                         modifier = Modifier.padding(bottom = 4.dp),
                     )
                 }
-                items(presets) { option -> ManualAlertRow(option, onClick = { onSend(option) }) }
-                items(customAlerts) { option ->
-                    ManualAlertRow(option, onClick = { onSend(option) }, onDelete = { confirmDelete = option })
+                items(manualAlertOptions(presets, customAlerts)) { option ->
+                    ManualAlertRow(
+                        option.label,
+                        onClick = { onSend(option.label) },
+                        onDelete = if (option.custom) ({ confirmDelete = option.label }) else null,
+                    )
                 }
                 item { AddCustomAlertRow(onAdd) }
             }
