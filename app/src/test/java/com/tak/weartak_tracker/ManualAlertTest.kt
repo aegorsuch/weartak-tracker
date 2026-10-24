@@ -129,7 +129,11 @@ class ManualAlertTest {
 
     @Test
     fun customAlertsAreSingleLineDeduplicatedAndCapped() {
-        assertEquals("Need water now", CustomAlerts.normalize("  Need\n water   now "))
+        assertEquals("Need water now", CustomAlerts.normalize("  Need  water   now "))
+        listOf("Need\nwater", "Need\rwater", "Need\twater", "\tNeed water", "Need water\n").forEach {
+            assertNull(CustomAlerts.normalize(it))
+            assertNotNull(CustomAlerts.validationError(emptyList(), it))
+        }
         assertNull(CustomAlerts.normalize("   "))
         assertNull(CustomAlerts.normalize("x".repeat(CustomAlerts.MAX_LENGTH + 1)))
         assertNull(CustomAlerts.add(emptyList(), "911 alert"))
@@ -148,9 +152,39 @@ class ManualAlertTest {
         val saved = listOf("Need water", "Ammo 'low' & \"fast\"")
         assertEquals(saved, CustomAlerts.decode(CustomAlerts.encode(saved)))
         assertEquals(emptyList<String>(), CustomAlerts.decode("not json"))
-        assertEquals(listOf("A"), CustomAlerts.decode("""["A","a","  "]"""))
+        assertEquals(listOf("A", "a", "  "), CustomAlerts.decode("""["A","a","  "]"""))
     }
 
+    @Test
+    fun newAlertsUseSixtyUtf16UnitsAndTwentyEntryLimit() {
+        assertEquals("x".repeat(60), CustomAlerts.add(emptyList(), "x".repeat(60))!!.single())
+        assertNull(CustomAlerts.add(emptyList(), "x".repeat(61)))
+        assertEquals("\uD83D\uDE00".repeat(30), CustomAlerts.normalize("\uD83D\uDE00".repeat(30)))
+        assertNull(CustomAlerts.normalize("\uD83D\uDE00".repeat(30) + "x"))
+        assertEquals("Need water", CustomAlerts.normalize("\u00A0Need\u2003\u2003water\u00A0"))
+        (('\u0000'..'\u001F') + ('\u007F'..'\u009F')).forEach {
+            assertNull(CustomAlerts.normalize("Need${it}water"))
+        }
+        val nineteen = List(19) { "entry$it" }
+        val twenty = CustomAlerts.add(nineteen, "last")!!
+        assertEquals(20, twenty.size)
+        assertNull(CustomAlerts.add(twenty, "too many"))
+        assertNotNull(ProfilePresetParser.parse("""{"customAlerts":${CustomAlerts.encode(twenty)}}"""))
+        assertNull(ProfilePresetParser.parse("""{"customAlerts":${CustomAlerts.encode(twenty + "too many")}}"""))
+        assertNull(CustomAlerts.add(listOf("Need water"), "  NEED   water "))
+    }
+
+    @Test
+    fun legacyRecordsAndBackupTextAreRetainedWithoutRevalidationOrTruncation() {
+        val legacy = listOf("x".repeat(80), "old\ntext", "old\ttext") + List(21) { "entry$it" }
+        assertEquals(legacy, CustomAlerts.decode(CustomAlerts.encode(legacy)))
+        val backup = org.json.JSONObject(ProfilePresets.encode(TrackerConfig(customAlerts = legacy)))
+            .getJSONArray("customAlerts")
+        assertEquals(legacy, (0 until backup.length()).map { backup.getString(it) })
+        assertEquals(legacy, CustomAlerts.merge(legacy, listOf("new")).first)
+        assertNull(ProfilePresetParser.parse("""{"customAlerts":["new\ntext"]}"""))
+        assertNull(ProfilePresetParser.parse("""{"customAlerts":["new\ttext"]}"""))
+    }
     @Test
     fun presetsCarryCustomAlerts() {
         val json = ProfilePresets.encode(TrackerConfig(callsign = "ALPHA", customAlerts = listOf("Need water")))

@@ -42,6 +42,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -78,6 +79,7 @@ import com.tak.weartak_tracker.data.TrackerState
 import com.tak.weartak_tracker.service.AlertForwarder
 import com.tak.weartak_tracker.service.TrackerService
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import java.util.UUID
 
 internal val MANUAL_ALERT_OPTIONS = PRESET_MANUAL_ALERTS
@@ -293,15 +295,34 @@ private fun AddCustomAlertRow(onClick: () -> Unit) {
 @Composable
 fun CustomAlertEntryPage(repo: SettingsRepository, saved: List<String>, onBack: () -> Unit) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var saving by remember { mutableStateOf(false) }
     var value by rememberSaveable(stateSaver = TextFieldValue.Saver) { mutableStateOf(TextFieldValue("")) }
     fun save() {
+        if (saving) return
         val error = CustomAlerts.validationError(saved, value.text)
         if (error != null) {
             Toast.makeText(context, error, Toast.LENGTH_SHORT).show()
             return
         }
-        repo.updateAsync { c -> CustomAlerts.add(c.customAlerts, value.text)?.let { c.copy(customAlerts = it) } ?: c }
-        onBack()
+        val text = value.text
+        saving = true
+        scope.launch {
+            try {
+                var rejected: String? = null
+                repo.update { c ->
+                    rejected = CustomAlerts.validationError(c.customAlerts, text)
+                    if (rejected == null) c.copy(customAlerts = c.customAlerts + requireNotNull(CustomAlerts.normalize(text))) else c
+                }
+                if (rejected == null) onBack()
+                else Toast.makeText(context, rejected, Toast.LENGTH_SHORT).show()
+            } catch (error: java.io.IOException) {
+                android.util.Log.w("CustomAlerts", "Unable to save custom alert", error)
+                Toast.makeText(context, "Unable to save alert. Try again.", Toast.LENGTH_LONG).show()
+            } finally {
+                saving = false
+            }
+        }
     }
     Column(
         modifier = Modifier.fillMaxSize().background(colors.background).padding(horizontal = 16.dp, vertical = 12.dp),
