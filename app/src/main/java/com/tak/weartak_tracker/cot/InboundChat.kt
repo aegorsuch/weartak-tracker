@@ -20,7 +20,7 @@ class CotEventFramer(private val maxBytes: Int = 64 * 1024) {
             val end = buffer.indexOf(END)
             if (end < 0) break
             val start = buffer.lastIndexOf("<event", end)
-            if (start >= 0) events += buffer.substring(start, end + END.length)
+            if (start >= 0 && end + END.length - start <= maxBytes) events += buffer.substring(start, end + END.length)
             buffer.delete(0, end + END.length)
         }
         if (buffer.length > maxBytes) buffer.setLength(0)

@@ -210,6 +210,53 @@ class DittoClientTest {
         ), PLUGIN_TITLES)
     }
 
+    @Test
+    fun explicitChatStatesUseTheExistingSdkPauseResumeSessionIdempotently() = runBlocking {
+        var config = enabled
+        client.configure(config)
+        val handler = com.tak.weartak_tracker.command.ToggleDittoHandler(
+            networkLocked = { false },
+            store = com.tak.weartak_tracker.command.DittoToggleStore { on ->
+                config = config.copy(dittoEnabled = on)
+                val state = client.configure(config)
+                DittoPdlApplyResult(state == DittoState.Active || state == DittoState.Disabled)
+            },
+            beforeDisableReply = { _, _ -> throw AssertionError("Server route") },
+            ackFailure = {},
+        )
+        val request = com.tak.weartak_tracker.command.ChatCommandRequest("admin", "ADMIN", "", "id", 1, 1, "server")
+        for (state in listOf("off", "off", "on", "on")) {
+            assertTrue(handler.execute(ChatCommand("toggleditto", mapOf("state" to state)), request).ok)
+        }
+        assertEquals(1, sessions.size)
+        assertEquals(1, sessions.single().pauses)
+        assertEquals(2, sessions.single().starts)
+        assertEquals(0, sessions.single().closes)
+        assertEquals(enabled.dittoPdlSource, config.dittoPdlSource)
+        assertEquals(enabled.dittoCustomPdl, config.dittoCustomPdl)
+    }
+
+    @Test
+    fun chatObserverIsWiredAndNativeRepliesUseChatOnlyWhileSyncing() {
+        val received = mutableListOf<String>()
+        val session = FakeSession()
+        val chatClient = DittoClient(
+            createSession = { session }, communityIdentity = { community }, now = { 1_000 },
+            onChat = { raw, peer -> received += "${raw["_id"]}:$peer" },
+        )
+        chatClient.configure(enabled)
+        session.chatObserver!!.invoke(mapOf("_id" to "message"))
+        assertEquals(listOf("message:test-peer"), received)
+        val xml = com.tak.weartak_tracker.cot.CotBuilder.chat("watch", "WATCH", "ops", "Operations", "Updated")
+        assertEquals(1, chatClient.replyChat(xml))
+        assertEquals("ops", session.chats.single()["roomId"])
+        chatClient.configure(enabled.copy(dittoEnabled = false))
+        assertEquals(0, chatClient.replyChat(xml))
+        chatClient.configure(enabled)
+        assertEquals(1, chatClient.replyChat(xml))
+        assertEquals(2, session.chats.size)
+    }
+
     private fun publish() = client.publishTrack(
         "<event><detail/></event>", Fix(1.0, 2.0, 0.0, 1f, 1f, 0f, 0f, 1_000L), enabled, "u1",
     )
@@ -222,6 +269,8 @@ class DittoClientTest {
         var closes = 0
         var failStart = false
         val documents = mutableListOf<Map<String, Any?>>()
+        val chats = mutableListOf<Map<String, Any?>>()
+        var chatObserver: ((Map<String, Any?>) -> Unit)? = null
         override fun startSync() {
             check(closes == 0)
             if (failStart) throw SecurityException("permissions revoked")
@@ -229,6 +278,8 @@ class DittoClientTest {
         }
         override fun stopSync() { pauses++ }
         override fun publish(document: Map<String, Any?>) { documents.add(document) }
+        override fun observeChat(onChat: (Map<String, Any?>) -> Unit) { chatObserver = onChat }
+        override fun publishChat(document: Map<String, Any?>) { chats.add(document) }
         override fun close() { closes++ }
     }
 

@@ -12,6 +12,10 @@ import live.ditto.Ditto
 import live.ditto.DittoError
 import live.ditto.DittoIdentity
 import live.ditto.DittoSyncSubscription
+import live.ditto.DittoQueryResult
+import live.ditto.DittoCounter
+import java.io.Closeable
+import com.tak.weartak_tracker.cot.DittoChatDocument
 import live.ditto.android.DefaultAndroidDittoDependencies
 import live.ditto.transports.DittoTransportConfig
 
@@ -21,12 +25,16 @@ internal interface DittoPeerSession {
     fun startSync()
     fun stopSync()
     fun publish(document: Map<String, Any?>)
+    fun observeChat(onChat: (Map<String, Any?>) -> Unit)
+    fun publishChat(document: Map<String, Any?>)
     fun close()
 }
 
 private class AndroidDittoPeerSession(context: Context, license: DittoCommunityLicense) : DittoPeerSession {
     private val instance: Ditto
     private var subscription: DittoSyncSubscription? = null
+    private var chatSubscription: DittoSyncSubscription? = null
+    private var chatObserver: Closeable? = null
 
     init {
         val dependencies = DefaultAndroidDittoDependencies(context)
@@ -52,11 +60,42 @@ private class AndroidDittoPeerSession(context: Context, license: DittoCommunityL
     override fun publish(document: Map<String, Any?>) {
         instance.store.write { it.scoped("track").upsert(document) }
     }
+    override fun observeChat(onChat: (Map<String, Any?>) -> Unit) {
+        chatSubscription = instance.sync.registerSubscription("SELECT * FROM chat")
+        chatObserver = instance.store.registerObserver("SELECT * FROM chat",
+            changeHandler = { result: DittoQueryResult, next: () -> Unit ->
+                try {
+                    val documents = result.use {
+                        require(it.items.size <= 4096)
+                        it.items.map { item -> item.value }.also { docs ->
+                            require(docs.sumOf { doc -> (doc["msg"] as? String)?.length?.toLong() ?: 0L } <= 2 * 1024 * 1024)
+                        }
+                    }
+                    documents.forEach(onChat)
+                } catch (error: Exception) {
+                    // SDK/parser errors can contain the document (including credentials).
+                    Log.w("DittoClient", "Ditto chat snapshot rejected (${error.javaClass.simpleName})")
+                } finally {
+                    try { next() } catch (error: Exception) {
+                        Log.w("DittoClient", "Ditto chat observer stopped (${error.javaClass.simpleName})")
+                    }
+                }
+            })
+    }
+    override fun publishChat(document: Map<String, Any?>) {
+        instance.store.write { it.scoped("chat").upsert(document + ("_c" to DittoCounter())) }
+    }
     override fun close() {
         try {
-            subscription?.close()
+            listOfNotNull(chatObserver, chatSubscription, subscription).forEach { handle ->
+                try { handle.close() } catch (error: Exception) {
+                    Log.w("DittoClient", "Ditto subscription close failed (${error.javaClass.simpleName})")
+                }
+            }
         } finally {
             subscription = null
+            chatSubscription = null
+            chatObserver = null
             instance.close()
         }
     }
@@ -66,14 +105,16 @@ class DittoClient internal constructor(
     private val createSession: (DittoCommunityLicense) -> DittoPeerSession,
     private val communityIdentity: () -> String,
     private val now: () -> Long = System::currentTimeMillis,
+    private val onChat: (Map<String, Any?>, String) -> Unit = { _, _ -> },
     private val logError: (String, Throwable) -> Unit = { message, error ->
         Log.e(TAG, "$message (${error.javaClass.simpleName})")
         Unit
     },
 ) {
-    constructor(context: Context) : this(
+    constructor(context: Context, onChat: (Map<String, Any?>, String) -> Unit = { _, _ -> }) : this(
         createSession = { AndroidDittoPeerSession(context.applicationContext, it) },
         communityIdentity = { BuildConfig.DITTO_COMMUNITY_IDENTITY },
+        onChat = onChat,
     )
 
     private var ditto: DittoPeerSession? = null
@@ -123,6 +164,8 @@ class DittoClient internal constructor(
                 stop()
                 ditto = createSession(license)
                 activePdl = pdl
+                val session = requireNotNull(ditto)
+                session.observeChat { document -> onChat(document, session.peerKey) }
             }
             val instance = requireNotNull(ditto)
             instance.deviceName = config.callsign
@@ -204,6 +247,18 @@ class DittoClient internal constructor(
             } catch (error: IllegalStateException) {
                 logError("Ditto Edge Sync close failed", error)
             }
+
+        }
+    }
+
+    fun replyChat(xml: String): Int {
+        val session = ditto?.takeIf { syncing } ?: return 0
+        return try {
+            session.publishChat(DittoChatDocument.encode(xml, session.peerKey))
+            1
+        } catch (error: Exception) {
+            logError("Ditto chat reply failed", error)
+            0
         }
     }
 

@@ -21,6 +21,7 @@ import com.tak.weartak_tracker.cot.CotBuilder
 import com.tak.weartak_tracker.cot.CotTime
 import com.tak.weartak_tracker.cot.Fix
 import com.tak.weartak_tracker.cot.InboundChat
+import com.tak.weartak_tracker.cot.DittoChatDocument
 import com.tak.weartak_tracker.cot.Physio
 import com.tak.weartak_tracker.data.Activity
 import com.tak.weartak_tracker.data.Endpoint
@@ -130,8 +131,25 @@ class TrackerService : Service() {
         TrackerState.locationAccess.value = LocationAccess.current(this)
         repo = (application as TrackerApp).settings
         network = NetworkMonitor(this)
-        ditto = DittoClient(this)
-        chatCommands = ChatCommandRuntime.create(this, repo, { tak }, ::configureDitto) { xml ->
+        val chatRooms = DittoChatRooms(this)
+        ditto = DittoClient(this) { raw, peer ->
+            val text = raw["msg"] as? String
+            if (text != null && com.tak.weartak_tracker.command.ChatCommandParser.hasCommandPrefix(text.trim())) {
+                // Main (not Main.immediate) always queues execution outside the native observer callback.
+                scope.launch(Dispatchers.Main) {
+                    if (!config.dittoEnabled || !config.chatCommandsEnabled || !::chatCommands.isInitialized) return@launch
+                    val request = try {
+                        DittoChatDocument.request(raw, repo.deviceUid, peer, System.currentTimeMillis(),
+                            knownGroupMembers = chatRooms.members(raw["roomId"] as? String ?: ""))
+                    } catch (error: Exception) {
+                        Log.w(TAG, "Ditto chat rejected (${error.javaClass.simpleName})")
+                        null
+                    }
+                    if (request != null) chatCommands.handle(request)
+                }
+            }
+        }
+        chatCommands = ChatCommandRuntime.create(this, repo, { tak }, ::configureDitto, ditto::replyChat) { xml ->
             multicast.sendTo(xml, MulticastChatReceiver.CHAT_ADDRESS, MulticastChatReceiver.CHAT_PORT)
         }
         tak = TakServerManager(

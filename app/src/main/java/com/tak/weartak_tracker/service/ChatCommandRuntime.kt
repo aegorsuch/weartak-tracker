@@ -6,6 +6,12 @@ import com.tak.weartak_tracker.command.ChatCommand
 import com.tak.weartak_tracker.command.ChatCommandProcessor
 import com.tak.weartak_tracker.command.ChatCommandRequest
 import com.tak.weartak_tracker.command.ChatCommandResult
+import com.tak.weartak_tracker.command.ChatCommandAuthorizer
+import com.tak.weartak_tracker.command.UseP12Handler
+import com.tak.weartak_tracker.command.P12Installer
+import com.tak.weartak_tracker.command.ToggleDittoHandler
+import com.tak.weartak_tracker.command.DittoToggleStore
+import com.tak.weartak_tracker.transport.P12CredentialStore
 import com.tak.weartak_tracker.command.CustomAlertSink
 import com.tak.weartak_tracker.command.DittoPdlApplyResult
 import com.tak.weartak_tracker.command.DittoPdlStore
@@ -45,14 +51,59 @@ object ChatCommandRuntime {
         repo: SettingsRepository,
         tak: () -> TakServerManager,
         applyDitto: (TrackerConfig) -> DittoState,
+        dittoChat: (String) -> Int,
         multicastChat: suspend (String) -> Int,
     ): ChatCommandProcessor {
+        val sendReply: suspend (ChatCommandRequest, String) -> Unit = { request, message ->
+            val c = repo.config.first()
+            val xml = replyXml(repo.deviceUid, c.callsign, request, message)
+            val routes = routeReply(request.sourceServerId, xml, dittoChat, multicastChat, tak()::sendTo)
+            if (routes == 0) Log.w(TAG, "Command ack could not be published on ${request.sourceServerId}")
+            else Log.i(TAG, "Command ack published locally via ${request.sourceServerId}; remote delivery unconfirmed")
+        }
         val store = ProfileStore { update -> repo.update { c -> c.withProfile(update) } }
         val networkLocked: suspend () -> Boolean = { repo.config.first().networkPreferencesLocked }
         val sink = PresetServerSink { servers -> addServers(repo, servers) }
         val handlers = ProfileHandler.COMMAND_KEYS.mapValues { (_, keys) -> ProfileHandler(keys, store) } +
             ("loadprofile" to loadProfileHandler(context, repo)) +
             ("enrollserver" to EnrollServerHandler(sink, networkLocked)) +
+            ("toggleditto" to ToggleDittoHandler(
+                networkLocked = networkLocked,
+                store = DittoToggleStore { enabled ->
+                    var locked = false
+                    repo.update { c ->
+                        locked = c.networkPreferencesLocked
+                        if (locked) c else c.copy(dittoEnabled = enabled)
+                    }
+                    if (locked) DittoPdlApplyResult(applied = false, locked = true)
+                    else {
+                        val state = applyDitto(repo.current())
+                        DittoPdlApplyResult(state == DittoState.Active || state == DittoState.Disabled)
+                    }
+                },
+                beforeDisableReply = sendReply,
+                ackFailure = { Log.w(TAG, "Ditto off ack publication failed; remote delivery unconfirmed") },
+            )) +
+            ("usep12" to UseP12Handler(
+                servers = { repo.current().servers },
+                networkLocked = networkLocked,
+                installer = P12Installer { server, identity ->
+                    val staged = withContext(Dispatchers.IO) { P12CredentialStore(context).stage(server, identity) }
+                    tak().installIdentity(server, identity.credentials, commit = {
+                        var applied = false
+                        repo.update { c ->
+                            if (!c.networkPreferencesLocked && c.servers.any {
+                                    it.id == server.id && it.connectionKey == server.connectionKey
+                                }) {
+                                staged.commit()
+                                applied = true
+                            }
+                            c
+                        }
+                        applied
+                    }, rollback = staged::rollback)
+                },
+            )) +
             ("setpdl" to SetPdlHandler(
                 communityIdentity = { BuildConfig.DITTO_COMMUNITY_IDENTITY },
                 networkLocked = networkLocked,
@@ -75,16 +126,20 @@ object ChatCommandRuntime {
             ))
         return ChatCommandProcessor(
             isEnabled = { repo.config.first().chatCommandsEnabled },
+            isRouteEnabled = { request ->
+                request.sourceServerId != "ditto:chat" || repo.current().dittoEnabled
+            },
             allowedCallsigns = { repo.config.first().chatCommandCallsigns },
             handlers = handlers,
-            reply = { request, message ->
-                val c = repo.config.first()
-                val xml = replyXml(repo.deviceUid, c.callsign, request, message)
-                val routes = if (request.sourceServerId.startsWith(MULTICAST_SOURCE_PREFIX)) multicastChat(xml) else tak().send(xml)
-                Log.i(TAG, "reply to ${request.senderCallsign} via ${request.sourceServerId}: $routes route(s)")
-            },
+            reply = sendReply,
             audit = { Log.i(TAG, it) },
             positional = ProfileHandler.POSITIONAL_KEYS,
+            authorizer = ChatCommandAuthorizer(claim = CommandReplayJournal(context)::claim),
+            onAuthorized = { request ->
+                request.replyRoomId?.takeUnless { it == "All Chat Rooms" }?.let { room ->
+                    DittoChatRooms(context).remember(room, request.replyMemberUids + repo.deviceUid)
+                }
+            },
         )
     }
 
@@ -94,6 +149,18 @@ object ChatCommandRuntime {
             request.replyRoomName ?: request.senderCallsign, message,
             groupMembers = request.replyRoomId?.let { request.replyMemberUids },
         )
+
+    internal suspend fun routeReply(
+        source: String,
+        xml: String,
+        ditto: (String) -> Int,
+        multicast: suspend (String) -> Int,
+        server: suspend (String, String) -> Int,
+    ): Int = when {
+        source == "ditto:chat" -> ditto(xml)
+        source.startsWith(MULTICAST_SOURCE_PREFIX) -> multicast(xml)
+        else -> server(source, xml)
+    }
 
     /** loadprofile over this device's presets; chat and the Profiles screen share it. */
     fun loadProfileHandler(context: Context, repo: SettingsRepository): LoadProfileHandler = LoadProfileHandler(
