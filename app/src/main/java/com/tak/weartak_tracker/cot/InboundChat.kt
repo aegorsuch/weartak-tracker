@@ -36,8 +36,8 @@ class CotEventFramer(private val maxBytes: Int = 64 * 1024) {
 
 object InboundChat {
     /**
-     * Returns a command request when [xml] is a direct chat message to this device that starts with the
-     * command prefix. Group and broadcast chat, and everything else, return null. Like WearOS, a direct
+     * Returns a command request when [xml] is a chat command to this device. Only setdittopdl also accepts
+     * group/broadcast conversations; all other commands remain direct-only. Like WearOS, a direct
      * message counts when its conversation id is this device, or when it is the sender's own id (ATAK's
      * reply form) and the chatgrp members or the remarks `to` name this device. [onDrop] gets the reason a
      * command-looking chat was ignored; it never includes message text.
@@ -50,7 +50,10 @@ object InboundChat {
         myCallsign: String = "",
         onDrop: (String) -> Unit = {},
     ): ChatCommandRequest? {
-        if (!xml.contains("<__chat") || !xml.contains(ChatCommandParser.PREFIX, ignoreCase = true)) return null
+        if (!xml.contains("<__chat") || (
+                !xml.contains(ChatCommandParser.PREFIX, ignoreCase = true) &&
+                    !xml.contains(ChatCommandParser.DITTO_PREFIX, ignoreCase = true)
+            )) return null
         fun drop(reason: String): ChatCommandRequest? {
             onDrop("$reason (source $serverId)")
             return null
@@ -86,6 +89,8 @@ object InboundChat {
         val senderCallsign = chat.getAttribute("senderCallsign").takeIf { it.isNotBlank() }
             ?: return drop("no sender callsign")
         val remarks = event.getElementsByTagName("remarks").item(0) as? Element ?: return drop("no remarks")
+        val text = remarks.textContent.trim()
+        if (!ChatCommandParser.hasCommandPrefix(text)) return drop("text does not start with the prefix")
         val roomId = chat.getAttribute("id").ifBlank { group.getAttribute("id") }
         val participants = group.attributes.let { attrs ->
             (0 until attrs.length).mapNotNull { attrs.item(it) }
@@ -96,9 +101,9 @@ object InboundChat {
         val addressedToMe = myUid in participants || to == myUid ||
             (myCallsign.isNotBlank() && to.equals(myCallsign, ignoreCase = true))
         val direct = roomId == myUid || ((roomId.isBlank() || roomId == senderUid) && addressedToMe)
-        if (!direct) return drop("not a direct chat to this device (room ${roomId.take(64)})")
-        val text = remarks.textContent.trim()
-        if (!text.startsWith(ChatCommandParser.PREFIX, ignoreCase = true)) return drop("text does not start with the prefix")
+        if (!direct && !ChatCommandParser.isDittoCommand(text)) return drop("not a direct chat to this device (room ${roomId.take(64)})")
+        if (!direct && roomId.isBlank()) return drop("no chat conversation")
+        if (!direct && roomId != "All Chat Rooms" && myUid !in participants) return drop("not a member of the chat group")
         val sentAt = parseTime(event.getAttribute("time")) ?: parseTime(remarks.getAttribute("time")) ?: 0L
         return ChatCommandRequest(
             senderUid = senderUid,
@@ -108,6 +113,10 @@ object InboundChat {
             sentAtMs = sentAt,
             receivedAtMs = receivedAt,
             sourceServerId = serverId,
+            replyRoomId = roomId.takeUnless { direct },
+            replyRoomName = chat.getAttribute("chatroom").ifBlank { roomId }.takeUnless { direct },
+            replyMemberUids = if (direct) emptyList() else (listOf(senderUid) + participants)
+                .filter { it != myUid && it != roomId }.distinct(),
         )
     }
 

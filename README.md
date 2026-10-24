@@ -48,7 +48,7 @@ The location icon is white while reporting with precise location, yellow with ap
 
 ## Chat commands (WEARTAK-130)
 
-Settings > Tool Preferences > Plugins > Commands (off by default; the switch turns it on or off, and tapping the chip opens Allowed Callsigns and Profiles). When on, a direct chat message to the tracker from an allow-listed callsign that starts with `#weartaktrackercommand` is run, and the tracker replies in chat. Commands arrive over TAK Server connections and, when TAK SA Multicast is on, over mesh chat (the configured multicast group plus ATAK's chat group `224.10.10.1:17012`, XML or TAK protocol v1), so a watch with no TAK Server can still be configured. Mesh replies go to `224.10.10.1:17012`, and multicast PLIs advertise that endpoint so ATAK direct chat reaches the watch. A message counts as direct when its conversation id is this watch's UID, or the sender's UID with this watch listed as a chatgrp member or as the remarks `to` (UID or callsign), as WearOS accepts; group rooms and All Chat Rooms are ignored. Message times in any ISO-8601 form are accepted. Other senders are ignored silently, and nothing is parsed while the setting is off. An allow-listed sender whose message time is missing or more than 5 minutes off gets a "check both devices' clocks" reply. The mesh listeners apply the latest settings and Wi-Fi network on one worker and retry every 15 seconds after a bind or join failure. Ignored command chats, mesh listener start/failure, chat datagrams and replies are logged at INFO without message text or credentials (`adb logcat -s TrackerService MulticastChatReceiver ChatCommands`).
+Settings > Tool Preferences > Plugins > Commands (off by default; the switch turns it on or off, and tapping the chip opens Allowed Callsigns and Profiles). When on, a direct chat message to the tracker from an allow-listed callsign that starts with `#weartaktrackercommand` is run, and the tracker replies in chat. Commands arrive over TAK Server connections and, when TAK SA Multicast is on, over mesh chat (the configured multicast group plus ATAK's chat group `224.10.10.1:17012`, XML or TAK protocol v1), so a watch with no TAK Server can still be configured. Mesh replies go to `224.10.10.1:17012`, and multicast PLIs advertise that endpoint so ATAK direct chat reaches the watch. A message counts as direct when its conversation id is this watch's UID, or the sender's UID with this watch listed as a chatgrp member or as the remarks `to` (UID or callsign), as WearOS accepts. Only `setdittopdl` also accepts All Chat Rooms and group chats listing this watch's UID; its reply stays in that conversation, using the incoming room ID, title and participant roster. All other commands ignore groups/broadcast. Message times in any ISO-8601 form are accepted. Other senders are ignored silently, and nothing is parsed while the setting is off. An allow-listed sender whose message time is missing or more than 5 minutes off gets a "check both devices' clocks" reply. The mesh listeners apply the latest settings and Wi-Fi network on one worker and retry every 15 seconds after a bind or join failure. Ignored command chats, mesh listener start/failure, chat datagrams and replies are logged at INFO without message text or credentials (`adb logcat -s TrackerService MulticastChatReceiver ChatCommands`).
 
 Allowed Callsigns shows one callsign per row in case-insensitive alphabetical order. Select **Add Callsign** to enter one callsign; entries are trimmed, displayed in uppercase, and cannot be added twice. Swipe a row or tap it to reveal **Remove**. Older comma-separated allow-lists are read alongside the current newline-separated format.
 
@@ -62,6 +62,7 @@ Profile commands match WearOS WearTAK. Each takes `key=value` or, for single-val
 - `setprofile` takes any of `callsign team role height weight birthyear sex usertype pants waist`; every value is validated before anything changes.
 - `#weartaktrackercommandenrollserver OPS; tak.example.org; 8089; user; pass` (or `name=`, `url=`, `port=`, `username=`, `password=` arguments; port defaults to 8089) adds the server and enrolls for a client certificate with those credentials. Credentials are never logged or echoed in replies, but they do travel in the chat message, so use it only on trusted networks. Existing endpoints are skipped, and it is refused when network settings are locked.
 - `#weartaktrackercommandloadprofile name=odin-weartak` (or `loadprofile odin-weartak`) applies `Android/data/<package>/files/presets/<name>.json` (`{"profile":{"team":"Blue","pants":"30"},"servers":[{"name","url","port","username","password"}],"customAlerts":["Need water"]}`, profile keys as for `setprofile`). Servers already configured are skipped, and servers are not touched when network settings are locked. Optional `customAlerts` are merged into the saved custom alerts, skipping duplicates (case-insensitive, including presets); any invalid entry rejects the whole preset.
+- `#weartakcommandsetdittopdl source=community` selects the built-in Ditto Edge Sync identity; `#weartakcommandsetdittopdl pdl=<encoded-value>` stores and selects a Custom PDL. Both also accept the Tracker prefix (`#weartaktrackercommandsetdittopdl`) and optional `enabled=true|false`; omitting `enabled` preserves the current switch setting. Exactly one of `source=community` or `pdl=` is required. The identity must be unexpired SK-v2, and network settings must be unlocked. The running client applies it immediately; changing identity closes the previous session. Replies contain only status, source, app ID prefix, expiry and enabled state, never the PDL. The PDL still travels in the original chat (including group or broadcast recipients): use trusted networks and allow-listed senders only. Only this command permits a PDL value up to 16,384 characters (17,408 total command characters); other commands retain their existing limits.
 
 Callsigns are not authenticated, so only allow-list callsigns you trust on your servers.
 ## Setup
@@ -270,18 +271,19 @@ Run the publisher's offline mocked-API tests without credentials or network acce
 py -3 -m unittest discover -s tests -p 'test_publish_github_release.py'
 ```
 
-Ditto defaults to the Community PDL. The `DITTO_COMMUNITY_IDENTITY` environment variable takes precedence, then the
+Ditto Edge Sync defaults to the Community PDL. The `DITTO_COMMUNITY_IDENTITY` environment variable takes precedence, then the
 `dittoCommunityIdentity` Gradle property, then the ignored root `local.properties`; release CI fails if the variable is
 missing. Keep the license out of source control. A custom PDL can also be entered on the watch under
-**Plugins > Ditto > Ditto Identity**.
-The Ditto plugin subtitle shows Community or the saved custom PDL (truncated to fit); the switch controls sync.
+**Plugins > Ditto Edge Sync > Ditto Edge Sync Identity**.
+The Ditto Edge Sync plugin subtitle shows Community or the saved custom PDL (truncated to fit); the switch controls sync.
 Plugins are listed alphabetically. Everywhere Comms, GoTenna and Somewear Labs display **Unfunded Request**;
 their placeholder switches stay off and tapping them does not activate any integration.
 Sensor Manager also displays **Unfunded Request** and has a saved enable/disable switch (off by default). Tapping
 its row opens a page showing **Unfunded Request**, **Button is Placeholder** and an inert **Scan** button; no
 scanning, pairing or Bluetooth access is performed.
-PDL Help contains scrollable instructions for copying and pasting a custom identity. Turning Ditto off closes its
-database before it is reopened, so repeated off/on cycles release the previous instance's resources.
+PDL Help contains scrollable instructions for copying and pasting a custom identity. Turning Ditto Edge Sync off stops
+peer-to-peer sync and track publication; turning it back on resumes the same session. Changing identity closes the
+previous database before opening the new one, and stopping the tracker releases the session entirely.
 
 ### Release signing
 Release builds are signed only when a `signing.properties` file exists in the project root (it is git-ignored, as are `*.jks`/`*.keystore`):

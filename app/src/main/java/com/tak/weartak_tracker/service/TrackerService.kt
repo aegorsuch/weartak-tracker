@@ -124,7 +124,7 @@ class TrackerService : Service() {
         repo = (application as TrackerApp).settings
         network = NetworkMonitor(this)
         ditto = DittoClient(this)
-        chatCommands = ChatCommandRuntime.create(this, repo, { tak }) { xml ->
+        chatCommands = ChatCommandRuntime.create(this, repo, { tak }, ::configureDitto) { xml ->
             multicast.sendTo(xml, MulticastChatReceiver.CHAT_ADDRESS, MulticastChatReceiver.CHAT_PORT)
         }
         tak = TakServerManager(
@@ -173,9 +173,7 @@ class TrackerService : Service() {
                 if (c.dittoEnabled && dittoConfigChanged) {
                     TrackerState.ditto.value = com.tak.weartak_tracker.data.DittoState.Starting
                 }
-                val dittoState = ditto.configure(c)
-                TrackerState.ditto.value = dittoState
-                TrackerState.setEndpoint(Endpoint.DITTO, dittoState == com.tak.weartak_tracker.data.DittoState.Active)
+                configureDitto(c)
                 configureMulticast()
                 if (identityChanged || dittoConfigChanged) {
                     location.requestSingleFix()
@@ -449,6 +447,13 @@ class TrackerService : Service() {
     }
 
     // ---- Helpers ----
+
+    private fun configureDitto(c: TrackerConfig): com.tak.weartak_tracker.data.DittoState {
+        val state = ditto.configure(c)
+        TrackerState.ditto.value = state
+        TrackerState.setEndpoint(Endpoint.DITTO, state == com.tak.weartak_tracker.data.DittoState.Active)
+        return state
+    }
 
     private fun handleInboundChat(source: String, xml: String) {
         val request = InboundChat.commandRequest(

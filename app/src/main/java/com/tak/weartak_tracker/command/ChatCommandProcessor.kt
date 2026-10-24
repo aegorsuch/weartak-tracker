@@ -7,7 +7,10 @@ data class ChatCommandRequest(
     val messageId: String?,
     val sentAtMs: Long,
     val receivedAtMs: Long,
-    val sourceServerId: String
+    val sourceServerId: String,
+    val replyRoomId: String? = null,
+    val replyRoomName: String? = null,
+    val replyMemberUids: List<String> = emptyList(),
 )
 
 data class ChatCommandResult(val ok: Boolean, val message: String)
@@ -17,8 +20,9 @@ fun interface ChatCommandHandler {
 }
 
 /**
- * Runs `#weartaktrackercommand...` chat messages. Only direct messages from allow-listed callsigns are
- * acted on, and only when the Commands setting is on. Messages from other senders are swallowed
+ * Runs `#weartaktrackercommand...` chat messages. Only messages from allow-listed callsigns are
+ * acted on, and only when the Commands setting is on. Group/broadcast is limited to setdittopdl
+ * by the inbound chat filter. Messages from other senders are swallowed
  * silently so the feature cannot be probed. Argument values are never logged or echoed.
  */
 class ChatCommandProcessor(
@@ -56,7 +60,9 @@ class ChatCommandProcessor(
         when (parsed) {
             is ChatCommandParse.Malformed -> {
                 audit("malformed command from ${request.senderCallsign}: ${parsed.reason}")
-                reply(request, "Command rejected: ${parsed.reason}")
+                reply(request, if (ChatCommandParser.isDittoCommand(request.text)) {
+                    "Ditto not changed: invalid arguments"
+                } else "Command rejected: ${parsed.reason}")
             }
             is ChatCommandParse.Parsed -> run(parsed.command, request)
             ChatCommandParse.NotACommand -> Unit
@@ -76,7 +82,7 @@ class ChatCommandProcessor(
         } catch (error: kotlinx.coroutines.CancellationException) {
             throw error
         } catch (error: Exception) {
-            ChatCommandResult(false, "Command failed")
+            ChatCommandResult(false, if (command.name == "setdittopdl") "Ditto update failed" else "Command failed")
         }
         audit("command ${command.name} from ${request.senderCallsign}: ${if (result.ok) "ok" else "failed"}")
         reply(request, result.message)

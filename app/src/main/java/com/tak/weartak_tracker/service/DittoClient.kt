@@ -15,22 +15,86 @@ import live.ditto.DittoSyncSubscription
 import live.ditto.android.DefaultAndroidDittoDependencies
 import live.ditto.transports.DittoTransportConfig
 
-class DittoClient(context: Context) {
-    private val appContext = context.applicationContext
-    private var ditto: Ditto? = null
-    private var trackSubscription: DittoSyncSubscription? = null
+internal interface DittoPeerSession {
+    var deviceName: String
+    val peerKey: String
+    fun startSync()
+    fun stopSync()
+    fun publish(document: Map<String, Any?>)
+    fun close()
+}
+
+private class AndroidDittoPeerSession(context: Context, license: DittoCommunityLicense) : DittoPeerSession {
+    private val instance: Ditto
+    private var subscription: DittoSyncSubscription? = null
+
+    init {
+        val dependencies = DefaultAndroidDittoDependencies(context)
+        val identity = DittoIdentity.SharedKey(dependencies, appId = license.appId, sharedKey = license.sharedKey)
+        instance = Ditto(dependencies, identity)
+        var initialized = false
+        try {
+            instance.setOfflineOnlyLicenseToken(license.licenseToken)
+            instance.transportConfig = DittoTransportConfig().apply { enableAllPeerToPeer() }
+            subscription = instance.sync.registerSubscription("SELECT * FROM track")
+            initialized = true
+        } finally {
+            if (!initialized) instance.close()
+        }
+    }
+
+    override var deviceName: String
+        get() = instance.deviceName
+        set(value) { instance.deviceName = value }
+    override val peerKey: String get() = instance.presence.graph.localPeer.peerKeyString
+    override fun startSync() = instance.startSync()
+    override fun stopSync() = instance.stopSync()
+    override fun publish(document: Map<String, Any?>) {
+        instance.store.write { it.scoped("track").upsert(document) }
+    }
+    override fun close() {
+        try {
+            subscription?.close()
+        } finally {
+            subscription = null
+            instance.close()
+        }
+    }
+}
+
+class DittoClient internal constructor(
+    private val createSession: (DittoCommunityLicense) -> DittoPeerSession,
+    private val communityIdentity: () -> String,
+    private val now: () -> Long = System::currentTimeMillis,
+    private val logError: (String, Throwable) -> Unit = { message, error -> Log.e(TAG, message, error); Unit },
+) {
+    constructor(context: Context) : this(
+        createSession = { AndroidDittoPeerSession(context.applicationContext, it) },
+        communityIdentity = { BuildConfig.DITTO_COMMUNITY_IDENTITY },
+    )
+
+    private var ditto: DittoPeerSession? = null
     private var activePdl: String? = null
+    private var syncing = false
 
     fun configure(config: TrackerConfig): DittoState {
-        if (!config.dittoEnabled) {
-            stop()
-            return DittoState.Disabled
-        }
-
         val pdl = when (config.dittoPdlSource) {
-            DittoPdlSource.COMMUNITY -> BuildConfig.DITTO_COMMUNITY_IDENTITY
+            DittoPdlSource.COMMUNITY -> communityIdentity()
             DittoPdlSource.CUSTOM -> config.dittoCustomPdl
         }.trim()
+        if (!config.dittoEnabled) {
+            return try {
+                if (activePdl != pdl) stop()
+                else if (syncing) ditto?.stopSync()
+                syncing = false
+                DittoState.Disabled
+            } catch (error: DittoError) {
+                logError("Ditto Edge Sync failed to stop", error)
+                stop()
+                DittoState.Error(error.message ?: "Ditto Edge Sync failed to stop")
+            }
+        }
+
         if (pdl.isBlank()) {
             stop()
             return DittoState.NeedsIdentity
@@ -40,48 +104,39 @@ class DittoClient(context: Context) {
             DittoCommunityLicenseHelper.parse(pdl)
         } catch (error: IllegalArgumentException) {
             stop()
-            return DittoState.Error(error.message ?: "Invalid Ditto identity")
+            return DittoState.Error(error.message ?: "Invalid Ditto Edge Sync identity")
         }
-        if (license.expiresAtMillis <= System.currentTimeMillis()) {
+        if (license.expiresAtMillis <= now()) {
             stop()
-            return DittoState.Error("Ditto identity has expired")
-        }
-        if (ditto != null && activePdl == pdl) {
-            ditto?.deviceName = config.callsign
-            return DittoState.Active
+            return DittoState.Error("Ditto Edge Sync identity has expired")
         }
 
-        stop()
         return try {
-            val dependencies = DefaultAndroidDittoDependencies(appContext)
-            val identity = DittoIdentity.SharedKey(
-                dependencies,
-                appId = license.appId,
-                sharedKey = license.sharedKey,
-            )
-            val instance = Ditto(dependencies, identity)
-            ditto = instance
-            instance.setOfflineOnlyLicenseToken(license.licenseToken)
+            if (activePdl != pdl) {
+                stop()
+                ditto = createSession(license)
+                activePdl = pdl
+            }
+            val instance = requireNotNull(ditto)
             instance.deviceName = config.callsign
-            instance.transportConfig = DittoTransportConfig().apply { enableAllPeerToPeer() }
-            val subscription = instance.sync.registerSubscription("SELECT * FROM track")
-            trackSubscription = subscription
-            instance.startSync()
-            activePdl = pdl
+            // The toggle pauses/resumes the existing SDK session; only identity changes or service
+            // shutdown close the database. A paused instance must explicitly start syncing again.
+            if (!syncing) instance.startSync()
+            syncing = true
             DittoState.Active
         } catch (error: DittoError) {
-            Log.e(TAG, "Ditto failed to start", error)
+            logError("Ditto Edge Sync failed to start", error)
             stop()
-            DittoState.Error(error.message ?: "Ditto failed to start")
+            DittoState.Error(error.message ?: "Ditto Edge Sync failed to start")
         } catch (error: SecurityException) {
-            Log.e(TAG, "Ditto requires nearby-device permissions", error)
+            logError("Ditto Edge Sync requires nearby-device permissions", error)
             stop()
-            DittoState.Error("Nearby-device permissions are required for Ditto")
+            DittoState.Error("Nearby-device permissions are required for Ditto Edge Sync")
         }
     }
 
     fun publishTrack(xml: String, fix: Fix, config: TrackerConfig, uid: String) {
-        val instance = ditto ?: return
+        val instance = ditto?.takeIf { syncing } ?: return
         val now = System.currentTimeMillis()
         val stale = now + 3_000L * ReportingStrategy.intervalSecs(config, TrackerState.isAlerting, TrackerState.activity.value)
         val detail = DETAIL_PATTERN.find(xml)?.value ?: "<detail/>"
@@ -93,7 +148,7 @@ class DittoClient(context: Context) {
             "AuthorId" to uid,
             "authorType" to "a-f-G-U-C",
             "visible" to true,
-            "a" to instance.presence.graph.localPeer.peerKeyString,
+            "a" to instance.peerKey,
             "b" to now,
             "c" to config.callsign,
             "d" to uid,
@@ -115,27 +170,24 @@ class DittoClient(context: Context) {
             "w" to "a-f-G-U-C",
         )
         try {
-            instance.store.write { transaction ->
-                transaction.scoped("track").upsert(document)
-            }
+            instance.publish(document)
         } catch (error: DittoError) {
-            Log.e(TAG, "Ditto track update failed", error)
+            logError("Ditto Edge Sync track update failed", error)
         }
     }
 
     fun stop() {
-        trackSubscription?.close()
-        trackSubscription = null
-        ditto?.let { instance ->
-            try {
-                // stopSync leaves the database open; close releases it before the next identity is opened.
-                instance.close()
-            } catch (error: DittoError) {
-                Log.e(TAG, "Ditto close failed", error)
-            }
-        }
+        val instance = ditto
         ditto = null
         activePdl = null
+        syncing = false
+        instance?.let {
+            try {
+                instance.close()
+            } catch (error: DittoError) {
+                logError("Ditto Edge Sync close failed", error)
+            }
+        }
     }
 
     private companion object {
