@@ -27,11 +27,13 @@ class DittoClientTest {
     private val enabled = TrackerConfig(dittoEnabled = true, callsign = "ALPHA")
     private val sessions = mutableListOf<FakeSession>()
     private val errors = mutableListOf<String>()
+    private var ready = 0
     private val client = DittoClient(
         createSession = { FakeSession().also(sessions::add) },
         communityIdentity = { community },
         now = { 1_000L },
         logError = { message, _ -> errors.add(message) },
+        onReady = { ready++ },
     )
 
     @Test
@@ -67,6 +69,7 @@ class DittoClientTest {
         }
         assertEquals(1, sessions.size)
         assertEquals(4, session.starts)
+        assertEquals(4, ready)
         assertEquals(3, session.pauses)
         assertEquals(0, session.closes)
         assertTrue(errors.isEmpty())
@@ -171,6 +174,7 @@ class DittoClientTest {
         assertTrue(client.configure(custom.copy(dittoCustomPdl = "invalid")) is DittoState.Error)
         assertTrue(client.configure(custom.copy(dittoCustomPdl = pdl("expired", 999L))) is DittoState.Error)
         assertEquals(1, sessions.size)
+        assertEquals(1, ready)
     }
 
     @Test
@@ -179,10 +183,33 @@ class DittoClientTest {
         client.configure(enabled.copy(dittoEnabled = false))
         sessions.single().failStart = true
         assertTrue(client.configure(enabled) is DittoState.Error)
+        assertEquals(1, ready)
         assertEquals(1, sessions.single().closes)
         assertEquals(1, errors.size)
         assertEquals(DittoState.Active, client.configure(enabled))
         assertEquals(2, sessions.size)
+        assertEquals(2, ready)
+    }
+
+    @Test
+    fun readyCallbackCanPublishCurrentSelfTrackOnlyAfterSyncStarts() {
+        val session = FakeSession()
+        lateinit var readyClient: DittoClient
+        readyClient = DittoClient(
+            createSession = { session }, communityIdentity = { community }, now = { 1_000L },
+            onReady = {
+                assertEquals(1, session.starts)
+                readyClient.publishTrack(
+                    "<event><detail><remarks>MOPP2</remarks></detail></event>",
+                    Fix(1.0, 2.0, 0.0, 1f, 1f, 0f, 0f, 1_000L), enabled, "self",
+                )
+            },
+        )
+        readyClient.configure(enabled)
+        readyClient.configure(enabled)
+        assertEquals(1, session.documents.size)
+        assertEquals("self", session.documents.single()["_id"])
+        assertTrue(session.chats.isEmpty())
     }
 
     @Test

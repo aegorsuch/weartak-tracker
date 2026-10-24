@@ -83,6 +83,7 @@ class TrackerService : Service() {
     private val multicastKick = Channel<Unit>(Channel.CONFLATED)
     private var multicastWorker: Job? = null
     private var lastFix: Fix? = null
+    private var lastFixAccess = LocationAccess.NONE
     private var lastLocationElapsed = 0L
     /** Elapsed time of the newest fix, so an alert press can briefly wait for the fix it requested. */
     private val fixArrivals = MutableStateFlow(0L)
@@ -93,6 +94,7 @@ class TrackerService : Service() {
     private lateinit var motion: MotionTrigger
     private lateinit var physio: PhysioMonitor
     private var physioActive = false
+    private val pliRefresh = PliRefreshCoordinator(scope, { rebroadcastPli() })
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -132,7 +134,7 @@ class TrackerService : Service() {
         repo = (application as TrackerApp).settings
         network = NetworkMonitor(this)
         val chatRooms = DittoChatRooms(this)
-        ditto = DittoClient(this) { raw, peer ->
+        ditto = DittoClient(this, onReady = { pliRefresh.request() }) { raw, peer ->
             val text = raw["msg"] as? String
             if (text != null && com.tak.weartak_tracker.command.ChatCommandParser.hasCommandPrefix(text.trim())) {
                 // Main (not Main.immediate) always queues execution outside the native observer callback.
@@ -176,7 +178,12 @@ class TrackerService : Service() {
         physio = PhysioMonitor(this)
 
         network.start()
-        location.lastKnown { it?.let { loc -> if (lastFix == null) lastFix = loc.toFix() } }
+        location.lastKnown { it?.let { loc ->
+            if (lastFix == null) {
+                lastFix = loc.toFix()
+                lastFixAccess = LocationAccess.current(this)
+            }
+        } }
         // Starting tracking publishes the wearer's position, so get a fresh one rather than waiting for the schedule.
         location.requestSingleFix()
 
@@ -200,9 +207,9 @@ class TrackerService : Service() {
                 }
                 configureDitto(c)
                 configureMulticast()
-                if (identityChanged || dittoConfigChanged) {
+                if (identityChanged) {
                     location.requestSingleFix()
-                    lastFix?.let { sendPli(it) }
+                    pliRefresh.request()
                 }
             }
         }
@@ -219,7 +226,6 @@ class TrackerService : Service() {
                 if (net != null) {
                     tak.reconnectAll()
                     sitx.onNetworkChanged()
-                    rebroadcastPli()
                 }
             }
         }
@@ -355,6 +361,7 @@ class TrackerService : Service() {
     private fun onLocation(loc: Location) {
         val fix = loc.toFix()
         lastFix = fix
+        lastFixAccess = LocationAccess.current(this)
         lastLocationElapsed = SystemClock.elapsedRealtime()
         fixArrivals.value = lastLocationElapsed
         TrackerState.lastFix.value = fix
@@ -369,6 +376,7 @@ class TrackerService : Service() {
     }
 
     private suspend fun sendPli(fix: Fix) {
+        pliRefresh.onPliSent()
         val xml = CotBuilder.pli(
             uid = repo.deviceUid,
             callsign = config.callsign,
@@ -419,12 +427,11 @@ class TrackerService : Service() {
 
     private suspend fun onEndpointConnected() {
         alertMutex.withLock { if (isReady()) forwarder.flush() }
-        rebroadcastPli()
+        pliRefresh.request()
     }
 
     private suspend fun rebroadcastPli() {
-        val fix = lastFix
-        if (fix != null) sendPli(fix) else location.requestSingleFix()
+        refreshCurrentPli(lastFix, lastFixAccess, LocationAccess.current(this), location::requestSingleFix, ::sendPli)
     }
 
     /** User-requested PLI: send the best fix now, and the fresh fix requested here sends another when it lands. */

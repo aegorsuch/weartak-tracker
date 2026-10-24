@@ -32,6 +32,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Warning
@@ -219,6 +220,7 @@ fun NavGraphBuilder.settingsGraph(repo: SettingsRepository, configState: State<T
 
     composable("callsign_and_device_preferences") {
         WearTAKPageWithBackArrow("Callsign and Device Preferences", back) {
+            item { PhysioToggle(repo, config) }
             item { WearTAKTitleChipWithState("My Callsign", config.callsign) { go("my_callsign") } }
             item { WearTAKTitleChipWithState("My Team", config.team) { go("my_team") } }
             item { WearTAKTitleChipWithState("My Role", config.role) { go("my_role") } }
@@ -231,7 +233,6 @@ fun NavGraphBuilder.settingsGraph(repo: SettingsRepository, configState: State<T
                 )
             }
             item { WearTAKTitleChip("Reporting Strategy") { go("reporting_strategy") } }
-            item { PhysioToggle(repo, config) }
             item {
                 val update = rememberUpdater(repo)
                 WearTAKToggleChip(
@@ -811,7 +812,7 @@ private fun NavGraphBuilder.networkComposable(
 
 /** CIV's "Physiological Monitoring" switch; turning it on asks for heart-rate access first. */
 @Composable
-private fun PhysioToggle(repo: SettingsRepository, config: TrackerConfig) {
+internal fun PhysioToggle(repo: SettingsRepository, config: TrackerConfig) {
     val context = LocalContext.current
     val update = rememberUpdater(repo)
     val bpm by TrackerState.heartRate.collectAsStateWithLifecycle()
@@ -839,6 +840,7 @@ private fun PhysioToggle(repo: SettingsRepository, config: TrackerConfig) {
             }
         },
         title = "Physiological Monitoring",
+        icon = { Icon(Icons.Filled.Favorite, contentDescription = null, modifier = Modifier.size(24.dp)) },
         description = if (!config.physioMonitoring) "Off" else {
             val hr = if (bpm > 0) "$bpm" else "N/A"
             val skin = skinF?.let { String.format(java.util.Locale.US, "%.1f°F", it) } ?: "N/A"
