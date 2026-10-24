@@ -390,6 +390,7 @@ class TrackerService : Service() {
             } else null,
             includeBatdok = config.batdokEnabled,
             ageYears = config.medicalProfile.ageYears(),
+            moppStatus = config.moppStatus,
         )
         lastPliElapsed = SystemClock.elapsedRealtime()
         // Same routing as CIV: TAK when connected, SITX and multicast whenever available.
