@@ -1,5 +1,6 @@
 package com.tak.weartak_tracker.command
 
+import com.tak.weartak_tracker.data.CustomAlerts
 import com.tak.weartak_tracker.data.MEDICAL_SEX_OPTIONS
 import com.tak.weartak_tracker.data.MEDICAL_USER_TYPE_OPTIONS
 import com.tak.weartak_tracker.data.ROLE_CATEGORIES
@@ -142,23 +143,38 @@ class EnrollServerHandler(
 
 data class PresetServer(val name: String, val address: String, val port: Int, val username: String, val password: String)
 
-data class ProfilePreset(val profile: Map<String, String>, val servers: List<PresetServer>)
+data class ProfilePreset(
+    val profile: Map<String, String>,
+    val servers: List<PresetServer>,
+    val customAlerts: List<String> = emptyList(),
+)
 
 object ProfilePresetParser {
     private val NAME = Regex("[a-z0-9][a-z0-9\\-]{0,31}")
 
     fun validName(name: String?): String? = name?.trim()?.lowercase()?.takeIf { NAME.matches(it) }
 
-    /** Returns null for malformed JSON or any invalid server entry, so a bad preset applies nothing. */
+    /** Returns null for malformed JSON or any invalid server or custom alert entry, so a bad preset applies nothing. */
     fun parse(json: String): ProfilePreset? = try {
         val root = JSONObject(json)
         val profile = root.optJSONObject("profile")?.let { o ->
             o.keys().asSequence().associateWith { o.optString(it) }
         }.orEmpty()
         val servers = root.optJSONArray("servers")?.let(::servers) ?: emptyList()
-        if (servers.any { it == null }) null else ProfilePreset(profile, servers.filterNotNull())
+        val alerts = when {
+            !root.has(CUSTOM_ALERTS_KEY) -> emptyList()
+            else -> root.optJSONArray(CUSTOM_ALERTS_KEY)?.let(::customAlerts) ?: listOf(null)
+        }
+        if (servers.any { it == null } || alerts.any { it == null }) null
+        else ProfilePreset(profile, servers.filterNotNull(), alerts.filterNotNull().distinctBy { it.lowercase() })
     } catch (error: JSONException) {
         null
+    }
+
+    const val CUSTOM_ALERTS_KEY = "customAlerts"
+
+    private fun customAlerts(array: JSONArray): List<String?> = (0 until array.length()).map { i ->
+        (array.opt(i) as? String)?.let(CustomAlerts::normalize)
     }
 
     private fun servers(array: JSONArray): List<PresetServer?> = (0 until array.length()).map { i ->
@@ -182,6 +198,11 @@ fun interface PresetServerSink {
     suspend fun add(servers: List<PresetServer>): Int
 }
 
+fun interface CustomAlertSink {
+    /** Saves the custom alerts that are not already saved and returns how many were added. */
+    suspend fun add(alerts: List<String>): Int
+}
+
 /**
  * `#weartaktrackercommandloadprofile name=odin-weartak` applies a preset stored on the device. Credentials
  * come from that file, never from chat, and nothing from it is logged or sent back.
@@ -191,6 +212,7 @@ class LoadProfileHandler(
     private val profile: ProfileHandler,
     private val serverSink: PresetServerSink,
     private val networkLocked: suspend () -> Boolean,
+    private val customAlertSink: CustomAlertSink = CustomAlertSink { 0 },
 ) : ChatCommandHandler {
     override suspend fun execute(command: ChatCommand, request: ChatCommandRequest): ChatCommandResult {
         if (command.args.keys != setOf("name")) return ChatCommandResult(false, "loadprofile needs name=<preset>")
@@ -208,6 +230,8 @@ class LoadProfileHandler(
             profileSummary = "profile applied"
         }
         val added = if (preset.servers.isEmpty()) 0 else serverSink.add(preset.servers)
-        return ChatCommandResult(true, "Loaded $name: $profileSummary, $added of ${preset.servers.size} servers added")
+        val alerts = if (preset.customAlerts.isEmpty()) "" else
+            ", ${customAlertSink.add(preset.customAlerts)} of ${preset.customAlerts.size} custom alerts added"
+        return ChatCommandResult(true, "Loaded $name: $profileSummary, $added of ${preset.servers.size} servers added$alerts")
     }
 }

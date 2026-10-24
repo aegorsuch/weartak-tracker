@@ -927,6 +927,12 @@ private fun PresetDetailPage(repo: SettingsRepository, name: String, back: () ->
                 s.servers.forEach { server ->
                     item { Text(server, textAlign = TextAlign.Center, color = Color.LightGray) }
                 }
+                if (s.customAlerts.isNotEmpty()) {
+                    item { Text("Custom Alerts", textAlign = TextAlign.Center) }
+                    s.customAlerts.forEach { alert ->
+                        item { Text(alert, textAlign = TextAlign.Center, color = Color.LightGray) }
+                    }
+                }
             }
         }
         if (message.isNotBlank()) {

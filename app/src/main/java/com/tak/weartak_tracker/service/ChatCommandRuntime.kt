@@ -6,6 +6,7 @@ import com.tak.weartak_tracker.command.ChatCommand
 import com.tak.weartak_tracker.command.ChatCommandProcessor
 import com.tak.weartak_tracker.command.ChatCommandRequest
 import com.tak.weartak_tracker.command.ChatCommandResult
+import com.tak.weartak_tracker.command.CustomAlertSink
 import com.tak.weartak_tracker.command.EnrollServerHandler
 import com.tak.weartak_tracker.command.LoadProfileHandler
 import com.tak.weartak_tracker.command.PresetServer
@@ -15,6 +16,7 @@ import com.tak.weartak_tracker.command.ProfileHandler
 import com.tak.weartak_tracker.command.ProfileStore
 import com.tak.weartak_tracker.command.ProfileUpdate
 import com.tak.weartak_tracker.cot.CotBuilder
+import com.tak.weartak_tracker.data.CustomAlerts
 import com.tak.weartak_tracker.data.ProfilePresets
 import com.tak.weartak_tracker.data.SettingsRepository
 import com.tak.weartak_tracker.data.TakServerConfig
@@ -66,6 +68,7 @@ object ChatCommandRuntime {
         profile = ProfileHandler(ProfileHandler.PROFILE_KEYS, ProfileStore { update -> repo.update { c -> c.withProfile(update) } }),
         serverSink = PresetServerSink { servers -> addServers(repo, servers) },
         networkLocked = { repo.config.first().networkPreferencesLocked },
+        customAlertSink = CustomAlertSink { alerts -> addCustomAlerts(repo, alerts) },
     )
 
     /**
@@ -95,6 +98,16 @@ object ChatCommandRuntime {
             )
         },
     )
+
+    private suspend fun addCustomAlerts(repo: SettingsRepository, alerts: List<String>): Int {
+        var added = 0
+        repo.update { c ->
+            val (merged, count) = CustomAlerts.merge(c.customAlerts, alerts)
+            added = count
+            c.copy(customAlerts = merged)
+        }
+        return added
+    }
 
     private suspend fun addServers(repo: SettingsRepository, servers: List<PresetServer>): Int {
         var added = 0

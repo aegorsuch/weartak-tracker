@@ -135,11 +135,11 @@ object CotBuilder {
             biometrics +
                 element("link", listOf("uid" to esc(deviceUid), "type" to SELF_TYPE, "relation" to "p-p")) +
                 element("contact", listOf("callsign" to "${esc(callsign)}&#10;${esc(description)}")) +
-                element("emergency", listOf("type" to esc(description)), esc(callsign)) +
+                element("emergency", listOf("type" to esc(StandardEmergencyType.emergencyType(description))), esc(callsign)) +
                 element("usericon", listOf("iconsetpath" to "911 Alert")) +
                 element("color", listOf("argb" to "-1"))
         }
-        val type = if (state == AlertState.CANCEL) "b-a-o-can" else "b-a-o"
+        val type = if (state == AlertState.CANCEL) StandardEmergencyType.CANCEL_COT_TYPE else StandardEmergencyType.cotType(description)
         return event(
             listOf(
                 "version" to "2.0", "uid" to esc(alertUid), "type" to type, "time" to time.startCot,

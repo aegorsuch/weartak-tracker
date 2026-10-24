@@ -18,6 +18,7 @@ data class PresetSummary(
     val valid: Boolean,
     val profile: List<Pair<String, String>>,
     val servers: List<String>,
+    val customAlerts: List<String> = emptyList(),
 )
 
 /**
@@ -97,7 +98,11 @@ object ProfilePresets {
                     .put("username", s.username).put("password", s.password),
             )
         }
-        return JSONObject().put("profile", profile).put("servers", servers).toString(2)
+        val root = JSONObject().put("profile", profile).put("servers", servers)
+        config.customAlerts.mapNotNull(CustomAlerts::normalize).takeIf { it.isNotEmpty() }?.let {
+            root.put(ProfilePresetParser.CUSTOM_ALERTS_KEY, JSONArray(it))
+        }
+        return root.toString(2)
     }
 
     fun label(key: String): String = LABELS[key] ?: key
@@ -117,6 +122,7 @@ object ProfilePresets {
             profile = preset.profile.entries.map { it.key.lowercase() to it.value }
                 .sortedBy { ProfileHandler.PROFILE_KEYS.indexOf(it.first).let { i -> if (i < 0) Int.MAX_VALUE else i } },
             servers = preset.servers.map { "${it.name} (${it.address}:${it.port})" },
+            customAlerts = preset.customAlerts,
         )
     }
 }

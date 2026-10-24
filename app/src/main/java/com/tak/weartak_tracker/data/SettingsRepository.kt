@@ -119,6 +119,7 @@ data class TrackerConfig(
     val dittoPdlSource: DittoPdlSource = DittoPdlSource.COMMUNITY,
     val dittoCustomPdl: String = "",
     val sensorManagerEnabled: Boolean = false,
+    val customAlerts: List<String> = emptyList(),
 )
 
 /** SITX OAuth device-flow state (persisted encrypted). */
@@ -163,6 +164,7 @@ class SettingsRepository(private val context: Context) {
         val DITTO_ENABLED = booleanPreferencesKey("ditto_enabled")
         val DITTO_PDL_SOURCE = stringPreferencesKey("ditto_pdl_source")
         val DITTO_CUSTOM_PDL = stringPreferencesKey("ditto_custom_pdl.enc")
+        val CUSTOM_ALERTS = stringPreferencesKey("custom_manual_alerts")
     }
 
     @SuppressLint("HardwareIds")
@@ -220,6 +222,7 @@ class SettingsRepository(private val context: Context) {
             p[K.SITX_URL] = n.sitxUrl.trim()
             p[K.PHYSIO] = n.physioMonitoring
             p[K.BATDOK] = n.batdokEnabled
+            if (n.customAlerts != old.customAlerts) p[K.CUSTOM_ALERTS] = CustomAlerts.encode(n.customAlerts)
             if (n.medicalProfile != old.medicalProfile) {
                 p[K.MEDICAL_PROFILE] = SecretBox.encrypt(MedicalProfileCodec.encode(n.medicalProfile))
             }
@@ -288,5 +291,6 @@ class SettingsRepository(private val context: Context) {
                 runCatching { DittoPdlSource.valueOf(it) }.getOrNull()
             } ?: DittoPdlSource.COMMUNITY,
             dittoCustomPdl = SecretBox.decrypt(p[K.DITTO_CUSTOM_PDL]).orEmpty(),
+            customAlerts = CustomAlerts.decode(p[K.CUSTOM_ALERTS]),
         )
 }
