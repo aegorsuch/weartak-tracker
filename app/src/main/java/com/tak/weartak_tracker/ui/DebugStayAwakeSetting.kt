@@ -1,7 +1,7 @@
 package com.tak.weartak_tracker.ui
 
 import android.content.Intent
-import android.util.Log
+import com.tak.weartak_tracker.diagnostics.AppLog as Log
 import android.widget.Toast
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row

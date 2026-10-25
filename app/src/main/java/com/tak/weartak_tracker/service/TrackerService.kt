@@ -11,7 +11,10 @@ import android.os.BatteryManager
 import android.os.Build
 import android.os.IBinder
 import android.os.SystemClock
-import android.util.Log
+import com.tak.weartak_tracker.diagnostics.AppLog as Log
+import com.tak.weartak_tracker.diagnostics.Diagnostics
+import com.tak.weartak_tracker.diagnostics.DiagnosticEvent
+import com.tak.weartak_tracker.diagnostics.DiagnosticDetail
 import androidx.core.content.ContextCompat
 import com.tak.weartak_tracker.R
 import com.tak.weartak_tracker.TrackerApp
@@ -382,6 +385,12 @@ class TrackerService : Service() {
         )
         configureObservationInterval()
         reportingSpeed = reportingSpeed?.copy(validUntilElapsedMillis = fix.elapsedRealtimeMillis?.let(location::speedValidUntil))
+        val speed = reportingSpeed?.current(SystemClock.elapsedRealtime(), currentSpeedProvider, location.inputStartedElapsed)
+        Diagnostics.record(DiagnosticEvent.SPEED, when {
+            lastFixAccess != LocationAccess.PRECISE || speed == null -> DiagnosticDetail.UNKNOWN
+            speed < ReportingStrategy.MOTION_BOUNDARY_MPS -> DiagnosticDetail.STATIONARY
+            else -> DiagnosticDetail.MOVING
+        })
         scope.launch {
             outboundRefresh.update(readyPliRoutes())
             if (forcePli || identityRefreshPending || outboundRefresh.needed) sendPli(fix) else reportIfDue()
@@ -623,9 +632,16 @@ class TrackerService : Service() {
         return speed
     }
 
-    private fun battery(): Int? =
-        getSystemService(BatteryManager::class.java)?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
-            ?.takeIf { it in 0..100 }
+    private fun battery(): Int? {
+        val percent = getSystemService(BatteryManager::class.java)
+            ?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)?.takeIf { it in 0..100 }
+        Diagnostics.record(DiagnosticEvent.POWER, when {
+            percent == null -> DiagnosticDetail.UNKNOWN
+            percent <= 15 -> DiagnosticDetail.LOW_BATTERY
+            else -> DiagnosticDetail.NORMAL
+        })
+        return percent
+    }
 
     private fun goForeground(): Boolean {
         if (!LocationAccess.current(this).granted) return false

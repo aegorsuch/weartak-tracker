@@ -15,6 +15,10 @@ import com.google.android.gms.location.LocationRequest
 import com.google.android.gms.location.LocationResult
 import com.google.android.gms.location.LocationServices
 import com.tak.weartak_tracker.data.LocationAccess
+import com.tak.weartak_tracker.diagnostics.Diagnostics
+import com.tak.weartak_tracker.diagnostics.DiagnosticEvent
+import com.tak.weartak_tracker.diagnostics.DiagnosticDetail
+import com.tak.weartak_tracker.diagnostics.AppLog as Log
 
 /**
  * GPS scheduling as in WearTAK-CIV's LocationService: short intervals (<10 s) use a periodic request;
@@ -28,7 +32,10 @@ class LocationEngine(
     private val handler = Handler(Looper.getMainLooper())
     private var fixSinceAlarm = true
     private val noFixCheck = Runnable {
-        if (!fixSinceAlarm) onNoFix()
+        if (!fixSinceAlarm) {
+            Diagnostics.record(DiagnosticEvent.LOCATION, DiagnosticDetail.TIMEOUT)
+            onNoFix()
+        }
         releaseWakeLock()
     }
 
@@ -167,6 +174,7 @@ class LocationEngine(
         try {
             fused.requestLocationUpdates(request, callback, Looper.getMainLooper())
         } catch (e: SecurityException) {
+            Log.w("LocationEngine", "Location request rejected", e)
             releaseWakeLock()
         }
     }

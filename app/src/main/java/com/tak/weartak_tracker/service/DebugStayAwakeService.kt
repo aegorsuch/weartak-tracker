@@ -16,7 +16,7 @@ import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.os.PowerManager
-import android.util.Log
+import com.tak.weartak_tracker.diagnostics.AppLog as Log
 import android.widget.Toast
 import androidx.core.app.NotificationCompat
 import com.tak.weartak_tracker.R

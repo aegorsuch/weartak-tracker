@@ -9,7 +9,7 @@ import android.net.NetworkRequest
 import android.net.wifi.WifiManager
 import android.os.Handler
 import android.os.Looper
-import android.util.Log
+import com.tak.weartak_tracker.diagnostics.AppLog as Log
 import java.io.Closeable
 
 internal class MulticastWifiRequest(

@@ -1,7 +1,7 @@
 package com.tak.weartak_tracker.transport
 
 import android.net.Network
-import android.util.Log
+import com.tak.weartak_tracker.diagnostics.AppLog as Log
 import com.tak.weartak_tracker.data.Endpoint
 import com.tak.weartak_tracker.data.TrackerState
 import kotlinx.coroutines.Dispatchers

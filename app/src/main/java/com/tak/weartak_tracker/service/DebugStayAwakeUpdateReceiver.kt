@@ -3,7 +3,7 @@ package com.tak.weartak_tracker.service
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import android.util.Log
+import com.tak.weartak_tracker.diagnostics.AppLog as Log
 import androidx.core.content.ContextCompat
 
 class DebugStayAwakeUpdateReceiver : BroadcastReceiver() {

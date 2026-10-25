@@ -12,9 +12,14 @@ fun manualAlertOptions(
     customAlerts: List<String>,
     locale: Locale = Locale.getDefault(),
 ): List<ManualAlertOption> {
+    return sortedByDisplayedLabel(
+        presets.map { ManualAlertOption(it, false) } + customAlerts.map { ManualAlertOption(it, true) }, locale,
+    ) { it.label }
+}
+
+fun <T> sortedByDisplayedLabel(items: List<T>, locale: Locale = Locale.getDefault(), label: (T) -> String): List<T> {
     val collator = Collator.getInstance(locale).apply { strength = Collator.SECONDARY }
-    return (presets.map { ManualAlertOption(it, false) } + customAlerts.map { ManualAlertOption(it, true) })
-        .sortedWith { a, b -> collator.compare(a.label, b.label) }
+    return items.sortedWith { a, b -> collator.compare(label(a), label(b)) }
 }
 
 /** Built-in manual alerts, alphabetical. */
