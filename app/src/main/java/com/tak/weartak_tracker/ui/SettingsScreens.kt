@@ -491,7 +491,7 @@ fun NavGraphBuilder.settingsGraph(repo: SettingsRepository, configState: State<T
                             Toast.makeText(context, "PPE status saved: ${selected.label}", Toast.LENGTH_SHORT).show()
                             back()
                         } catch (error: java.io.IOException) {
-                            android.util.Log.w("MoppStatus", "Unable to save PPE status", error)
+                            com.tak.weartak_tracker.diagnostics.AppLog.w("MoppStatus", "Unable to save PPE status", error)
                             Toast.makeText(context, "Unable to save PPE status. Try again.", Toast.LENGTH_LONG).show()
                         } finally {
                             saving = false

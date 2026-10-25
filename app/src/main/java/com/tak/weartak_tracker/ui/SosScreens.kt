@@ -317,7 +317,7 @@ fun CustomAlertEntryPage(repo: SettingsRepository, saved: List<String>, onBack: 
                 if (rejected == null) onBack()
                 else Toast.makeText(context, rejected, Toast.LENGTH_SHORT).show()
             } catch (error: java.io.IOException) {
-                android.util.Log.w("CustomAlerts", "Unable to save custom alert", error)
+                com.tak.weartak_tracker.diagnostics.AppLog.w("CustomAlerts", "Unable to save custom alert", error)
                 Toast.makeText(context, "Unable to save alert. Try again.", Toast.LENGTH_LONG).show()
             } finally {
                 saving = false

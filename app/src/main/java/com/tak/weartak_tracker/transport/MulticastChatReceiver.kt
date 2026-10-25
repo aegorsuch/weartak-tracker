@@ -4,7 +4,7 @@ import android.content.Context
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.wifi.WifiManager
-import android.util.Log
+import com.tak.weartak_tracker.diagnostics.AppLog as Log
 import com.tak.weartak_tracker.cot.TakDatagramDecoder
 import java.net.DatagramPacket
 import java.net.InetAddress

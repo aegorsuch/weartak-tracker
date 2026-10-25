@@ -1,7 +1,7 @@
 package com.tak.weartak_tracker.service
 
 import android.content.Context
-import android.util.Log
+import com.tak.weartak_tracker.diagnostics.AppLog as Log
 import com.tak.weartak_tracker.BuildConfig
 import com.tak.weartak_tracker.cot.Fix
 import com.tak.weartak_tracker.data.DittoPdlSource

@@ -15,13 +15,13 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import org.json.JSONObject
 import java.util.UUID
+import java.io.IOException
 
 private val Context.trackerStore: DataStore<Preferences> by preferencesDataStore(name = "tracker")
 
@@ -112,6 +112,7 @@ data class TrackerConfig(
     val batdokEnabled: Boolean = true,
     val medicalProfile: MedicalProfile = MedicalProfile(),
     val developerMode: Boolean = false,
+    val diagnosticsEnabled: Boolean = false,
     val networkPreferencesLocked: Boolean = false,
     val chatCommandsEnabled: Boolean = false,
     val chatCommandCallsigns: List<String> = emptyList(),
@@ -175,25 +176,26 @@ class SettingsRepository(private val context: Context) {
 
     private val defaultCallsign = "WT-" + deviceUid.takeLast(4).uppercase()
 
-    // Like CIV, dev mode resets on process startup; the network lock does not.
-    private val developerMode = MutableStateFlow(false)
-    val config: Flow<TrackerConfig> = combine(store.data, developerMode) { p, dev ->
-        read(p).copy(developerMode = dev)
-    }
+    val config: Flow<TrackerConfig> = store.data.map(::read)
         .distinctUntilChanged()
 
     suspend fun current(): TrackerConfig = config.first()
 
     /** Applies [transform] in a repository-owned scope so the write completes even if the calling screen closes. */
-    fun updateAsync(transform: (TrackerConfig) -> TrackerConfig) = updateAsync({}, transform)
+    fun updateAsync(transform: (TrackerConfig) -> TrackerConfig) = updateAsync(onUpdated = {}, transform = transform)
 
     fun updateAsync(
         onUpdated: () -> Unit,
+        onError: (IOException) -> Unit = { throw it },
         transform: (TrackerConfig) -> TrackerConfig,
     ) {
         writeScope.launch {
-            update(transform)
-            onUpdated()
+            try {
+                update(transform)
+                onUpdated()
+            } catch (error: IOException) {
+                onError(error)
+            }
         }
     }
 
@@ -201,10 +203,10 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun update(transform: (TrackerConfig) -> TrackerConfig) {
         store.edit { p ->
-            val old = read(p).copy(developerMode = developerMode.value)
+            val old = read(p)
             val n = transform(old)
             if (n == old) return@edit
-            developerMode.value = n.developerMode
+            DebugPreferences.write(p, n.developerMode, n.diagnosticsEnabled)
             p[K.NETWORK_LOCKED] = n.networkPreferencesLocked
             p[K.CHAT_COMMANDS] = n.chatCommandsEnabled
             p[K.SENSOR_MANAGER] = n.sensorManagerEnabled
@@ -294,6 +296,8 @@ class SettingsRepository(private val context: Context) {
             batdokEnabled = p[K.BATDOK] ?: true,
             medicalProfile = MedicalProfileCodec.decode(SecretBox.decrypt(p[K.MEDICAL_PROFILE])),
             networkPreferencesLocked = p[K.NETWORK_LOCKED] ?: false,
+            developerMode = DebugPreferences.developerMode(p),
+            diagnosticsEnabled = DebugPreferences.diagnostics(p),
             chatCommandsEnabled = p[K.CHAT_COMMANDS] ?: false,
             sensorManagerEnabled = p[K.SENSOR_MANAGER] ?: false,
             chatCommandCallsigns = ChatCommandAuthorizer.parseAllowList(p[K.CHAT_CALLSIGNS].orEmpty()),

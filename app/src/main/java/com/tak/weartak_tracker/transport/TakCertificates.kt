@@ -2,7 +2,7 @@ package com.tak.weartak_tracker.transport
 
 import android.content.Context
 import android.util.Base64
-import android.util.Log
+import com.tak.weartak_tracker.diagnostics.AppLog as Log
 import com.tak.weartak_tracker.BuildConfig
 import com.tak.weartak_tracker.R
 import com.tak.weartak_tracker.data.TakServerConfig
