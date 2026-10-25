@@ -5,7 +5,6 @@ import com.tak.weartak_tracker.cot.CotBuilder
 import com.tak.weartak_tracker.cot.CotTime
 import com.tak.weartak_tracker.cot.Physio
 import com.tak.weartak_tracker.cot.StandardEmergencyType
-import com.tak.weartak_tracker.data.Activity
 import com.tak.weartak_tracker.data.ManualAlert
 import com.tak.weartak_tracker.data.TrackerConfig
 import com.tak.weartak_tracker.service.AlertForwarder
@@ -24,26 +23,26 @@ class CoreLogicTest {
 
     @Test
     fun reportingStrategy() {
-        assertEquals(30, ReportingStrategy.intervalSecs(config.copy(dynamicReporting = false), true, Activity.STILL))
-        assertEquals(5, ReportingStrategy.intervalSecs(config, true, Activity.STILL))
-        assertEquals(600, ReportingStrategy.intervalSecs(config, false, Activity.STILL))
-        assertEquals(20, ReportingStrategy.intervalSecs(config, false, Activity.ON_FOOT))
-        assertEquals(40, ReportingStrategy.intervalSecs(config, false, Activity.IN_VEHICLE))
-        assertEquals(40, ReportingStrategy.intervalSecs(config, false, Activity.UNKNOWN))
+        assertEquals(30, ReportingStrategy.intervalForSpeedSecs(config.copy(dynamicReporting = false), true, 0.0))
+        assertEquals(5, ReportingStrategy.intervalForSpeedSecs(config, true, 0.0))
+        assertEquals(600, ReportingStrategy.intervalForSpeedSecs(config, false, 0.0))
+        assertEquals(20, ReportingStrategy.intervalForSpeedSecs(config, false, ReportingStrategy.MOTION_BOUNDARY_MPS))
+        assertEquals(40, ReportingStrategy.intervalForSpeedSecs(config, false, ReportingStrategy.VEHICLE_BOUNDARY_MPS))
+        assertEquals(40, ReportingStrategy.intervalForSpeedSecs(config, false, null))
     }
 
     @Test
     fun pliExpiresAfterTwiceActiveIntervalPlusFifteenSeconds() {
         val modes = listOf(
-            Triple(config.copy(dynamicReporting = false), false, Activity.STILL),
-            Triple(config, true, Activity.STILL),
-            Triple(config, false, Activity.STILL),
-            Triple(config, false, Activity.ON_FOOT),
-            Triple(config, false, Activity.IN_VEHICLE),
-            Triple(config, false, Activity.UNKNOWN),
+            Triple(config.copy(dynamicReporting = false), false, 0.0),
+            Triple(config, true, 0.0),
+            Triple(config, false, 0.0),
+            Triple(config, false, ReportingStrategy.MOTION_BOUNDARY_MPS),
+            Triple(config, false, ReportingStrategy.VEHICLE_BOUNDARY_MPS),
+            Triple(config, false, null),
         )
-        modes.forEach { (c, alerting, activity) ->
-            val interval = ReportingStrategy.intervalSecs(c, alerting, activity)
+        modes.forEach { (c, alerting, speed) ->
+            val interval = ReportingStrategy.intervalForSpeedSecs(c, alerting, speed)
             val time = CotTime.now(CotBuilder.pliStaleSeconds(interval), 0)
             val staleMillis = java.time.Instant.parse(time.staleCot).toEpochMilli()
             assertEquals((2L * interval + 15L) * 1000L, staleMillis)

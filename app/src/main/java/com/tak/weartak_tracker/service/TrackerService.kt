@@ -49,11 +49,11 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -88,7 +88,9 @@ class TrackerService : Service() {
     /** Elapsed time of the newest fix, so an alert press can briefly wait for the fix it requested. */
     private val fixArrivals = MutableStateFlow(0L)
     private val resendPolicy = AlertResendPolicy()
-    private var lastPliElapsed = 0L
+    private val reportingCadence = ReportingCadence()
+    private var reportingSpeed: ReportingSpeed? = null
+    private var currentSpeedProvider: String? = null
     private var appliedInterval = 0
     private val movement = MovementClassifier()
     private lateinit var motion: MotionTrigger
@@ -169,14 +171,18 @@ class TrackerService : Service() {
         sitx = SitxClient(repo, scope, repo.deviceUid) { scope.launch { onEndpointConnected() } }
         multicast = MulticastPublisher { scope.launch { onEndpointConnected() } }
         multicastChat = MulticastChatReceiver(this, ::handleInboundChat)
-        location = LocationEngine(this, ::onLocation) { lastFix?.let { scope.launch { sendPli(it) } } }
+        location = LocationEngine(this, ::onLocation) { scope.launch { reportIfDue() } }
         forwarder = AlertForwarder(
             send = ::sendAlert,
             onChanged = { alerts, _ -> TrackerState.alerts.value = alerts },
         )
         TrackerState.alerts.value = emptyList()
         TrackerState.activity.value = movement.current
-        motion = MotionTrigger(this) { TrackerState.activity.value = movement.onMotion() }
+        motion = MotionTrigger(this) {
+            TrackerState.activity.value = movement.onMotion()
+            reportingSpeed = null
+            location.requestSingleFix(forcePli = false)
+        }
         physio = PhysioMonitor(this)
 
         network.start()
@@ -193,6 +199,11 @@ class TrackerService : Service() {
             var previous: TrackerConfig? = null
             repo.config.collect { c ->
                 val identityChanged = c.identityChangedFrom(previous)
+                val reportingChanged = previous?.let {
+                    it.dynamicReporting != c.dynamicReporting || it.constantInterval != c.constantInterval ||
+                        it.stationaryInterval != c.stationaryInterval || it.onFootInterval != c.onFootInterval ||
+                        it.vehicleInterval != c.vehicleInterval || it.alertingInterval != c.alertingInterval
+                } ?: true
                 val dittoConfigChanged = previous?.let {
                     it.dittoEnabled != c.dittoEnabled ||
                         it.dittoPdlSource != c.dittoPdlSource ||
@@ -210,6 +221,7 @@ class TrackerService : Service() {
                 configureDitto(c)
                 configureMulticast()
                 outboundRefresh.update(readyPliRoutes())
+                if (reportingChanged) configureObservationInterval()
                 if (identityChanged) {
                     identityRefreshPending = true
                     location.requestSingleFix()
@@ -234,22 +246,13 @@ class TrackerService : Service() {
             }
         }
         scope.launch {
-            combine(repo.config, TrackerState.alerts, TrackerState.activity) { c, alerts, activity ->
-                ReportingStrategy.intervalSecs(c, alerts.any { it.state == AlertState.ALERT }, activity)
-            }.distinctUntilChanged().collectLatest { interval ->
-                TrackerState.reportingIntervalSecs.value = interval
-                if (interval != appliedInterval) {
-                    appliedInterval = interval
-                    location.start(interval)
-                }
-                // Fallback scheduler: report the last fix when GPS has gone quiet for a whole interval.
-                while (true) {
-                    delay(interval * 1000L)
-                    val fix = lastFix ?: continue
-                    if (SystemClock.elapsedRealtime() - lastLocationElapsed > interval * 1000L &&
-                        SystemClock.elapsedRealtime() - lastPliElapsed >= interval * 1000L - 500
-                    ) sendPli(fix)
-                }
+            TrackerState.alerts.map { alerts -> alerts.any { it.state == AlertState.ALERT } }
+                .distinctUntilChanged().collect { configureObservationInterval() }
+        }
+        scope.launch {
+            while (true) {
+                delay(1000)
+                reportIfDue()
             }
         }
         scope.launch {
@@ -362,7 +365,7 @@ class TrackerService : Service() {
 
     // ---- Location / PLI ----
 
-    private fun onLocation(loc: Location) {
+    private fun onLocation(loc: Location, forcePli: Boolean) {
         val fix = loc.toFix()
         lastFix = fix
         lastFixAccess = LocationAccess.current(this)
@@ -370,13 +373,49 @@ class TrackerService : Service() {
         fixArrivals.value = lastLocationElapsed
         TrackerState.lastFix.value = fix
         TrackerState.activity.value = movement.onSpeed(loc.usableSpeed())
+        currentSpeedProvider = loc.provider
+        reportingSpeed = ReportingSpeed(
+            loc.usableSpeed()?.toDouble(),
+            fix.elapsedRealtimeMillis?.takeIf { it >= location.inputStartedElapsed },
+            loc.provider,
+            fix.elapsedRealtimeMillis?.let(location::speedValidUntil),
+        )
+        configureObservationInterval()
+        reportingSpeed = reportingSpeed?.copy(validUntilElapsedMillis = fix.elapsedRealtimeMillis?.let(location::speedValidUntil))
         scope.launch {
-            sendPli(fix)
+            outboundRefresh.update(readyPliRoutes())
+            if (forcePli || identityRefreshPending || outboundRefresh.needed) sendPli(fix) else reportIfDue()
             alertMutex.withLock {
                 if (isReady()) forwarder.flush()
                 updateActiveAlerts()
             }
         }
+    }
+
+    private fun currentReportingInterval(): Int {
+        val speed = if (LocationAccess.current(this) == LocationAccess.PRECISE && lastFixAccess == LocationAccess.PRECISE) {
+            reportingSpeed?.current(SystemClock.elapsedRealtime(), currentSpeedProvider, location.inputStartedElapsed)
+        } else null
+        return ReportingStrategy.intervalForSpeedSecs(config, TrackerState.isAlerting, speed)
+    }
+
+    private fun configureObservationInterval() {
+        val interval = ReportingStrategy.observationIntervalSecs(config, currentReportingInterval())
+        if (interval != appliedInterval) {
+            val observed = reportingSpeed
+            val valid = observed?.current(SystemClock.elapsedRealtime(), currentSpeedProvider, location.inputStartedElapsed) != null
+            appliedInterval = interval
+            location.start(interval)
+            if (valid) {
+                reportingSpeed = observed?.copy(validUntilElapsedMillis = observed.acquiredElapsedMillis?.let(location::speedValidUntil))
+            }
+        }
+    }
+
+    private suspend fun reportIfDue() {
+        val interval = currentReportingInterval()
+        TrackerState.reportingIntervalSecs.value = interval
+        if (reportingCadence.isDue(SystemClock.elapsedRealtime(), interval)) lastFix?.let { sendPli(it) }
     }
 
     private suspend fun sendPli(fix: Fix) {
@@ -400,7 +439,7 @@ class TrackerService : Service() {
             battery = battery(),
             fix = fix,
             time = CotTime.now(CotBuilder.pliStaleSeconds(
-                ReportingStrategy.intervalSecs(config, TrackerState.isAlerting, TrackerState.activity.value),
+                currentReportingInterval(),
             ), if (pending.isEmpty()) System.currentTimeMillis() else fix.timeMillis),
             physio = if (physioActive) {
                 val bpm = physio.bpm
@@ -415,7 +454,8 @@ class TrackerService : Service() {
             ageYears = config.medicalProfile.ageYears(),
             moppStatus = config.moppStatus,
         )
-        lastPliElapsed = SystemClock.elapsedRealtime()
+        reportingCadence.onSent(SystemClock.elapsedRealtime())
+        TrackerState.reportingIntervalSecs.value = currentReportingInterval()
         // Same routing as CIV: TAK when connected, SITX and multicast whenever available.
         var routes = 0
         val sent = mutableMapOf<String, Long>()
