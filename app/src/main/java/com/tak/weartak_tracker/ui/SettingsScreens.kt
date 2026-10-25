@@ -109,6 +109,7 @@ import com.tak.weartak_tracker.data.TakServerChannels
 import com.tak.weartak_tracker.data.TakServerState
 import com.tak.weartak_tracker.data.TakStatus
 import com.tak.weartak_tracker.data.TrackerConfig
+import com.tak.weartak_tracker.data.runtimeTakServers
 import com.tak.weartak_tracker.data.formatSitxPairingCode
 import com.tak.weartak_tracker.data.isValidSitxReauthPin
 import com.tak.weartak_tracker.data.sitxAccountValue
@@ -331,7 +332,9 @@ fun NavGraphBuilder.settingsGraph(repo: SettingsRepository, configState: State<T
 
     networkComposable("network_preferences", configState, back) {
         val currentConfig by repo.config.collectAsStateWithLifecycle(initialValue = config)
+        val checklist = networkTransportChecklist(repo, configState) { go("ditto_identity") }
         WearTAKPageWithBackArrow("Network Preferences", back) {
+            checklist()
             item { WearTAKTitleChip("TAK Servers") { go("tak_servers") } }
             item { WearTAKTitleChip("Channels") { go("tak_channels") } }
             item {
@@ -344,6 +347,7 @@ fun NavGraphBuilder.settingsGraph(repo: SettingsRepository, configState: State<T
                     go("sitx_tak_screen")
                 }
             }
+            item { WearTAKTitleChip(stringResource(R.string.transport_ditto)) { go("ditto_identity") } }
         }
     }
 
@@ -362,16 +366,7 @@ fun NavGraphBuilder.settingsGraph(repo: SettingsRepository, configState: State<T
             val error = dittoState as? DittoState.Error
             if (error != null) Toast.makeText(context, error.message, Toast.LENGTH_LONG).show()
         }
-        fun enableDitto() {
-            repo.updateAsync(onUpdated = { TrackerService.start(context) }) { it.copy(dittoEnabled = true) }
-        }
-        val dittoPermissions = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { results ->
-            if (results.values.all { it }) {
-                enableDitto()
-            } else {
-                Toast.makeText(context, "Nearby permissions are required for Ditto Edge Sync", Toast.LENGTH_LONG).show()
-            }
-        }
+        val toggleDitto = rememberDittoToggle(repo, configState) { go("ditto_identity") }
         WearTAKPageWithBackArrow("Plugins", back) {
             PLUGIN_TITLES
                 .forEach { title ->
@@ -391,38 +386,15 @@ fun NavGraphBuilder.settingsGraph(repo: SettingsRepository, configState: State<T
                                 WearTAKSplitToggleChip(
                                     appIcon = { PluginRowIcon(title) },
                                     title = title,
-                                    label = when (currentConfig.dittoPdlSource) {
-                                        DittoPdlSource.COMMUNITY -> "Community"
-                                        DittoPdlSource.CUSTOM -> currentConfig.dittoCustomPdl.ifBlank { "No custom PDL saved" }
-                                    },
+                                    label = stringResource(
+                                        R.string.transport_ditto_subtitle,
+                                        stringResource(if (currentConfig.dittoPdlSource == DittoPdlSource.COMMUNITY) {
+                                            R.string.transport_community
+                                        } else R.string.transport_custom),
+                                        stringResource(dittoStatusResource(dittoState)),
+                                    ),
                                     checked = currentConfig.dittoEnabled,
-                                    onCheckedChange = dittoToggleCallback(configState) { on ->
-                                        if (!on) {
-                                            update { it.copy(dittoEnabled = false) }
-                                            return@dittoToggleCallback
-                                        }
-                                        val pdl = when (configState.value.dittoPdlSource) {
-                                            DittoPdlSource.COMMUNITY -> BuildConfig.DITTO_COMMUNITY_IDENTITY
-                                            DittoPdlSource.CUSTOM -> configState.value.dittoCustomPdl
-                                        }
-                                        val identityError = try {
-                                            val license = com.tak.weartak_tracker.service.DittoCommunityLicenseHelper.parse(pdl)
-                                            if (license.expiresAtMillis <= System.currentTimeMillis()) "Ditto Edge Sync identity has expired" else null
-                                        } catch (error: IllegalArgumentException) {
-                                            error.message ?: "Invalid Ditto Edge Sync identity"
-                                        }
-                                        if (identityError != null) {
-                                            Toast.makeText(context, identityError, Toast.LENGTH_LONG).show()
-                                            go("ditto_identity")
-                                            return@dittoToggleCallback
-                                        }
-                                        val missing = dittoRuntimePermissions(context)
-                                        if (missing.isEmpty()) {
-                                            enableDitto()
-                                        } else {
-                                            dittoPermissions.launch(missing)
-                                        }
-                                    },
+                                    onCheckedChange = dittoToggleCallback(configState, toggleDitto),
                                     onClick = { go("ditto_identity") },
                                 )
                             }
@@ -502,13 +474,13 @@ fun NavGraphBuilder.settingsGraph(repo: SettingsRepository, configState: State<T
         }
     }
 
-    composable("ditto_identity") {
+    networkComposable("ditto_identity", configState, back) {
         DittoIdentityPage(repo, config, back, go)
     }
 
-    composable("ditto_custom_identity") {
+    networkComposable("ditto_custom_identity", configState, back) {
         val currentConfig by repo.config.collectAsStateWithLifecycle(initialValue = config)
-        val update = rememberUpdater(repo)
+        val update = rememberNetworkUpdater(repo)
         WearTAKStringEntryPage(
             item = currentConfig.dittoCustomPdl,
             label = "Ditto Edge Sync Community PDL",
@@ -585,7 +557,7 @@ fun NavGraphBuilder.settingsGraph(repo: SettingsRepository, configState: State<T
         configState, back,
         arguments = listOf(navArgument("id") { type = NavType.StringType }),
     ) { entry ->
-        val server = config.servers.firstOrNull { it.id == entry.arguments?.getString("id") }
+        val server = config.runtimeTakServers.firstOrNull { it.id == entry.arguments?.getString("id") }
         if (server == null) {
             LaunchedEffect(Unit) { back() }
         } else {
@@ -595,7 +567,7 @@ fun NavGraphBuilder.settingsGraph(repo: SettingsRepository, configState: State<T
 
     networkComposable("new_server_screen", configState, back) {
         val newId = rememberSaveable { java.util.UUID.randomUUID().toString() }
-        ServerFormPage(repo, "New Server", TakServerConfig(id = newId), isNew = true, back = back)
+        ServerFormPage(repo, "New Server", TakServerConfig(id = newId), isNew = true, takEnabled = config.takServersEnabled, back = back)
     }
 
     networkComposable(
@@ -607,12 +579,12 @@ fun NavGraphBuilder.settingsGraph(repo: SettingsRepository, configState: State<T
         if (server == null) {
             LaunchedEffect(Unit) { back() }
         } else {
-            ServerFormPage(repo, "Edit Server", server, isNew = false, back = back)
+            ServerFormPage(repo, "Edit Server", server, isNew = false, takEnabled = config.takServersEnabled, back = back)
         }
     }
 
     networkComposable("tak_sa_multicast", configState, back) {
-        val update = rememberUpdater(repo)
+        val update = rememberNetworkUpdater(repo)
         WearTAKPageWithBackArrow("TAK SA Multicast", back) {
             item {
                 WearTAKToggleChip(
@@ -629,7 +601,7 @@ fun NavGraphBuilder.settingsGraph(repo: SettingsRepository, configState: State<T
     }
 
     networkComposable("multicast_address", configState, back) {
-        val update = rememberUpdater(repo)
+        val update = rememberNetworkUpdater(repo)
         WearTAKStringEntryPage(
             item = config.multicastAddress,
             label = "Address",
@@ -639,7 +611,7 @@ fun NavGraphBuilder.settingsGraph(repo: SettingsRepository, configState: State<T
     }
 
     networkComposable("multicast_protocol", configState, back) {
-        val update = rememberUpdater(repo)
+        val update = rememberNetworkUpdater(repo)
         WearTAKSelectionPage("Output Protocol", MULTICAST_PROTOCOLS, config.multicastProtocol, onBack = back) { protocol ->
             update { it.copy(multicastProtocol = protocol) }
             back()
@@ -647,14 +619,14 @@ fun NavGraphBuilder.settingsGraph(repo: SettingsRepository, configState: State<T
     }
 
     networkComposable("multicast_port", configState, back) {
-        val update = rememberUpdater(repo)
+        val update = rememberNetworkUpdater(repo)
         WearTAKIntEntryPage(config.multicastPort, "Port", 1, 65535, back) { v -> update { it.copy(multicastPort = v) } }
     }
 
     networkComposable("sitx_tak_screen", configState, back) { SitxPage(repo, config, go, back) }
 
     networkComposable("sitx_tak_url_screen", configState, back) {
-        val update = rememberUpdater(repo)
+        val update = rememberNetworkUpdater(repo)
         val currentConfig by repo.config.collectAsStateWithLifecycle(initialValue = config)
         WearTAKStringEntryPage(item = currentConfig.sitxUrl, label = "Address", onBack = back) { v ->
             update { it.copy(sitxUrl = v.trim(), sitxGroup = "") }
@@ -682,7 +654,7 @@ private fun DittoIdentityPage(
     go: Navigate,
 ) {
     val context = LocalContext.current
-    val update = rememberUpdater(repo)
+    val update = rememberNetworkUpdater(repo)
     val state by TrackerState.ditto.collectAsStateWithLifecycle()
     var showPdlHelp by rememberSaveable { mutableStateOf(false) }
     val communityAvailable = BuildConfig.DITTO_COMMUNITY_IDENTITY.isNotBlank()
@@ -721,7 +693,7 @@ private fun DittoIdentityPage(
                 title = "Custom PDL",
                 item = DittoPdlSource.CUSTOM,
                 list = DittoPdlSource.entries,
-                secondaryTitle = config.dittoCustomPdl.ifBlank { "No custom PDL saved" },
+                secondaryTitle = if (config.dittoCustomPdl.isBlank()) "No custom PDL saved" else stringResource(R.string.transport_custom_saved),
             )
         }
         item {
@@ -781,7 +753,7 @@ private fun DittoIdentityPage(
     )
 }
 
-private fun dittoRuntimePermissions(context: Context): Array<String> = buildList {
+internal fun dittoRuntimePermissions(context: Context): Array<String> = buildList {
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
         add(Manifest.permission.BLUETOOTH_SCAN)
         add(Manifest.permission.BLUETOOTH_CONNECT)
@@ -880,7 +852,7 @@ private fun ChannelServersPage(config: TrackerConfig, go: Navigate, back: () -> 
         if (config.servers.isEmpty()) {
             item { Text("Add a TAK Server first", textAlign = TextAlign.Center, color = Color.LightGray) }
         }
-        itemsIndexed(serversAlphabetically(config.servers), key = { _, s -> s.id }) { _, server ->
+        itemsIndexed(serversAlphabetically(config.runtimeTakServers), key = { _, s -> s.id }) { _, server ->
             WearTAKTitleChipWithState(server.name, channelSummary(server, states[server.id], channels[server.id])) {
                 go("tak_channels/${server.id}")
             }
@@ -1155,7 +1127,7 @@ private fun AllowedCallsignsPage(
 @OptIn(ExperimentalWearMaterialApi::class, ExperimentalWearFoundationApi::class)
 @Composable
 private fun TakServersPage(repo: SettingsRepository, config: TrackerConfig, go: Navigate, back: () -> Unit) {
-    val update = rememberUpdater(repo)
+    val update = rememberNetworkUpdater(repo)
     val context = LocalContext.current
     val states by TrackerState.takServers.collectAsStateWithLifecycle()
     WearTAKPageWithBackArrow("TAK Server Connections", back) {
@@ -1163,7 +1135,7 @@ private fun TakServersPage(repo: SettingsRepository, config: TrackerConfig, go: 
             val revealState = rememberRevealState()
             val scope = rememberCoroutineScope()
             val remove = { update { c -> c.copy(servers = c.servers.filterNot { it.id == server.id }) } }
-            val status = states[server.id]?.status
+            val status = if (config.takServersEnabled) states[server.id]?.status else TakStatus.DISABLED
             SwipeToRevealChip(
                 revealState = revealState,
                 modifier = Modifier.fillMaxWidth(),
@@ -1220,9 +1192,8 @@ private fun TakServersPage(repo: SettingsRepository, config: TrackerConfig, go: 
 
 /** New/Edit server form plus CIV's registration dialogs driven by the connection state. */
 @Composable
-private fun ServerFormPage(repo: SettingsRepository, title: String, initial: TakServerConfig, isNew: Boolean, back: () -> Unit) {
+private fun ServerFormPage(repo: SettingsRepository, title: String, initial: TakServerConfig, isNew: Boolean, takEnabled: Boolean, back: () -> Unit) {
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
     var name by rememberSaveable { mutableStateOf(initial.name) }
     var address by rememberSaveable { mutableStateOf(initial.address) }
     var port by rememberSaveable { mutableStateOf(initial.port.toString()) }
@@ -1231,6 +1202,13 @@ private fun ServerFormPage(repo: SettingsRepository, title: String, initial: Tak
     var savedId by rememberSaveable { mutableStateOf<String?>(null) }
     var dismissed by rememberSaveable { mutableStateOf(false) }
     val states by TrackerState.takServers.collectAsStateWithLifecycle()
+    val update = rememberNetworkUpdater(repo) {
+        TrackerService.start(context, TrackerService.ACTION_TAK_SERVER_RETRY) {
+            putExtra(TrackerService.EXTRA_SERVER_ID, initial.id)
+        }
+        dismissed = false
+        savedId = initial.id
+    }
 
     WearTAKPageWithConfirmCancel(
         title = title,
@@ -1249,19 +1227,12 @@ private fun ServerFormPage(repo: SettingsRepository, title: String, initial: Tak
                     name = name.trim(), address = address.trim(), port = p,
                     username = username.trim(), password = password, enabled = true,
                 ).let { if (moved) it.copy(tlsName = "", apiTlsName = "") else it }
-                scope.launch {
-                    repo.update { c ->
-                        // Upsert: the form stays open while registering, so Save can be pressed again for a new server.
-                        val exists = c.servers.any { it.id == server.id }
-                        c.copy(
-                            servers = if (exists) c.servers.map { if (it.id == server.id) server else it } else c.servers + server,
-                        )
-                    }
-                    TrackerService.start(context, TrackerService.ACTION_TAK_SERVER_RETRY) {
-                        putExtra(TrackerService.EXTRA_SERVER_ID, server.id)
-                    }
-                    dismissed = false
-                    savedId = server.id
+                update { c ->
+                    // Upsert: the form stays open while registering, so Save can be pressed again for a new server.
+                    val exists = c.servers.any { it.id == server.id }
+                    c.copy(
+                        servers = if (exists) c.servers.map { if (it.id == server.id) server else it } else c.servers + server,
+                    )
                 }
             }
         },
@@ -1269,7 +1240,7 @@ private fun ServerFormPage(repo: SettingsRepository, title: String, initial: Tak
             val id = savedId
             if (id != null && !dismissed) {
                 val state = states[id]
-                val status = state?.status
+                val status = if (takEnabled) state?.status else TakStatus.DISABLED
                 WearTAKLoadingDialog(
                     show = status == null || status == TakStatus.ENROLLING || status == TakStatus.CONNECTING ||
                         status == TakStatus.DISCONNECTED,
@@ -1284,6 +1255,7 @@ private fun ServerFormPage(repo: SettingsRepository, title: String, initial: Tak
                             when (status) {
                                 TakStatus.CONNECTED -> "Registration Complete"
                                 TakStatus.DUPLICATE -> "Duplicate TAK Server"
+                                TakStatus.DISABLED -> stringResource(R.string.transport_tak_saved)
                                 else -> "Registration Failed"
                             },
                             textAlign = TextAlign.Center,
@@ -1295,6 +1267,7 @@ private fun ServerFormPage(repo: SettingsRepository, title: String, initial: Tak
                             when (status) {
                                 TakStatus.CONNECTED -> "TAK Server registration succeeded"
                                 TakStatus.DUPLICATE -> "This TAK Server already exists"
+                                TakStatus.DISABLED -> stringResource(R.string.transport_tak_off)
                                 else -> state?.message ?: "Invalid Credentials, try again"
                             },
                             textAlign = TextAlign.Center,
@@ -1303,7 +1276,7 @@ private fun ServerFormPage(repo: SettingsRepository, title: String, initial: Tak
                         )
                     },
                     confirmButton = {
-                        if (status == TakStatus.CONNECTED) {
+                        if (status == TakStatus.CONNECTED || status == TakStatus.DISABLED) {
                             DialogButton("Okay", colors.primary, Color.Black) { dismissed = true; back() }
                         } else {
                             DialogButton("Retry", colors.primary, Color.Black) {
@@ -1379,8 +1352,8 @@ private fun sitxStatusText(state: SitxState): String = when (state) {
 @Composable
 private fun SitxPage(repo: SettingsRepository, initialConfig: TrackerConfig, go: Navigate, back: () -> Unit) {
     val config by repo.config.collectAsStateWithLifecycle(initialValue = initialConfig)
-    val update = rememberUpdater(repo)
     val context = LocalContext.current
+    val update = rememberNetworkUpdater(repo) { if (it.sitxEnabled) TrackerService.start(context) }
     val scope = rememberCoroutineScope()
     val sitx by TrackerState.sitx.collectAsStateWithLifecycle()
     val account by TrackerState.sitxAccount.collectAsStateWithLifecycle()
@@ -1425,7 +1398,6 @@ private fun SitxPage(repo: SettingsRepository, initialConfig: TrackerConfig, go:
                 checked = config.sitxEnabled,
                 onCheckedChange = { on ->
                     update { it.copy(sitxEnabled = on) }
-                    if (on) TrackerService.start(context)
                 },
                 title = "Sit(x) TAK",
                 description = "Service ON/OFF",
@@ -1574,7 +1546,7 @@ private fun SitxPage(repo: SettingsRepository, initialConfig: TrackerConfig, go:
 
 @Composable
 private fun SitxGroupPage(repo: SettingsRepository, config: TrackerConfig, back: () -> Unit) {
-    val update = rememberUpdater(repo)
+    val update = rememberNetworkUpdater(repo)
     val context = LocalContext.current
     val groups by TrackerState.sitxGroups.collectAsStateWithLifecycle()
     LaunchedEffect(Unit) {

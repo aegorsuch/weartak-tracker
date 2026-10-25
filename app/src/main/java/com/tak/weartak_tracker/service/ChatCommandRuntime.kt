@@ -32,6 +32,7 @@ import com.tak.weartak_tracker.data.ProfilePresets
 import com.tak.weartak_tracker.data.SettingsRepository
 import com.tak.weartak_tracker.data.TakServerConfig
 import com.tak.weartak_tracker.data.TrackerConfig
+import com.tak.weartak_tracker.data.runtimeTakServers
 import com.tak.weartak_tracker.transport.TakServerManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
@@ -85,15 +86,15 @@ object ChatCommandRuntime {
                 ackFailure = { Log.w(TAG, "Ditto off ack publication failed; remote delivery unconfirmed") },
             )) +
             ("usep12" to UseP12Handler(
-                servers = { repo.current().servers },
+                servers = { repo.current().runtimeTakServers },
                 networkLocked = networkLocked,
                 installer = P12Installer { server, identity ->
                     val staged = withContext(Dispatchers.IO) { P12CredentialStore(context).stage(server, identity) }
                     tak().installIdentity(server, identity.credentials, commit = {
                         var applied = false
                         repo.update { c ->
-                            if (!c.networkPreferencesLocked && c.servers.any {
-                                    it.id == server.id && it.connectionKey == server.connectionKey
+                            if (!c.networkPreferencesLocked && c.runtimeTakServers.any {
+                                    it.enabled && it.id == server.id && it.connectionKey == server.connectionKey
                                 }) {
                                 staged.commit()
                                 applied = true

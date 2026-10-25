@@ -6,6 +6,7 @@ import com.tak.weartak_tracker.data.SitxState
 import com.tak.weartak_tracker.data.TakServerState
 import com.tak.weartak_tracker.data.TakStatus
 import com.tak.weartak_tracker.data.TrackerConfig
+import com.tak.weartak_tracker.data.runtimeTakServers
 
 internal fun connectionStatusIcon(
     config: TrackerConfig,
@@ -13,7 +14,7 @@ internal fun connectionStatusIcon(
     endpoints: Set<Endpoint>,
     sitx: SitxState,
 ): Int {
-    val servers = config.servers.filter { it.enabled && it.address.isNotBlank() }
+    val servers = config.runtimeTakServers.filter { it.enabled && it.address.isNotBlank() }
         .distinctBy { it.endpointKey }
     val statuses = servers.map { states[it.id]?.status ?: TakStatus.DISCONNECTED }
     val connected = statuses.count { it == TakStatus.CONNECTED }

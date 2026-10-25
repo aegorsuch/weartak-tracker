@@ -107,6 +107,7 @@ data class TrackerConfig(
     val sitxClientId: String = DEFAULT_SITX_CLIENT_ID,
     val sitxGroup: String = "",
     val servers: List<TakServerConfig> = emptyList(),
+    val takServersEnabled: Boolean = true,
     /** WearTAK-CIV's "Physiological Monitoring": adds heart rate to PLI (needs BODY_SENSORS). */
     val physioMonitoring: Boolean = false,
     val batdokEnabled: Boolean = true,
@@ -123,6 +124,20 @@ data class TrackerConfig(
     val customAlerts: List<String> = emptyList(),
     val moppStatus: MoppStatus = MoppStatus.NONE,
 )
+
+internal object TakTransportPreferences {
+    private val enabledKey = booleanPreferencesKey("tak_servers_enabled")
+
+    fun enabled(preferences: Preferences): Boolean = preferences[enabledKey] ?: true
+
+    fun write(preferences: androidx.datastore.preferences.core.MutablePreferences, enabled: Boolean) {
+        preferences[enabledKey] = enabled
+    }
+}
+
+/** Runtime-only mask; the saved per-server choices and credentials remain untouched. */
+val TrackerConfig.runtimeTakServers: List<TakServerConfig>
+    get() = if (takServersEnabled) servers else servers.map { it.copy(enabled = false) }
 
 /** SITX OAuth device-flow state (persisted encrypted). */
 data class SitxTokens(
@@ -207,6 +222,7 @@ class SettingsRepository(private val context: Context) {
             val n = transform(old)
             if (n == old) return@edit
             DebugPreferences.write(p, n.developerMode, n.diagnosticsEnabled)
+            TakTransportPreferences.write(p, n.takServersEnabled)
             p[K.NETWORK_LOCKED] = n.networkPreferencesLocked
             p[K.CHAT_COMMANDS] = n.chatCommandsEnabled
             p[K.SENSOR_MANAGER] = n.sensorManagerEnabled
@@ -292,6 +308,7 @@ class SettingsRepository(private val context: Context) {
             sitxClientId = sitxClientIdOrDefault(SecretBox.decrypt(p[K.SITX_CLIENT_ID])),
             sitxGroup = SecretBox.decrypt(p[K.SITX_GROUP]) ?: "",
             servers = ServerListCodec.decode(SecretBox.decrypt(p[K.SERVERS])),
+            takServersEnabled = TakTransportPreferences.enabled(p),
             physioMonitoring = p[K.PHYSIO] ?: false,
             batdokEnabled = p[K.BATDOK] ?: true,
             medicalProfile = MedicalProfileCodec.decode(SecretBox.decrypt(p[K.MEDICAL_PROFILE])),

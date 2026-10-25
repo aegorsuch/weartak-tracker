@@ -51,6 +51,10 @@ Only Ditto is exact ATAK plugin artwork; other marks are approved company assets
   TAK Server Connections and the Channels server picker display servers alphabetically by name, ignoring capitalization; saved order and connection behavior are unchanged.
   Menus follow CIV's hierarchy: WearTAK-Tracker Preferences > Callsign and Device Preferences / Network Preferences.
 
+**Network Preferences** begins with native checkboxes for **Ditto Edge Sync**, **Sit(x) TAK**, **TAK SA Multicast**, and **TAK Servers**, sorted by localized displayed label. Checked means **enabled**, not connected, authorized or delivering. Existing configuration screens remain below; unchecking a transport retains its settings and credentials. Only implemented transports appear: unfunded plugin placeholders and non-transport plugins are excluded. Tracker has no Companion transport or bonded-phone exclusivity path.
+
+**TAK Servers** is a separate, persisted master gate, default on to preserve existing behavior. Off closes TAK streaming/channel connections and stops automatic reconnects and explicit retry/channel actions; it does not rewrite any server's individual enabled flag, endpoint or credentials. On restores exactly the individual choices, including an empty or all-disabled list. Server configuration can still be edited while the master is off, without connecting. Network locks apply to the checklist, equivalent existing controls, Ditto identity selection/editing, and delayed permission results; locking does not disable already-configured transports.
+
 ## UI
 Main screen is kept minimal: alert button, callsign chip (opens settings), status icons in the corners, time at the bottom.
 Long callsigns are truncated with an ellipsis on the main screen; the saved and transmitted callsign remains unchanged.
@@ -322,7 +326,7 @@ Ditto Edge Sync defaults to the Community PDL. The `DITTO_COMMUNITY_IDENTITY` en
 `dittoCommunityIdentity` Gradle property, then the ignored root `local.properties`; release CI fails if the variable is
 missing. Keep the license out of source control. A custom PDL can also be entered on the watch under
 **Plugins > Ditto Edge Sync > Ditto Edge Sync Identity**.
-The Ditto Edge Sync plugin subtitle shows Community or the saved custom PDL (truncated to fit); the switch controls sync.
+The Ditto Edge Sync subtitle shows **Community** or **Custom**, followed by the actual native sync state. **Sync active** means the SDK is running, not that a peer is connected or delivery is confirmed. Subtitles never display the raw PDL or infer license validity from the saved source; the full custom value remains available only in its editor. Enabling still validates the saved identity and requests the existing Nearby permissions. Both the plugin switch and Network Preferences checkbox use the same enable path, rechecking the live network lock, permissions and selected identity after permission prompts. Identity selection/editing also respects the network lock.
 Plugins are listed alphabetically. Everywhere Comms, GoTenna and Somewear Labs display **Unfunded Request**;
 their placeholder switches stay off and tapping them does not activate any integration.
 Sensor Manager also displays **Unfunded Request** and has a saved enable/disable switch (off by default). Tapping
