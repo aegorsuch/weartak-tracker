@@ -15,6 +15,7 @@ import com.tak.weartak_tracker.diagnostics.DiagnosticsJournal
 import com.tak.weartak_tracker.diagnostics.DiagnosticsStatus
 import com.tak.weartak_tracker.diagnostics.diagnosticEventForTag
 import com.tak.weartak_tracker.ui.DeveloperEntry
+import com.tak.weartak_tracker.ui.developerEntries
 import java.io.File
 import java.io.IOException
 import java.util.Locale
@@ -175,7 +176,23 @@ class DiagnosticsTest {
         )
         val sorted = sortedByDisplayedLabel(labels.keys.toList(), Locale.GERMAN) { labels.getValue(it) }
         assertEquals(listOf(DeveloperEntry.STAY_AWAKE, DeveloperEntry.BUILD, DeveloperEntry.DIAGNOSTICS), sorted)
-        assertEquals(12, DeveloperEntry.entries.size)
-        assertEquals(12, DeveloperEntry.entries.map { it.labelRes }.distinct().size)
+        assertEquals(13, DeveloperEntry.entries.size)
+        assertEquals(13, DeveloperEntry.entries.map { it.labelRes }.distinct().size)
+    }
+
+    @Test
+    fun simpleTogglesLeadWithLoggingThenStayAwakeAndRemainingActionsStaySorted() {
+        val labels = DeveloperEntry.entries.associateWith { it.name }.toMutableMap().apply {
+            this[DeveloperEntry.DIAGNOSTICS] = "Logging"
+            this[DeveloperEntry.STAY_AWAKE] = "Stay awake"
+        }
+        val ordered = developerEntries(labels, Locale.ENGLISH)
+        assertEquals(listOf(DeveloperEntry.DIAGNOSTICS, DeveloperEntry.STAY_AWAKE), ordered.take(2))
+        assertEquals(sortedByDisplayedLabel(ordered.drop(2), Locale.ENGLISH) { labels.getValue(it) }, ordered.drop(2))
+        assertEquals(DeveloperEntry.entries.toSet(), ordered.toSet())
+        assertTrue(DeveloperEntry.RESUME_AFTER_UPDATE in ordered.drop(2))
+        labels[DeveloperEntry.DIAGNOSTICS] = "Zustand"
+        labels[DeveloperEntry.STAY_AWAKE] = "Änderung"
+        assertEquals(listOf(DeveloperEntry.STAY_AWAKE, DeveloperEntry.DIAGNOSTICS), developerEntries(labels, Locale.GERMAN).take(2))
     }
 }

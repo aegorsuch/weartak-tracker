@@ -38,6 +38,7 @@ import com.tak.weartak_tracker.diagnostics.DiagnosticsStatus
 import androidx.wear.compose.material.MaterialTheme.colors
 import androidx.wear.compose.material.Text
 import java.time.Instant
+import java.util.Locale
 
 internal class DeveloperModeTaps {
     private var count = 0
@@ -56,20 +57,26 @@ internal class DeveloperModeTaps {
     }
 }
 
-internal enum class DeveloperEntry(val labelRes: Int) {
+internal enum class DeveloperEntry(val labelRes: Int, val primaryToggle: Boolean = false) {
     BUILD(R.string.developer_build),
     DEVICE(R.string.developer_device),
-    DIAGNOSTICS(R.string.diagnostics),
+    DIAGNOSTICS(R.string.diagnostics, true),
     ENDPOINTS(R.string.developer_endpoints),
     LAST_PLI(R.string.developer_last_pli),
     LOCATION(R.string.developer_location),
     NETWORK(R.string.developer_network),
     REPORTING(R.string.developer_reporting),
+    RESUME_AFTER_UPDATE(R.string.debug_stay_awake_resume_after_update),
     SITX(R.string.developer_sitx),
-    STAY_AWAKE(R.string.debug_stay_awake),
+    STAY_AWAKE(R.string.debug_stay_awake, true),
     TAK(R.string.developer_tak),
     UID(R.string.developer_uid),
 }
+
+internal fun developerEntries(labels: Map<DeveloperEntry, String>, locale: Locale): List<DeveloperEntry> =
+    listOf(true, false).flatMap { primary ->
+        sortedByDisplayedLabel(DeveloperEntry.entries.filter { it.primaryToggle == primary }, locale) { labels.getValue(it) }
+    }
 
 internal fun isNetworkSettingsRoute(route: String): Boolean =
     route in setOf(
@@ -124,19 +131,20 @@ internal fun DeveloperDebugPage(repo: SettingsRepository, back: () -> Unit) {
     val sitx by TrackerState.sitx.collectAsStateWithLifecycle()
     val connectivity = rememberConnectivity()
     val labels = DeveloperEntry.entries.associateWith { stringResource(it.labelRes) }
-    val entries = sortedByDisplayedLabel(DeveloperEntry.entries.toList(), LocalConfiguration.current.locales[0]) { labels.getValue(it) }
+    val entries = developerEntries(labels, LocalConfiguration.current.locales[0])
     WearTAKPageWithBackArrow("Developer Preferences", back) {
         entries.forEach { entry ->
             item(key = entry.name) {
                 val title = labels.getValue(entry)
                 when (entry) {
                     DeveloperEntry.STAY_AWAKE -> DebugStayAwakeSetting()
+                    DeveloperEntry.RESUME_AFTER_UPDATE -> DebugStayAwakeResumeSetting()
                     DeveloperEntry.DIAGNOSTICS -> Column {
                         WearTAKToggleChip(
                             checked = config.diagnosticsEnabled,
                             onCheckedChange = { enabled ->
                                 repo.updateAsync(onUpdated = {}, onError = { error ->
-                                    Log.e("DeveloperSettings", "Unable to save Diagnostics preference", error)
+                                    Log.e("DeveloperSettings", "Unable to save Logging preference", error)
                                     Handler(Looper.getMainLooper()).post {
                                         Toast.makeText(context, R.string.developer_save_failed, Toast.LENGTH_LONG).show()
                                     }
@@ -144,9 +152,9 @@ internal fun DeveloperDebugPage(repo: SettingsRepository, back: () -> Unit) {
                             },
                             title = title,
                         )
-                        Text(stringResource(if (diagnosticStatus == DiagnosticsStatus.UNAVAILABLE) {
-                            R.string.diagnostics_unavailable
-                        } else R.string.diagnostics_description))
+                        if (diagnosticStatus == DiagnosticsStatus.UNAVAILABLE) {
+                            Text(stringResource(R.string.diagnostics_unavailable))
+                        }
                     }
                     DeveloperEntry.BUILD -> DebugValue(title, "${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})")
                     DeveloperEntry.DEVICE -> DebugValue(title, "${Build.MANUFACTURER} ${Build.MODEL} / Android ${Build.VERSION.RELEASE}")
