@@ -34,6 +34,7 @@ import com.tak.weartak_tracker.data.SettingsRepository
 import com.tak.weartak_tracker.data.TakServerConfig
 import com.tak.weartak_tracker.data.TrackerConfig
 import com.tak.weartak_tracker.data.TrackerState
+import com.tak.weartak_tracker.data.runtimeTakServers
 import com.tak.weartak_tracker.transport.MulticastChatReceiver
 import com.tak.weartak_tracker.transport.MulticastPublisher
 import com.tak.weartak_tracker.transport.NetworkMonitor
@@ -215,8 +216,7 @@ class TrackerService : Service() {
                 previous = c
                 config = c
                 applyPhysio()
-                tak.update(c.servers)
-                channels.retain(c.servers.filter { it.enabled }.map { it.id }.toSet())
+                applyTakConfig(c)
                 sitx.update(c)
                 if (c.dittoEnabled && dittoConfigChanged) {
                     TrackerState.ditto.value = com.tak.weartak_tracker.data.DittoState.Starting
@@ -324,18 +324,28 @@ class TrackerService : Service() {
             ACTION_TAK_SERVER_RETRY -> intent.getStringExtra(EXTRA_SERVER_ID)?.let { id ->
                 scope.launch {
                     val saved = repo.config.first()
-                    tak.update(saved.servers)
-                    if (!tak.retry(id)) {
-                        Log.w(TAG, "Cannot retry TAK Server: missing, disabled, invalid, or duplicate configuration")
+                    applyTakConfig(saved)
+                    if (saved.networkPreferencesLocked || !tak.retry(id)) {
+                        Log.w(TAG, "Cannot retry TAK Server: locked, missing, disabled, invalid, or duplicate configuration")
                     }
                 }
             }
             ACTION_TAK_CHANNELS_REFRESH -> intent.getStringExtra(EXTRA_SERVER_ID)?.let { id ->
-                if (::channels.isInitialized) channels.refresh(id)
+                scope.launch {
+                    val saved = repo.current()
+                    applyTakConfig(saved)
+                    if (!saved.networkPreferencesLocked) channels.refresh(id)
+                }
             }
             ACTION_TAK_CHANNEL_TOGGLE -> intent.getStringExtra(EXTRA_SERVER_ID)?.let { id ->
                 if (::channels.isInitialized && intent.hasExtra(EXTRA_BIT_POSITION)) {
-                    channels.toggle(id, intent.getIntExtra(EXTRA_BIT_POSITION, -1), intent.getBooleanExtra(EXTRA_ACTIVE, false))
+                    scope.launch {
+                        val saved = repo.current()
+                        applyTakConfig(saved)
+                        if (!saved.networkPreferencesLocked) {
+                            channels.toggle(id, intent.getIntExtra(EXTRA_BIT_POSITION, -1), intent.getBooleanExtra(EXTRA_ACTIVE, false))
+                        }
+                    }
                 }
             }
         }
@@ -490,6 +500,13 @@ class TrackerService : Service() {
     }
 
     // ---- Alerts ----
+
+    private fun applyTakConfig(saved: TrackerConfig) {
+        val runtime = saved.runtimeTakServers
+        channels.retain(runtime.filter { it.enabled }.map { it.id }.toSet())
+        tak.update(runtime)
+        outboundRefresh.update(readyPliRoutes())
+    }
 
     private fun isReady(): Boolean =
         tak.anyConnected || multicast.running || (config.sitxEnabled && sitx.connected)

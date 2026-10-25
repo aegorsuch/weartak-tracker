@@ -51,12 +51,14 @@ class TakServerManager(
         @Volatile var output: OutputStream? = null
         @Volatile var readyGeneration = 0L
         @Volatile var credentials: TakCertificates.Credentials? = null
+        var channelClient: TakChannelApi? = null
         @Volatile var enrollmentInProgress = false
         val lock = Any()
     }
 
     private val connections = ConcurrentHashMap<String, Connection>()
-    private var servers: List<TakServerConfig> = emptyList()
+    @Volatile private var servers: List<TakServerConfig> = emptyList()
+    private val identitySockets = ConcurrentHashMap<String, Socket>()
     private val credentialMutex = Mutex()
     private val readyGeneration = java.util.concurrent.atomic.AtomicLong()
 
@@ -80,6 +82,9 @@ class TakServerManager(
         }
         connections.keys.filter { id -> wanted[id]?.connectionKey != connections[id]?.server?.connectionKey }.forEach { id ->
             connections.remove(id)?.let { close(it, "server editor closed or settings changed") }
+        }
+        identitySockets.keys.filter { id -> wanted[id] == null }.forEach { id ->
+            identitySockets.remove(id)?.let(::closeIdentitySocket)
         }
         // Newly discovered TLS names don't require reconnecting; just use them from the next attempt on.
         connections.forEach { (id, c) -> wanted[id]?.let { c.server = it } }
@@ -123,6 +128,8 @@ class TakServerManager(
     private fun isConnectable(server: TakServerConfig) = server.enabled && server.address.isNotBlank()
 
     fun stop() {
+        identitySockets.values.forEach(::closeIdentitySocket)
+        identitySockets.clear()
         connections.values.forEach { close(it, "service stopped after app backgrounding or shutdown") }
         connections.clear()
         TrackerState.takServers.value = emptyMap()
@@ -170,15 +177,21 @@ class TakServerManager(
 
     /** Channel API client for a connected server, or null when it isn't connected. */
     internal fun channelApi(serverId: String): TakChannelApi? {
-        val c = connections[serverId]?.takeIf { it.output != null } ?: return null
-        val creds = c.credentials ?: return null
-        val server = c.server
-        val host = server.address.trim()
-        val discover = if (server.apiTlsName.isBlank()) { name: String ->
-            Log.i(TAG, "Discovered API TLS name $name for $host")
-            onTlsNameDiscovered(server, true, name)
-        } else null
-        return TakChannelApi(host, TakCertificates.socketFactory(creds, host, server.apiTlsName, discover))
+        val c = connections[serverId] ?: return null
+        return synchronized(c.lock) {
+            if (c.output == null || connections[serverId] !== c) return@synchronized null
+            c.channelClient ?: run {
+                val creds = c.credentials ?: return@synchronized null
+                val server = c.server
+                val host = server.address.trim()
+                val discover = if (server.apiTlsName.isBlank()) { name: String ->
+                    Log.i(TAG, "Discovered API TLS name $name for $host")
+                    onTlsNameDiscovered(server, true, name)
+                } else null
+                TakChannelApi(host, TakCertificates.socketFactory(creds, host, server.apiTlsName, discover))
+                    .also { c.channelClient = it }
+            }
+        }
     }
 
     private fun start(server: TakServerConfig, ready: Pair<SSLSocket, TakCertificates.Credentials>? = null) {
@@ -202,7 +215,7 @@ class TakServerManager(
         commit: suspend () -> Boolean,
         rollback: () -> Unit,
     ): Boolean = credentialMutex.withLock {
-        if (servers.none { it.id == server.id && it.connectionKey == server.connectionKey } ||
+        if (servers.none { it.enabled && it.id == server.id && it.connectionKey == server.connectionKey } ||
             !isConnectable(server) || servers.takeWhile { it.id != server.id }.any {
                 isConnectable(it) && it.endpointKey == server.endpointKey
             }
@@ -214,6 +227,10 @@ class TakServerManager(
             withContext(Dispatchers.IO) {
                 val plain = Socket()
                 try {
+                    identitySockets[server.id] = plain
+                    if (servers.none { it.enabled && it.id == server.id && it.connectionKey == server.connectionKey }) {
+                        throw java.io.IOException("TAK Server is disabled or its settings changed")
+                    }
                     plain.connect(InetSocketAddress(server.address.trim(), server.port), 15_000)
                     val tls = TakCertificates.socketFactory(credentials, server.address.trim(), server.tlsName)
                         .createSocket(plain, server.tlsName.ifBlank { server.address.trim() }, server.port, true) as SSLSocket
@@ -228,7 +245,7 @@ class TakServerManager(
             }
             val socket = requireNotNull(candidate)
             commitVerifiedIdentity(
-                stillValid = { servers.any { it.id == server.id && it.connectionKey == server.connectionKey } },
+                stillValid = { servers.any { it.enabled && it.id == server.id && it.connectionKey == server.connectionKey } },
                 commit = commit,
                 activate = {
                     val old = connections[server.id]
@@ -239,6 +256,7 @@ class TakServerManager(
                 rollback = rollback,
             )
         } finally {
+            identitySockets.remove(server.id)
             if (!adopted) {
                 try {
                     candidate?.close()
@@ -253,11 +271,24 @@ class TakServerManager(
         if (c.enrollmentInProgress) {
             Log.i(TAG, "Enrollment for ${c.server.endpointKey} cancelled because $reason")
         }
+
         c.job?.cancel()
         c.output = null
         c.credentials = null
         runCatching { c.socket?.close() }
         c.socket = null
+        synchronized(c.lock) {
+            c.channelClient?.close()
+            c.channelClient = null
+        }
+    }
+
+    private fun closeIdentitySocket(socket: Socket) {
+        try {
+            socket.close()
+        } catch (error: java.io.IOException) {
+            Log.w(TAG, "Unable to close pending identity connection", error)
+        }
     }
 
     private suspend fun run(c: Connection, ready: Pair<SSLSocket, TakCertificates.Credentials>? = null) {
@@ -282,6 +313,7 @@ class TakServerManager(
                 val socket = prepared?.first ?: run {
                     val plain = Socket()
                     c.socket = plain
+                    currentCoroutineContext().ensureActive()
                     plain.keepAlive = true
                     plain.tcpNoDelay = true
                     plain.connect(InetSocketAddress(host, server.port), 15_000)
@@ -295,6 +327,7 @@ class TakServerManager(
                     val factory = TakCertificates.socketFactory(creds, host, server.tlsName, discover)
                     val socket = factory.createSocket(plain, sniHost, server.port, true) as SSLSocket
                     c.socket = socket
+                    currentCoroutineContext().ensureActive()
                     socket.startHandshake()
                     socket
                 }
@@ -363,6 +396,10 @@ class TakServerManager(
                 c.credentials = null
                 runCatching { c.socket?.close() }
                 c.socket = null
+                synchronized(c.lock) {
+                    c.channelClient?.close()
+                    c.channelClient = null
+                }
                 withContext(NonCancellable) { publishEndpoint() }
             }
             attempt++
