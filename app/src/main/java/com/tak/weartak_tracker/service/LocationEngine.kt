@@ -22,7 +22,7 @@ import com.tak.weartak_tracker.data.LocationAccess
  */
 class LocationEngine(
     private val context: Context,
-    private val onLocation: (Location) -> Unit,
+    private val onLocation: (Location, Boolean) -> Unit,
     private val onNoFix: () -> Unit,
 ) {
     private val handler = Handler(Looper.getMainLooper())
@@ -40,10 +40,14 @@ class LocationEngine(
     private var periodic = false
     private var access = LocationAccess.NONE
     private var oneShotSince = 0L
+    private var forcePliOnFix = false
+    private var nextObservationElapsed = 0L
+    var inputStartedElapsed = 0L
+        private set
 
     private val periodicCallback = object : LocationCallback() {
         override fun onLocationResult(result: LocationResult) {
-            result.lastLocation?.let(onLocation)
+            result.lastLocation?.let { onLocation(it, false) }
         }
     }
 
@@ -53,7 +57,9 @@ class LocationEngine(
             oneShotSince = 0L
             handler.removeCallbacks(noFixCheck)
             releaseWakeLock()
-            result.lastLocation?.let(onLocation)
+            val forced = forcePliOnFix
+            forcePliOnFix = false
+            result.lastLocation?.let { onLocation(it, forced) }
         }
     }
 
@@ -66,9 +72,19 @@ class LocationEngine(
     }
 
     fun start(intervalSecs: Int) {
-        stop()
+        val initial = this.intervalSecs == 0
+        val currentAccess = LocationAccess.current(context)
+        if (initial || currentAccess != access) {
+            inputStartedElapsed = SystemClock.elapsedRealtime()
+            fused.removeLocationUpdates(oneShotCallback)
+            oneShotSince = 0L
+            handler.removeCallbacks(noFixCheck)
+            releaseWakeLock()
+        }
+        fused.removeLocationUpdates(periodicCallback)
+        alarms.cancel(alarmIntent)
         this.intervalSecs = intervalSecs
-        access = LocationAccess.current(context)
+        access = currentAccess
         periodic = intervalSecs < PERIODIC_THRESHOLD_SECS
         if (periodic) {
             val ms = intervalSecs * 1000L
@@ -76,8 +92,9 @@ class LocationEngine(
                 .setMinUpdateIntervalMillis(ms)
                 .build()
             requestUpdates(request, periodicCallback)
+            if (forcePliOnFix) requestSingleFix(forcePli = false)
         } else {
-            requestSingleFix()
+            if (initial) requestSingleFix(forcePli = false)
             scheduleAlarm()
         }
     }
@@ -85,7 +102,7 @@ class LocationEngine(
     /** Alarm fired: take a fresh fix and schedule the next one. */
     fun onAlarm() {
         if (periodic || intervalSecs == 0) return
-        requestSingleFix()
+        requestSingleFix(forcePli = false)
         // If no fix arrives (e.g. indoors) still report the last known position for this cycle.
         fixSinceAlarm = false
         handler.removeCallbacks(noFixCheck)
@@ -95,7 +112,10 @@ class LocationEngine(
 
     /** Re-applies the current interval when the user switched between precise and approximate location. */
     fun refreshAccess() {
-        if (intervalSecs > 0 && LocationAccess.current(context) != access) start(intervalSecs)
+        if (intervalSecs > 0 && LocationAccess.current(context) != access) {
+            start(intervalSecs)
+            requestSingleFix(forcePli = false)
+        }
     }
 
     /**
@@ -103,7 +123,8 @@ class LocationEngine(
      * reporting schedule. While one is still in flight (bounded by [ONE_SHOT_IN_FLIGHT_MS]) repeat calls are
      * dropped, so repeated taps don't stack requests; the pending fix serves them all.
      */
-    fun requestSingleFix() {
+    fun requestSingleFix(forcePli: Boolean = true) {
+        forcePliOnFix = forcePliOnFix || forcePli
         val now = SystemClock.elapsedRealtime()
         if (oneShotSince != 0L && now - oneShotSince < ONE_SHOT_IN_FLIGHT_MS) return
         oneShotSince = now
@@ -137,6 +158,8 @@ class LocationEngine(
         handler.removeCallbacks(noFixCheck)
         releaseWakeLock()
         intervalSecs = 0
+        forcePliOnFix = false
+        nextObservationElapsed = 0L
     }
 
     @SuppressLint("MissingPermission")
@@ -150,6 +173,7 @@ class LocationEngine(
 
     private fun scheduleAlarm() {
         val delay = intervalSecs * 1000L - ALARM_EARLY_MS
+        nextObservationElapsed = SystemClock.elapsedRealtime() + delay
         if (alarms.canScheduleExactAlarms()) {
             val trigger = System.currentTimeMillis() + delay
             alarms.setAlarmClock(AlarmManager.AlarmClockInfo(trigger, null), alarmIntent)
@@ -162,6 +186,13 @@ class LocationEngine(
         wakeLock?.takeIf { it.isHeld }?.release()
         wakeLock = null
     }
+
+    fun speedValidUntil(sampleElapsed: Long): Long =
+        ReportingStrategy.speedValidUntil(
+            sampleElapsed, intervalSecs,
+            if (periodic) null else nextObservationElapsed,
+            ONE_SHOT_IN_FLIGHT_MS,
+        )
 
     companion object {
         const val PERIODIC_THRESHOLD_SECS = 10

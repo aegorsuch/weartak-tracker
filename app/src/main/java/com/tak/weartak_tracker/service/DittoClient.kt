@@ -208,7 +208,7 @@ class DittoClient internal constructor(
     fun publishTrack(xml: String, fix: Fix, config: TrackerConfig, uid: String): Int {
         val instance = ditto?.takeIf { syncing } ?: return 0
         val now = System.currentTimeMillis()
-        val stale = now + 3_000L * ReportingStrategy.intervalSecs(config, TrackerState.isAlerting, TrackerState.activity.value)
+        val stale = now + 3_000L * TrackerState.reportingIntervalSecs.value
         val detail = DETAIL_PATTERN.find(xml)?.value ?: "<detail/>"
         val document = mapOf<String, Any?>(
             "_id" to uid,
