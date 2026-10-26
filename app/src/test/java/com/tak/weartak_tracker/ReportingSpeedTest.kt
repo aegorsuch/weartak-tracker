@@ -1,6 +1,7 @@
 package com.tak.weartak_tracker
 
 import com.tak.weartak_tracker.data.TrackerConfig
+import com.tak.weartak_tracker.data.Activity
 import com.tak.weartak_tracker.service.ReportingStrategy
 import com.tak.weartak_tracker.service.ReportingCadence
 import com.tak.weartak_tracker.service.ReportingSpeed
@@ -118,19 +119,38 @@ class ReportingSpeedTest {
     }
 
     @Test
-    fun observationCapReusesFasterIncumbentCadenceAndNeverChangesConstant() {
-        for (speed in listOf(null, 0.0, low, (low + high) / 2, high)) {
-            val selected = interval(speed)
-            assertEquals(minOf(60, selected, config.onFootInterval, config.vehicleInterval), ReportingStrategy.observationIntervalSecs(config, selected))
-            assertEquals(90, ReportingStrategy.observationIntervalSecs(config.copy(dynamicReporting = false), 90))
-            assertEquals(5, ReportingStrategy.observationIntervalSecs(config, 5))
+    fun observationProfilesAreIndependentOfInterpolatedDispatchAndRespectSlowerSettings() {
+        for (saved in listOf(config, config.copy(onFootInterval = 300, vehicleInterval = 900, alertingInterval = 120))) {
+            for (armed in listOf(false, true)) {
+                assertEquals(saved.onFootInterval, ReportingStrategy.observationIntervalSecs(saved, Activity.ON_FOOT, false, armed))
+                assertEquals(saved.vehicleInterval, ReportingStrategy.observationIntervalSecs(saved, Activity.IN_VEHICLE, false, armed))
+                assertEquals(maxOf(saved.onFootInterval, saved.vehicleInterval),
+                    ReportingStrategy.observationIntervalSecs(saved, Activity.UNKNOWN, false, armed))
+                for (activity in Activity.entries) {
+                    assertEquals(saved.alertingInterval, ReportingStrategy.observationIntervalSecs(saved, activity, true, armed))
+                    assertEquals(90, ReportingStrategy.observationIntervalSecs(saved.copy(dynamicReporting = false), activity, true, armed))
+                }
+            }
+            assertEquals(3600, ReportingStrategy.observationIntervalSecs(saved, Activity.STILL, false, true))
+            assertEquals(minOf(60, saved.onFootInterval, saved.vehicleInterval),
+                ReportingStrategy.observationIntervalSecs(saved, Activity.STILL, false, false))
         }
-        val saved = config.copy(stationaryInterval = 3600, onFootInterval = 30, vehicleInterval = 60)
-        assertEquals(30, ReportingStrategy.observationIntervalSecs(saved, interval(0.0, saved)))
-        assertEquals(30, ReportingStrategy.observationIntervalSecs(saved, interval(low, saved)))
-        assertEquals(30, ReportingStrategy.observationIntervalSecs(saved, interval(high, saved)))
-        assertEquals(3600, interval(0.0, saved))
-        assertEquals(5, ReportingStrategy.observationIntervalSecs(saved, interval(0.0, saved, alert = true)))
+    }
+
+    @Test
+    fun staleSpeedCannotTurnUnknownOrPreviousStationaryActivityIntoStationaryObservation() {
+        for (speed in listOf(null, Double.NaN, Double.POSITIVE_INFINITY, -1.0)) {
+            for (activity in Activity.entries) {
+                assertEquals(Activity.UNKNOWN, ReportingStrategy.observationActivity(activity, speed))
+            }
+        }
+        assertEquals(Activity.UNKNOWN, ReportingStrategy.observationActivity(Activity.UNKNOWN, 0.0))
+        assertEquals(Activity.STILL, ReportingStrategy.observationActivity(Activity.STILL, 0.0))
+        assertEquals(Activity.UNKNOWN, ReportingStrategy.observationActivity(Activity.STILL, low))
+        assertEquals(Activity.ON_FOOT, ReportingStrategy.observationActivity(Activity.ON_FOOT, 1.5))
+        assertEquals(10, ReportingStrategy.intervalForSpeedSecs(config, false, null, Activity.IN_VEHICLE))
+        assertEquals(60, ReportingStrategy.intervalForSpeedSecs(config, false, null, Activity.ON_FOOT))
+        assertEquals(60, ReportingStrategy.intervalForSpeedSecs(config, false, null, Activity.STILL))
     }
 
     @Test

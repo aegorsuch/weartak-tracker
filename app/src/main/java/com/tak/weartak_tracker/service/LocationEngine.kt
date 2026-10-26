@@ -7,6 +7,7 @@ import android.content.Context
 import android.content.Intent
 import android.location.Location
 import android.os.Handler
+import android.os.Build
 import android.os.Looper
 import android.os.PowerManager
 import android.os.SystemClock
@@ -49,17 +50,20 @@ class LocationEngine(
     private var oneShotSince = 0L
     private var forcePliOnFix = false
     private var nextObservationElapsed = 0L
+    private var stopped = false
     var inputStartedElapsed = 0L
         private set
 
     private val periodicCallback = object : LocationCallback() {
         override fun onLocationResult(result: LocationResult) {
+            if (stopped) return
             result.lastLocation?.let { onLocation(it, false) }
         }
     }
 
     private val oneShotCallback = object : LocationCallback() {
         override fun onLocationResult(result: LocationResult) {
+            if (stopped) return
             fixSinceAlarm = true
             oneShotSince = 0L
             handler.removeCallbacks(noFixCheck)
@@ -79,6 +83,7 @@ class LocationEngine(
     }
 
     fun start(intervalSecs: Int) {
+        if (stopped) return
         val initial = this.intervalSecs == 0
         val currentAccess = LocationAccess.current(context)
         if (initial || currentAccess != access) {
@@ -131,6 +136,7 @@ class LocationEngine(
      * dropped, so repeated taps don't stack requests; the pending fix serves them all.
      */
     fun requestSingleFix(forcePli: Boolean = true) {
+        if (stopped) return
         forcePliOnFix = forcePliOnFix || forcePli
         val now = SystemClock.elapsedRealtime()
         if (oneShotSince != 0L && now - oneShotSince < ONE_SHOT_IN_FLIGHT_MS) return
@@ -158,6 +164,7 @@ class LocationEngine(
     }
 
     fun stop() {
+        stopped = true
         fused.removeLocationUpdates(periodicCallback)
         fused.removeLocationUpdates(oneShotCallback)
         oneShotSince = 0L
@@ -182,7 +189,7 @@ class LocationEngine(
     private fun scheduleAlarm() {
         val delay = intervalSecs * 1000L - ALARM_EARLY_MS
         nextObservationElapsed = SystemClock.elapsedRealtime() + delay
-        if (alarms.canScheduleExactAlarms()) {
+        if (Build.VERSION.SDK_INT < 31 || alarms.canScheduleExactAlarms()) {
             val trigger = System.currentTimeMillis() + delay
             alarms.setAlarmClock(AlarmManager.AlarmClockInfo(trigger, null), alarmIntent)
         } else {
