@@ -86,6 +86,11 @@ class MainActivity : ComponentActivity() {
         val repo = (application as TrackerApp).settings
         setContent { MaterialTheme { WearTAKTextSelection { TrackerNav(repo) } } }
     }
+
+    override fun onUserInteraction() {
+        super.onUserInteraction()
+        TrackerService.start(this, TrackerService.ACTION_LOCATION_INTERACTION)
+    }
 }
 
 typealias Navigate = (String) -> Unit

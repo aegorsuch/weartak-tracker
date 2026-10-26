@@ -88,14 +88,13 @@ class TrackerService : Service() {
     private var multicastWorker: Job? = null
     private var lastFix: Fix? = null
     private var lastFixAccess = LocationAccess.NONE
-    private var lastLocationElapsed = 0L
     /** Elapsed time of the newest fix, so an alert press can briefly wait for the fix it requested. */
     private val fixArrivals = MutableStateFlow(0L)
     private val resendPolicy = AlertResendPolicy()
     private val reportingCadence = ReportingCadence()
     private var reportingSpeed: ReportingSpeed? = null
     private var currentSpeedProvider: String? = null
-    private var appliedInterval = 0
+    private lateinit var observation: ObservationCadence
     private val movement = MovementClassifier()
     private lateinit var motion: MotionTrigger
     private lateinit var physio: PhysioMonitor
@@ -185,8 +184,15 @@ class TrackerService : Service() {
         motion = MotionTrigger(this) {
             TrackerState.activity.value = movement.onMotion()
             reportingSpeed = null
-            location.requestSingleFix(forcePli = false)
+            configureObservationInterval(freshFix = true)
         }
+        observation = ObservationCadence(
+            armMotion = motion::arm,
+            disarmMotion = motion::disarm,
+            schedule = location::start,
+            requestFix = { location.requestSingleFix(forcePli = false) },
+            stopLocation = location::stop,
+        )
         physio = PhysioMonitor(this)
 
         network.start()
@@ -231,12 +237,6 @@ class TrackerService : Service() {
                     pliRefresh.request()
                 }
             }
-        }
-        scope.launch {
-            // Only watch for motion while dynamic reporting has dropped to the stationary interval.
-            combine(repo.config, TrackerState.activity) { c, a -> c.dynamicReporting && a == Activity.STILL }
-                .distinctUntilChanged()
-                .collect { still -> if (still) motion.arm() else motion.disarm() }
         }
         scope.launch { network.wifiNetwork.collect { configureMulticast() } }
         multicastWorker = scope.launch(Dispatchers.IO) { runMulticastWorker() }
@@ -283,6 +283,7 @@ class TrackerService : Service() {
             applyPhysio()
         }
         when (intent?.action) {
+            null, ACTION_LOCATION_INTERACTION -> configureObservationInterval(freshFix = true)
             ACTION_REBROADCAST_PLI -> scope.launch { manualPli() }
             ACTION_LOCATION_ALARM -> if (::location.isInitialized) location.onAlarm()
             ACTION_RAISE_ALERT -> {
@@ -355,8 +356,7 @@ class TrackerService : Service() {
 
     override fun onDestroy() {
         if (::location.isInitialized) {
-            location.stop()
-            motion.disarm()
+            observation.stop()
             physio.setEnabled(false)
             tak.stop()
             channels.clear()
@@ -382,10 +382,8 @@ class TrackerService : Service() {
         val fix = loc.toFix()
         lastFix = fix
         lastFixAccess = LocationAccess.current(this)
-        lastLocationElapsed = SystemClock.elapsedRealtime()
-        fixArrivals.value = lastLocationElapsed
+        fixArrivals.value = SystemClock.elapsedRealtime()
         TrackerState.lastFix.value = fix
-        TrackerState.activity.value = movement.onSpeed(loc.usableSpeed())
         currentSpeedProvider = loc.provider
         reportingSpeed = ReportingSpeed(
             loc.usableSpeed()?.toDouble(),
@@ -393,6 +391,9 @@ class TrackerService : Service() {
             loc.provider,
             fix.elapsedRealtimeMillis?.let(location::speedValidUntil),
         )
+        val validSpeed = currentReportingSpeed()
+        if (validSpeed == null) movement.reset() else movement.onSpeed(validSpeed.toFloat())
+        TrackerState.activity.value = movement.current
         configureObservationInterval()
         reportingSpeed = reportingSpeed?.copy(validUntilElapsedMillis = fix.elapsedRealtimeMillis?.let(location::speedValidUntil))
         val speed = reportingSpeed?.current(SystemClock.elapsedRealtime(), currentSpeedProvider, location.inputStartedElapsed)
@@ -411,27 +412,27 @@ class TrackerService : Service() {
         }
     }
 
-    private fun currentReportingInterval(): Int {
-        val speed = if (LocationAccess.current(this) == LocationAccess.PRECISE && lastFixAccess == LocationAccess.PRECISE) {
+    private fun currentReportingSpeed(): Double? =
+        if (LocationAccess.current(this) == LocationAccess.PRECISE && lastFixAccess == LocationAccess.PRECISE) {
             reportingSpeed?.current(SystemClock.elapsedRealtime(), currentSpeedProvider, location.inputStartedElapsed)
         } else null
-        return ReportingStrategy.intervalForSpeedSecs(config, TrackerState.isAlerting, speed)
-    }
 
-    private fun configureObservationInterval() {
-        val interval = ReportingStrategy.observationIntervalSecs(config, currentReportingInterval())
-        if (interval != appliedInterval) {
-            val observed = reportingSpeed
-            val valid = observed?.current(SystemClock.elapsedRealtime(), currentSpeedProvider, location.inputStartedElapsed) != null
-            appliedInterval = interval
-            location.start(interval)
-            if (valid) {
-                reportingSpeed = observed?.copy(validUntilElapsedMillis = observed.acquiredElapsedMillis?.let(location::speedValidUntil))
-            }
+    private fun currentReportingInterval(): Int =
+        ReportingStrategy.intervalForSpeedSecs(config, TrackerState.isAlerting, currentReportingSpeed(), movement.current)
+
+    private fun configureObservationInterval(freshFix: Boolean = false) {
+        val observed = reportingSpeed
+        val speed = currentReportingSpeed()
+        // A stale/missing speed or a new moving fix cannot justify an hour-long stationary wait.
+        val activity = ReportingStrategy.observationActivity(movement.current, speed)
+        observation.update(config, activity, TrackerState.isAlerting, freshFix)
+        if (speed != null) {
+            reportingSpeed = observed?.copy(validUntilElapsedMillis = observed.acquiredElapsedMillis?.let(location::speedValidUntil))
         }
     }
 
     private suspend fun reportIfDue() {
+        configureObservationInterval()
         val interval = currentReportingInterval()
         TrackerState.reportingIntervalSecs.value = interval
         if (reportingCadence.isDue(SystemClock.elapsedRealtime(), interval)) lastFix?.let { sendPli(it) }
@@ -459,7 +460,7 @@ class TrackerService : Service() {
             fix = fix,
             time = CotTime.now(CotBuilder.pliStaleSeconds(
                 currentReportingInterval(),
-            ), if (pending.isEmpty()) System.currentTimeMillis() else fix.timeMillis),
+            ), fix.timeMillis),
             physio = if (physioActive) {
                 val bpm = physio.bpm
                 Physio(
@@ -561,8 +562,12 @@ class TrackerService : Service() {
     private suspend fun awaitFreshFix() {
         val pressed = SystemClock.elapsedRealtime()
         location.requestSingleFix()
-        if (lastFix != null && pressed - lastLocationElapsed < FRESH_FIX_MS) return
-        withTimeoutOrNull(ALERT_FIX_WAIT_MS) { fixArrivals.first { it > pressed } }
+        if (lastFix?.isCurrentPliFix(pressed, FRESH_FIX_MS) == true) return
+        withTimeoutOrNull(ALERT_FIX_WAIT_MS) {
+            fixArrivals.first {
+                it > pressed && lastFix?.isCurrentPliFix(SystemClock.elapsedRealtime(), FRESH_FIX_MS) == true
+            }
+        }
     }
 
     /**
@@ -733,6 +738,7 @@ class TrackerService : Service() {
         private const val MULTICAST_RETRY_MS = 15_000L
 
         const val ACTION_LOCATION_ALARM = "com.tak.weartak_tracker.LOCATION_ALARM"
+        const val ACTION_LOCATION_INTERACTION = "com.tak.weartak_tracker.LOCATION_INTERACTION"
         const val ACTION_REBROADCAST_PLI = "com.tak.weartak_tracker.REBROADCAST_PLI"
         const val ACTION_RAISE_ALERT = "com.tak.weartak_tracker.RAISE_ALERT"
         const val ACTION_CANCEL_ALERT = "com.tak.weartak_tracker.CANCEL_ALERT"

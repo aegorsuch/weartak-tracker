@@ -5,6 +5,7 @@ import android.hardware.Sensor
 import android.hardware.SensorManager
 import android.hardware.TriggerEvent
 import android.hardware.TriggerEventListener
+import com.tak.weartak_tracker.diagnostics.AppLog as Log
 
 /**
  * One-shot significant-motion trigger (low-power wake-up sensor, no runtime permission). Armed while the
@@ -14,6 +15,7 @@ class MotionTrigger(context: Context, private val onMotion: () -> Unit) {
     private val sensors = context.getSystemService(SensorManager::class.java)
     private val sensor: Sensor? = sensors?.getDefaultSensor(Sensor.TYPE_SIGNIFICANT_MOTION)
     private var armed = false
+    private var failureReported = false
 
     val available: Boolean get() = sensor != null
 
@@ -25,14 +27,27 @@ class MotionTrigger(context: Context, private val onMotion: () -> Unit) {
         }
     }
 
-    fun arm() {
-        if (armed || sensor == null) return
+    fun arm(): Boolean {
+        if (armed) return true
+        if (failureReported) return false
+        if (sensor == null) {
+            reportUnavailable()
+            return false
+        }
         armed = sensors?.requestTriggerSensor(listener, sensor) == true
+        if (!armed) reportUnavailable() else failureReported = false
+        return armed
     }
 
     fun disarm() {
-        if (!armed || sensor == null) return
-        sensors?.cancelTriggerSensor(listener, sensor)
+        if (armed && sensor != null) sensors?.cancelTriggerSensor(listener, sensor)
         armed = false
+        failureReported = false
+    }
+
+    private fun reportUnavailable() {
+        if (failureReported) return
+        failureReported = true
+        Log.w("MotionTrigger", "Significant motion unavailable or could not be armed; retaining stationary GPS polling")
     }
 }

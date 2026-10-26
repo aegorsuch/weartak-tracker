@@ -3,6 +3,7 @@ package com.tak.weartak_tracker
 import com.tak.weartak_tracker.cot.AlertState
 import com.tak.weartak_tracker.cot.CotBuilder
 import com.tak.weartak_tracker.cot.CotTime
+import com.tak.weartak_tracker.cot.Fix
 import com.tak.weartak_tracker.cot.Physio
 import com.tak.weartak_tracker.cot.StandardEmergencyType
 import com.tak.weartak_tracker.data.ManualAlert
@@ -53,6 +54,20 @@ class CoreLogicTest {
         assertEquals(7215L, CotBuilder.pliStaleSeconds(3600))
         assertEquals(17L, CotBuilder.pliStaleSeconds(0))
         assertEquals(2L * Int.MAX_VALUE + 15, CotBuilder.pliStaleSeconds(Int.MAX_VALUE))
+    }
+
+    @Test
+    fun stationaryAndFallbackPliRetainSampleTimeAndReportedAccuracy() {
+        val fix = Fix(1.0, 2.0, 3.0, 17f, 23f, 0f, 0f, 1_000, 500)
+        for (interval in listOf(10, 60, 3600)) {
+            val time = CotTime.now(CotBuilder.pliStaleSeconds(interval), fix.timeMillis)
+            val xml = CotBuilder.pli("u1", "cs", "Cyan", "HQ", 50, fix, time)
+            assertTrue(xml.contains("time='1970-01-01T00:00:01.000Z'"))
+            assertTrue(xml.contains("start='1970-01-01T00:00:01.000Z'"))
+            assertTrue(xml.contains("ce='17'"))
+            assertEquals(fix.timeMillis + (2L * interval + 15) * 1000,
+                java.time.Instant.parse(time.staleCot).toEpochMilli())
+        }
     }
 
     @Test
