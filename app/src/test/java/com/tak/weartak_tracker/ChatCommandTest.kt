@@ -57,6 +57,17 @@ class ChatCommandTest {
     }
 
     @Test
+    fun acceptsJoinedAndWhitespaceSeparatedCommandsAfterEitherPrefix() {
+        val expected = setOf("enabletakservers", "disabletakservers", "enablemulticast", "disablemulticast")
+        for (name in expected) {
+            assertEquals(name, parsed("#weartakcommand$name").name)
+            assertEquals(name, parsed("#weartakcommand $name").name)
+            assertEquals(name, parsed("#weartaktrackercommand$name").name)
+            assertEquals(name, parsed("#weartaktrackercommand $name").name)
+        }
+    }
+
+    @Test
     fun rejectsMalformedInput() {
         assertTrue(malformed("#weartaktrackercommand"))
         assertTrue(malformed("#weartaktrackercommand9 a=b"))
