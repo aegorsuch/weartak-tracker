@@ -11,7 +11,10 @@
     <string name="debug_stay_awake">Stay awake</string>
     <string name="debug_stay_awake_resume_after_update">Stay awake: resume after update</string>
     <string name="debug_stay_awake_warning">Extra battery use. May heat watch.</string>
-    <string name="debug_stay_awake_active">Active until manually stopped or the app process ends</string>
+    <string name="debug_stay_awake_active">Active until stopped, Wi-Fi is switched off or the watch leaves its charger</string>
+    <string name="debug_stay_awake_requires_wifi_and_charger">Stay awake needs Wi-Fi on and the watch on its charger.</string>
+    <string name="debug_stay_awake_stopped_wifi_off">Stay awake off: Wi-Fi switched off.</string>
+    <string name="debug_stay_awake_stopped_unplugged">Stay awake off: watch left its charger.</string>
     <string name="debug_stay_awake_channel">Debug stay awake</string>
     <string name="debug_stay_awake_stop">Stop</string>
     <string name="debug_stay_awake_failed">Unable to start Stay awake. See WearTAK debug logs.</string>

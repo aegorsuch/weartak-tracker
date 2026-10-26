@@ -25,6 +25,7 @@ import androidx.wear.compose.material.Switch
 import androidx.wear.compose.material.Text
 import androidx.wear.compose.material.ToggleChip
 import com.tak.weartak_tracker.R
+import com.tak.weartak_tracker.service.DebugStayAwakeConditions
 import com.tak.weartak_tracker.service.DebugStayAwakeService
 import com.tak.weartak_tracker.service.DebugStayAwakeSession
 
@@ -39,6 +40,10 @@ internal fun DebugStayAwakeSetting() {
             onCheckedChange = { enabled ->
                 val intent = Intent(context, DebugStayAwakeService::class.java)
                 if (enabled) {
+                    if (DebugStayAwakeConditions.current(context) != null) {
+                        Toast.makeText(context, R.string.debug_stay_awake_requires_wifi_and_charger, Toast.LENGTH_LONG).show()
+                        return@ToggleChip
+                    }
                     if (!DebugStayAwakeSession.setExplicitlyEnabled(context, true)) {
                         Toast.makeText(context, R.string.debug_stay_awake_failed, Toast.LENGTH_LONG).show()
                         return@ToggleChip

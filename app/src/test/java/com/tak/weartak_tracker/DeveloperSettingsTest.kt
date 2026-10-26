@@ -1,8 +1,11 @@
 package com.tak.weartak_tracker
 
+import android.content.Intent
+import android.net.wifi.WifiManager
 import com.tak.weartak_tracker.data.TrackerConfig
 import com.tak.weartak_tracker.ui.DeveloperModeTaps
 import com.tak.weartak_tracker.ui.isNetworkSettingsRoute
+import com.tak.weartak_tracker.service.DebugStayAwakeConditions
 import com.tak.weartak_tracker.service.DebugStayAwakeSession
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -23,6 +26,26 @@ class DeveloperSettingsTest {
         assertFalse(DebugStayAwakeSession.shouldResumeAfterUpdate(explicitlyEnabled = false, resumeAfterUpdate = true))
         assertFalse(DebugStayAwakeSession.shouldResumeAfterUpdate(explicitlyEnabled = true, resumeAfterUpdate = false))
         assertFalse(DebugStayAwakeSession.shouldResumeAfterUpdate(explicitlyEnabled = false, resumeAfterUpdate = false))
+    }
+
+    @Test
+    fun stayAwakeRefusesToStartWithoutWifiAndCharger() {
+        assertEquals(null, DebugStayAwakeConditions.startBlock(wifiEnabled = true, pluggedIn = true))
+        assertEquals(DebugStayAwakeConditions.Block.WIFI_OFF, DebugStayAwakeConditions.startBlock(wifiEnabled = false, pluggedIn = true))
+        assertEquals(DebugStayAwakeConditions.Block.UNPLUGGED, DebugStayAwakeConditions.startBlock(wifiEnabled = true, pluggedIn = false))
+        assertEquals(DebugStayAwakeConditions.Block.WIFI_OFF, DebugStayAwakeConditions.startBlock(wifiEnabled = false, pluggedIn = false))
+    }
+
+    @Test
+    fun stayAwakeStopsOnlyWhenWifiSwitchesOffOrChargerDisconnects() {
+        val unknown = WifiManager.WIFI_STATE_UNKNOWN
+        assertEquals(DebugStayAwakeConditions.Block.UNPLUGGED, DebugStayAwakeConditions.stopTrigger(Intent.ACTION_POWER_DISCONNECTED, unknown))
+        assertEquals(DebugStayAwakeConditions.Block.WIFI_OFF, DebugStayAwakeConditions.stopTrigger(WifiManager.WIFI_STATE_CHANGED_ACTION, WifiManager.WIFI_STATE_DISABLING))
+        assertEquals(DebugStayAwakeConditions.Block.WIFI_OFF, DebugStayAwakeConditions.stopTrigger(WifiManager.WIFI_STATE_CHANGED_ACTION, WifiManager.WIFI_STATE_DISABLED))
+        assertEquals(null, DebugStayAwakeConditions.stopTrigger(WifiManager.WIFI_STATE_CHANGED_ACTION, WifiManager.WIFI_STATE_ENABLED))
+        assertEquals(null, DebugStayAwakeConditions.stopTrigger(WifiManager.WIFI_STATE_CHANGED_ACTION, WifiManager.WIFI_STATE_ENABLING))
+        assertEquals(null, DebugStayAwakeConditions.stopTrigger(Intent.ACTION_POWER_CONNECTED, unknown))
+        assertEquals(null, DebugStayAwakeConditions.stopTrigger(null, unknown))
     }
 
     @Test

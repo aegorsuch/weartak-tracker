@@ -4,7 +4,10 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
+import android.content.BroadcastReceiver
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.ServiceInfo
 import android.net.ConnectivityManager
 import android.net.Network
@@ -19,6 +22,7 @@ import android.os.PowerManager
 import com.tak.weartak_tracker.diagnostics.AppLog as Log
 import android.widget.Toast
 import androidx.core.app.NotificationCompat
+import androidx.core.content.ContextCompat
 import com.tak.weartak_tracker.R
 import com.tak.weartak_tracker.ui.MainActivity
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -29,6 +33,7 @@ class DebugStayAwakeService : Service() {
     private var cpuLock: PowerManager.WakeLock? = null
     private var wifiLock: WifiManager.WifiLock? = null
     private var wifiCallback: ConnectivityManager.NetworkCallback? = null
+    private var stopTriggerReceiver: BroadcastReceiver? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -69,6 +74,12 @@ class DebugStayAwakeService : Service() {
         }
         if (mutableActive.value) return START_NOT_STICKY
 
+        registerStopTriggers()
+        DebugStayAwakeConditions.current(this)?.let {
+            autoStop(it)
+            return START_NOT_STICKY
+        }
+
         try {
             requestWifi()
             acquireLocks()
@@ -79,8 +90,37 @@ class DebugStayAwakeService : Service() {
             return START_NOT_STICKY
         }
         mutableActive.value = true
-        Log.i(TAG, "Debug stay awake enabled until manually stopped or the app process ends")
+        Log.i(TAG, "Debug stay awake enabled until stopped, Wi-Fi is switched off or the watch leaves its charger")
         return START_NOT_STICKY
+    }
+
+    private fun registerStopTriggers() {
+        if (stopTriggerReceiver != null) return
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context, intent: Intent) {
+                val wifiState = intent.getIntExtra(WifiManager.EXTRA_WIFI_STATE, WifiManager.WIFI_STATE_UNKNOWN)
+                DebugStayAwakeConditions.stopTrigger(intent.action, wifiState)?.let(::autoStop)
+            }
+        }
+        val filter = IntentFilter().apply {
+            addAction(Intent.ACTION_POWER_DISCONNECTED)
+            addAction(WifiManager.WIFI_STATE_CHANGED_ACTION)
+        }
+        ContextCompat.registerReceiver(this, receiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
+        stopTriggerReceiver = receiver
+    }
+
+    private fun unregisterStopTriggers() {
+        stopTriggerReceiver?.let {
+            stopTriggerReceiver = null
+            unregisterReceiver(it)
+        }
+    }
+
+    private fun autoStop(reason: DebugStayAwakeConditions.Block) {
+        Log.i(TAG, "Debug stay awake turned off: ${reason.name}")
+        Toast.makeText(this, reason.message, Toast.LENGTH_LONG).show()
+        finishSession()
     }
 
     private fun requestWifi() {
@@ -158,6 +198,7 @@ class DebugStayAwakeService : Service() {
     }
 
     private fun releaseLocks() {
+        unregisterStopTriggers()
         wifiCallback?.let {
             wifiCallback = null
             try {
