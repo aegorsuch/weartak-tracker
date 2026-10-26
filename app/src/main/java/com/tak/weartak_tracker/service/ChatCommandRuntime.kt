@@ -17,6 +17,7 @@ import com.tak.weartak_tracker.command.DittoPdlApplyResult
 import com.tak.weartak_tracker.command.DittoPdlStore
 import com.tak.weartak_tracker.command.SetPdlHandler
 import com.tak.weartak_tracker.command.EnrollServerHandler
+import com.tak.weartak_tracker.command.EnrollServerOutcome
 import com.tak.weartak_tracker.command.LoadProfileHandler
 import com.tak.weartak_tracker.command.PresetServer
 import com.tak.weartak_tracker.command.PresetServerAddResult
@@ -95,7 +96,6 @@ object ChatCommandRuntime {
                 beforeDisableReply = sendReplyResult,
                 ackFailure = { Log.w(TAG, "${transport.label} disable ack publication failed") },
             )
-        val sink = PresetServerSink { servers -> addServers(repo, servers) }
         val handlers = ProfileHandler.COMMAND_KEYS.mapValues { (_, keys) -> ProfileHandler(keys, store) } +
             mapOf(
                 "enabletakservers" to networkHandler(NetworkCommandTransport.TAK_SERVERS, true),
@@ -104,7 +104,7 @@ object ChatCommandRuntime {
                 "disablemulticast" to networkHandler(NetworkCommandTransport.MULTICAST, false),
             ) +
             ("loadprofile" to loadProfileHandler(context, repo)) +
-            ("enrollserver" to EnrollServerHandler(sink, networkLocked)) +
+            ("enrollserver" to EnrollServerHandler({ server -> upsertEnrollServer(repo, server) }, networkLocked)) +
             ("toggleditto" to ToggleDittoHandler(
                 networkLocked = networkLocked,
                 store = DittoToggleStore { enabled ->
@@ -263,5 +263,43 @@ object ChatCommandRuntime {
             c.copy(servers = c.servers + fresh)
         }
         return PresetServerAddResult(added, locked)
+    }
+
+    private suspend fun upsertEnrollServer(repo: SettingsRepository, server: PresetServer): EnrollServerOutcome {
+        var outcome = EnrollServerOutcome.LOCKED
+        repo.update { c ->
+            if (c.networkPreferencesLocked) return@update c
+            val (servers, result) = upsertServer(c.servers, server)
+            outcome = result
+            c.copy(servers = servers)
+        }
+        return outcome
+    }
+
+    /**
+     * Adds an enabled server, or updates the saved server with the same endpoint or trimmed
+     * case-insensitive name in place. Refuses when name and endpoint match different servers.
+     */
+    internal fun upsertServer(
+        servers: List<TakServerConfig>,
+        server: PresetServer,
+    ): Pair<List<TakServerConfig>, EnrollServerOutcome> {
+        val incoming = TakServerConfig(
+            name = server.name, address = server.address, port = server.port,
+            username = server.username, password = server.password, enabled = true,
+        )
+        val name = server.name.trim().lowercase()
+        val byEndpoint = servers.firstOrNull { it.endpointKey == incoming.endpointKey }
+        val byName = servers.firstOrNull { it.name.trim().lowercase() == name }
+        if (byEndpoint != null && byName != null && byEndpoint.id != byName.id) {
+            return servers to EnrollServerOutcome.CONFLICT
+        }
+        val match = byEndpoint ?: byName ?: return (servers + incoming) to EnrollServerOutcome.ADDED
+        val moved = match.endpointKey != incoming.endpointKey
+        val updated = match.copy(
+            name = incoming.name, address = incoming.address, port = incoming.port,
+            username = incoming.username, password = incoming.password, enabled = true,
+        ).let { if (moved) it.copy(tlsName = "", apiTlsName = "") else it }
+        return servers.map { if (it.id == match.id) updated else it } to EnrollServerOutcome.UPDATED
     }
 }

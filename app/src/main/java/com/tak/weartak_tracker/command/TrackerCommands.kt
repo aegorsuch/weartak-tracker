@@ -160,7 +160,7 @@ class ProfileHandler(
  * Credentials are never logged or echoed.
  */
 class EnrollServerHandler(
-    private val sink: PresetServerSink,
+    private val sink: EnrollServerSink,
     private val networkLocked: suspend () -> Boolean,
 ) : ChatCommandHandler {
     override suspend fun execute(command: ChatCommand, request: ChatCommandRequest): ChatCommandResult {
@@ -176,10 +176,15 @@ class EnrollServerHandler(
             return ChatCommandResult(false, USAGE)
         }
         if (networkLocked()) return ChatCommandResult(false, "Network settings are locked; server not added")
-        val result = sink.add(listOf(PresetServer(name, address, port, username, password)))
-        if (result.locked) return ChatCommandResult(false, "Network settings are locked; server not added")
-        return if (result.added > 0) ChatCommandResult(true, "Added $name ($address:$port); enrolling")
-        else ChatCommandResult(false, "$address:$port is already configured; nothing changed")
+        return when (sink.upsert(PresetServer(name, address, port, username, password))) {
+            EnrollServerOutcome.LOCKED -> ChatCommandResult(false, "Network settings are locked; server not added")
+            EnrollServerOutcome.ADDED -> ChatCommandResult(true, "Added $name ($address:$port); enrolling")
+            EnrollServerOutcome.UPDATED -> ChatCommandResult(true, "Server $name updated")
+            EnrollServerOutcome.CONFLICT -> ChatCommandResult(
+                false,
+                "$name matches one saved server by name and $address:$port matches another; nothing changed",
+            )
+        }
     }
 
     companion object {
@@ -193,6 +198,16 @@ data class PresetServer(val name: String, val address: String, val port: Int, va
 }
 
 data class PresetServerAddResult(val added: Int, val locked: Boolean = false)
+
+enum class EnrollServerOutcome { ADDED, UPDATED, LOCKED, CONFLICT }
+
+fun interface EnrollServerSink {
+    /**
+     * Atomically adds the server, or updates the saved server with the same normalized name or
+     * address and port in place, unless network settings are locked.
+     */
+    suspend fun upsert(server: PresetServer): EnrollServerOutcome
+}
 
 data class ProfilePreset(
     val profile: Map<String, String>,
