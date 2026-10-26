@@ -20,8 +20,8 @@ import androidx.compose.ui.res.stringResource
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.wear.compose.foundation.lazy.ScalingLazyListScope
 import androidx.wear.compose.material.Checkbox
+import androidx.wear.compose.material.SplitToggleChip
 import androidx.wear.compose.material.Text
-import androidx.wear.compose.material.ToggleChip
 import com.tak.weartak_tracker.BuildConfig
 import com.tak.weartak_tracker.R
 import com.tak.weartak_tracker.data.DittoPdlSource
@@ -104,6 +104,7 @@ internal fun networkTransportChecklist(
     repo: SettingsRepository,
     config: State<TrackerConfig>,
     openDittoIdentity: () -> Unit,
+    openTransportSettings: (NetworkTransport) -> Unit,
 ): ScalingLazyListScope.() -> Unit {
     val context = LocalContext.current.applicationContext
     val labels = NetworkTransport.entries.associateWith { stringResource(it.labelRes) }
@@ -114,29 +115,40 @@ internal fun networkTransportChecklist(
         entries.forEach { transport ->
             item(key = "transport-${transport.name}") {
                 val enabled = transport.enabled(config.value)
+                val locked = config.value.networkPreferencesLocked
                 val serverSummary = if (transport == NetworkTransport.TAK_SERVERS) {
                     takServerConnectionSummary(config.value, takServerStates)
                 } else null
-                ToggleChip(
+                // Row body opens the transport's settings (still allowed when locked); the checkbox only toggles.
+                SplitToggleChip(
                     modifier = Modifier.fillMaxWidth(),
                     label = { Text(labels.getValue(transport)) },
                     secondaryLabel = serverSummary?.let { summary -> ({ Text(summary) }) },
                     checked = enabled,
-                    enabled = !config.value.networkPreferencesLocked,
                     toggleControl = {
-                        Checkbox(checked = enabled, onCheckedChange = null, enabled = !config.value.networkPreferencesLocked)
+                        Checkbox(checked = enabled, onCheckedChange = null, enabled = !locked)
                     },
                     onCheckedChange = { selected ->
-                        if (transport == NetworkTransport.DITTO) {
-                            toggleDitto(selected)
-                        } else saveNetworkPreference(
-                            repo, context, { transport.setEnabled(it, selected) },
-                        ) { if (selected) TrackerService.start(context) }
+                        when {
+                            locked -> Toast.makeText(context, R.string.network_settings_locked, Toast.LENGTH_LONG).show()
+                            transport == NetworkTransport.DITTO -> toggleDitto(selected)
+                            else -> saveNetworkPreference(
+                                repo, context, { transport.setEnabled(it, selected) },
+                            ) { if (selected) TrackerService.start(context) }
+                        }
                     },
+                    onClick = { openTransportSettings(transport) },
                 )
             }
         }
     }
+}
+
+internal fun NetworkTransport.settingsRoute(): String = when (this) {
+    NetworkTransport.DITTO -> "ditto_identity"
+    NetworkTransport.MULTICAST -> "tak_sa_multicast"
+    NetworkTransport.SITX -> "sitx_tak_screen"
+    NetworkTransport.TAK_SERVERS -> "tak_servers"
 }
 
 internal fun takServerConnectionSummary(

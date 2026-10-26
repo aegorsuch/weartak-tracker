@@ -29,6 +29,7 @@ import com.tak.weartak_tracker.ui.dittoEnableBlocker
 import com.tak.weartak_tracker.ui.dittoStatusResource
 import com.tak.weartak_tracker.ui.takServerConnectionSummary
 import com.tak.weartak_tracker.ui.networkTransports
+import com.tak.weartak_tracker.ui.settingsRoute
 import java.util.Locale
 import org.junit.Assert.*
 import org.junit.Test
@@ -155,6 +156,19 @@ class NetworkTransportTest {
                 connectionStatusIcon(off, mapOf("one" to TakServerState(status)), emptySet(), SitxState.Disabled),
             )
         }
+    }
+
+    @Test
+    fun everyTransportRowOpensItsSettingsPage() {
+        assertEquals(
+            mapOf(
+                NetworkTransport.DITTO to "ditto_identity",
+                NetworkTransport.MULTICAST to "tak_sa_multicast",
+                NetworkTransport.SITX to "sitx_tak_screen",
+                NetworkTransport.TAK_SERVERS to "tak_servers",
+            ),
+            NetworkTransport.entries.associateWith { it.settingsRoute() },
+        )
     }
 
     @Test
