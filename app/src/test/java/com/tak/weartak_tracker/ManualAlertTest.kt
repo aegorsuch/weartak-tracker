@@ -12,6 +12,7 @@ import com.tak.weartak_tracker.cot.CotBuilder
 import com.tak.weartak_tracker.cot.CotTime
 import com.tak.weartak_tracker.data.CustomAlerts
 import com.tak.weartak_tracker.data.ProfilePresets
+import com.tak.weartak_tracker.command.PresetServerAddResult
 import com.tak.weartak_tracker.data.TrackerConfig
 import com.tak.weartak_tracker.data.manualAlertOptions
 import java.util.Locale
@@ -205,7 +206,7 @@ class ManualAlertTest {
         val handler = LoadProfileHandler(
             source = { """{"customAlerts":["need water","Ammo low"]}""" },
             profile = ProfileHandler(ProfileHandler.PROFILE_KEYS, ProfileStore { }),
-            serverSink = { 0 },
+            serverSink = { PresetServerAddResult(0) },
             networkLocked = { false },
             customAlertSink = CustomAlertSink { alerts ->
                 val (merged, added) = CustomAlerts.merge(saved, alerts)

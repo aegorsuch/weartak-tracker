@@ -33,8 +33,8 @@ object ChatCommandParser {
      * Anything not starting with the prefix is ordinary chat and is never inspected further.
      *
      * Commands listed in [positional] also accept values without keys: one key takes the whole rest of
-     * the message (`setusertype Coalition Civilian`), several keys take `;`-separated values in order
-     * (`enrollserver OPS; tak.example.org; 8089; user; pass`, where the last value may contain `;`).
+     * the message (`setusertype Coalition Civilian`), several keys take `;`-separated values in order.
+     * `enrollserver` also accepts comma-separated values, with the password taking the remaining text.
      */
     fun parse(text: String, positional: Map<String, List<String>> = emptyMap()): ChatCommandParse {
         val body = text.trim()
@@ -79,6 +79,13 @@ object ChatCommandParser {
         }
         val keys = positional[name]
         if (keys != null && argText.isNotEmpty() && !KEY_VALUE_START.containsMatchIn(argText)) {
+            if (name == "enrollserver") {
+                val comma = argText.indexOf(',')
+                val semicolon = argText.indexOf(';')
+                if (comma >= 0 && (semicolon < 0 || comma < semicolon)) {
+                    return parseCommaSeparatedEnrollServer(argText, keys)
+                }
+            }
             return parsePositional(name, argText, keys)
         }
         val args = LinkedHashMap<String, String>()
@@ -129,5 +136,16 @@ object ChatCommandParser {
             return ChatCommandParse.Malformed("invalid argument value")
         }
         return ChatCommandParse.Parsed(ChatCommand(name, LinkedHashMap(keys.zip(values).toMap())))
+    }
+
+    private fun parseCommaSeparatedEnrollServer(argText: String, keys: List<String>): ChatCommandParse {
+        val values = argText.split(',', limit = keys.size).map { it.trim() }
+        if (values.size != keys.size) {
+            return ChatCommandParse.Malformed("expected ${keys.size} values separated by commas")
+        }
+        if (values.any { it.isEmpty() || it.length > MAX_VALUE_LENGTH || it.any(Char::isISOControl) }) {
+            return ChatCommandParse.Malformed("invalid argument value")
+        }
+        return ChatCommandParse.Parsed(ChatCommand("enrollserver", LinkedHashMap(keys.zip(values).toMap())))
     }
 }

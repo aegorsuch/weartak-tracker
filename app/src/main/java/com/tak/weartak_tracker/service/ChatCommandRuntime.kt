@@ -19,6 +19,7 @@ import com.tak.weartak_tracker.command.SetPdlHandler
 import com.tak.weartak_tracker.command.EnrollServerHandler
 import com.tak.weartak_tracker.command.LoadProfileHandler
 import com.tak.weartak_tracker.command.PresetServer
+import com.tak.weartak_tracker.command.PresetServerAddResult
 import com.tak.weartak_tracker.command.PresetServerSink
 import com.tak.weartak_tracker.command.PresetSource
 import com.tak.weartak_tracker.command.ProfileHandler
@@ -246,9 +247,14 @@ object ChatCommandRuntime {
         return added
     }
 
-    private suspend fun addServers(repo: SettingsRepository, servers: List<PresetServer>): Int {
+    private suspend fun addServers(repo: SettingsRepository, servers: List<PresetServer>): PresetServerAddResult {
         var added = 0
+        var locked = false
         repo.update { c ->
+            if (c.networkPreferencesLocked) {
+                locked = true
+                return@update c
+            }
             val known = c.servers.map { it.endpointKey }.toMutableSet()
             val fresh = servers.map {
                 TakServerConfig(name = it.name, address = it.address, port = it.port, username = it.username, password = it.password)
@@ -256,6 +262,6 @@ object ChatCommandRuntime {
             added = fresh.size
             c.copy(servers = c.servers + fresh)
         }
-        return added
+        return PresetServerAddResult(added, locked)
     }
 }

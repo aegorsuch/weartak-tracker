@@ -155,8 +155,9 @@ class ProfileHandler(
 
 /**
  * `#weartaktrackercommandenrollserver name=OPS url=tak.example.org port=8089 username=u password=p`, or
- * `#weartaktrackercommandenrollserver OPS; tak.example.org; 8089; u; p`. Adds the server so the tracker
- * enrolls for a client certificate with those credentials. Credentials are never logged or echoed.
+ * `#weartakcommand enrollserver OPS, tak.example.org, 8089, user, pass,with,commas`.
+ * Everything after the fourth comma is the password; semicolon and named forms remain supported.
+ * Credentials are never logged or echoed.
  */
 class EnrollServerHandler(
     private val sink: PresetServerSink,
@@ -175,18 +176,23 @@ class EnrollServerHandler(
             return ChatCommandResult(false, USAGE)
         }
         if (networkLocked()) return ChatCommandResult(false, "Network settings are locked; server not added")
-        val added = sink.add(listOf(PresetServer(name, address, port, username, password)))
-        return if (added > 0) ChatCommandResult(true, "Added $name ($address:$port); enrolling")
+        val result = sink.add(listOf(PresetServer(name, address, port, username, password)))
+        if (result.locked) return ChatCommandResult(false, "Network settings are locked; server not added")
+        return if (result.added > 0) ChatCommandResult(true, "Added $name ($address:$port); enrolling")
         else ChatCommandResult(false, "$address:$port is already configured; nothing changed")
     }
 
     companion object {
         val POSITIONAL_KEYS = listOf("name", "url", "port", "username", "password")
-        const val USAGE = "enrollserver needs <name>; <host>; <port>; <username>; <password>"
+        const val USAGE = "enrollserver needs <name>, <address>, <port>, <username>, <password>"
     }
 }
 
-data class PresetServer(val name: String, val address: String, val port: Int, val username: String, val password: String)
+data class PresetServer(val name: String, val address: String, val port: Int, val username: String, val password: String) {
+    override fun toString(): String = "PresetServer(name=$name, address=$address, port=$port, credentials=redacted)"
+}
+
+data class PresetServerAddResult(val added: Int, val locked: Boolean = false)
 
 data class ProfilePreset(
     val profile: Map<String, String>,
@@ -240,8 +246,8 @@ fun interface PresetSource {
 }
 
 fun interface PresetServerSink {
-    /** Adds the servers that are not already configured and returns how many were added. */
-    suspend fun add(servers: List<PresetServer>): Int
+    /** Atomically adds new servers, reporting the live network-lock state and addition count. */
+    suspend fun add(servers: List<PresetServer>): PresetServerAddResult
 }
 
 fun interface CustomAlertSink {
@@ -275,7 +281,9 @@ class LoadProfileHandler(
             if (!result.ok) return ChatCommandResult(false, "Preset $name profile rejected: ${result.message}")
             profileSummary = "profile applied"
         }
-        val added = if (preset.servers.isEmpty()) 0 else serverSink.add(preset.servers)
+        val addResult = if (preset.servers.isEmpty()) PresetServerAddResult(0) else serverSink.add(preset.servers)
+        if (addResult.locked) return ChatCommandResult(false, "Network settings are locked; nothing changed")
+        val added = addResult.added
         val alerts = if (preset.customAlerts.isEmpty()) "" else
             ", ${customAlertSink.add(preset.customAlerts)} of ${preset.customAlerts.size} custom alerts added"
         return ChatCommandResult(true, "Loaded $name: $profileSummary, $added of ${preset.servers.size} servers added$alerts")

@@ -7,6 +7,7 @@ import com.tak.weartak_tracker.command.ChatCommandRequest
 import com.tak.weartak_tracker.command.EnrollServerHandler
 import com.tak.weartak_tracker.command.LoadProfileHandler
 import com.tak.weartak_tracker.command.PresetServer
+import com.tak.weartak_tracker.command.PresetServerAddResult
 import com.tak.weartak_tracker.command.ProfileHandler
 import com.tak.weartak_tracker.command.ProfilePresetParser
 import com.tak.weartak_tracker.command.ProfileStore
@@ -94,7 +95,7 @@ class TrackerCommandsTest {
     @Test
     fun enrollServerAddsWithoutEchoingCredentials() {
         val added = mutableListOf<PresetServer>()
-        val h = EnrollServerHandler({ servers -> added += servers; servers.size }, { false })
+        val h = EnrollServerHandler({ servers -> added += servers; PresetServerAddResult(servers.size) }, { false })
         val r = run(h, "enrollserver", "name" to "OPS", "url" to "tak.example.org", "port" to "8089",
             "username" to "alice", "password" to "s3cret;x")
         assertTrue(r.message, r.ok)
@@ -103,8 +104,15 @@ class TrackerCommandsTest {
         assertFalse(run(h, "enrollserver", "name" to "OPS", "url" to "tak.example.org").ok)
         val locked = EnrollServerHandler({ error("must not add") }, { true })
         assertFalse(run(locked, "enrollserver", "name" to "OPS", "url" to "h", "username" to "u", "password" to "p").ok)
-        val dup = EnrollServerHandler({ 0 }, { false })
+        val dup = EnrollServerHandler({ PresetServerAddResult(0) }, { false })
         assertFalse(run(dup, "enrollserver", "name" to "OPS", "url" to "h", "username" to "u", "password" to "p").ok)
+        val lockedBeforeWrite = EnrollServerHandler({ PresetServerAddResult(0, locked = true) }, { false })
+        val lockResult = run(
+            lockedBeforeWrite, "enrollserver", "name" to "OPS", "url" to "h",
+            "username" to "u", "password" to "p",
+        )
+        assertFalse(lockResult.ok)
+        assertTrue(lockResult.message.contains("settings are locked"))
     }
 
     @Test
@@ -112,12 +120,17 @@ class TrackerCommandsTest {
         val rec = Recorder()
         val added = mutableListOf<PresetServer>()
         val replies = mutableListOf<String>()
+        val audits = mutableListOf<String>()
+        val replayKeys = mutableListOf<String>()
         val handlers = ProfileHandler.COMMAND_KEYS.mapValues { (_, k) -> ProfileHandler(k, rec) } +
-            ("enrollserver" to EnrollServerHandler({ s -> added += s; s.size }, { false }))
+            ("enrollserver" to EnrollServerHandler({ s -> added += s; PresetServerAddResult(s.size) }, { false }))
         val p = ChatCommandProcessor(
             isEnabled = { true }, allowedCallsigns = { listOf("ODIN") }, handlers = handlers,
-            reply = { _, m -> replies += m }, audit = {}, now = { 1_000 },
+            reply = { _, m -> replies += m }, audit = { audits += it }, now = { 1_000 },
             positional = ProfileHandler.POSITIONAL_KEYS,
+            authorizer = com.tak.weartak_tracker.command.ChatCommandAuthorizer(
+                claim = { key, _ -> replayKeys += key; true },
+            ),
         )
         fun send(id: String, text: String) =
             runBlocking { p.handle(ChatCommandRequest("U1", "ODIN", text, id, 1_000, 1_000, "multicast:x")) }
@@ -128,6 +141,13 @@ class TrackerCommandsTest {
         send("c", "#weartaktrackercommandenrollserver Ops; tak.example.org; 8089; alice; pa;ss")
         assertEquals(PresetServer("Ops", "tak.example.org", 8089, "alice", "pa;ss"), added.single())
         assertTrue(replies.none { it.contains("pa;ss") || it.contains("alice") })
+        val secret = "secret,with,commas"
+        send("d", "#weartakcommand enrollserver Field Ops, tak.example.org, 8090, alice, $secret")
+        assertEquals(secret, added.last().password)
+        assertTrue(added.last().toString().contains("redacted"))
+        assertTrue(replies.none { it.contains(secret) })
+        assertTrue(audits.none { it.contains(secret) })
+        assertTrue(replayKeys.none { it.contains(secret) })
     }
 
     @Test
@@ -198,7 +218,7 @@ class TrackerCommandsTest {
         val h = LoadProfileHandler(
             source = { json },
             profile = profile(rec),
-            serverSink = { added = it.size; it.size },
+            serverSink = { added = it.size; PresetServerAddResult(it.size) },
             networkLocked = { false },
         )
         val r = runBlocking { h.execute(ChatCommand("loadprofile", mapOf("name" to "odin-weartak")), request) }
@@ -310,7 +330,9 @@ class TrackerCommandsTest {
 
         val rec = Recorder()
         var added = emptyList<PresetServer>()
-        val h = LoadProfileHandler({ json }, profile(rec), { added = it; it.size }, { false })
+        val h = LoadProfileHandler(
+            { json }, profile(rec), { added = it; PresetServerAddResult(it.size) }, { false },
+        )
         val r = runBlocking { h.execute(ChatCommand("loadprofile", mapOf("name" to "backup")), request) }
         assertTrue(r.message, r.ok)
         val u = rec.last!!
