@@ -27,6 +27,8 @@ import com.tak.weartak_tracker.R
 import com.tak.weartak_tracker.data.DittoPdlSource
 import com.tak.weartak_tracker.data.DittoState
 import com.tak.weartak_tracker.data.SettingsRepository
+import com.tak.weartak_tracker.data.TakServerState
+import com.tak.weartak_tracker.data.TakStatus
 import com.tak.weartak_tracker.data.TrackerConfig
 import com.tak.weartak_tracker.data.TrackerState
 import com.tak.weartak_tracker.data.sortedByDisplayedLabel
@@ -107,22 +109,18 @@ internal fun networkTransportChecklist(
     val labels = NetworkTransport.entries.associateWith { stringResource(it.labelRes) }
     val entries = networkTransports(labels, LocalConfiguration.current.locales[0])
     val toggleDitto = rememberDittoToggle(repo, config, openDittoIdentity)
-    val dittoState by TrackerState.ditto.collectAsStateWithLifecycle()
-    val subtitle = stringResource(
-        R.string.transport_ditto_subtitle,
-        stringResource(if (config.value.dittoPdlSource == DittoPdlSource.COMMUNITY) {
-            R.string.transport_community
-        } else R.string.transport_custom),
-        stringResource(dittoStatusResource(dittoState)),
-    )
+    val takServerStates by TrackerState.takServers.collectAsStateWithLifecycle()
     return {
         entries.forEach { transport ->
             item(key = "transport-${transport.name}") {
                 val enabled = transport.enabled(config.value)
+                val serverSummary = if (transport == NetworkTransport.TAK_SERVERS) {
+                    takServerConnectionSummary(config.value, takServerStates)
+                } else null
                 ToggleChip(
                     modifier = Modifier.fillMaxWidth(),
                     label = { Text(labels.getValue(transport)) },
-                    secondaryLabel = if (transport == NetworkTransport.DITTO) ({ Text(subtitle) }) else null,
+                    secondaryLabel = serverSummary?.let { summary -> ({ Text(summary) }) },
                     checked = enabled,
                     enabled = !config.value.networkPreferencesLocked,
                     toggleControl = {
@@ -139,6 +137,19 @@ internal fun networkTransportChecklist(
             }
         }
     }
+}
+
+internal fun takServerConnectionSummary(
+    config: TrackerConfig,
+    states: Map<String, TakServerState>,
+): String {
+    val servers = config.servers
+        .filter { it.enabled && it.address.isNotBlank() }
+        .distinctBy { it.endpointKey }
+    val connected = if (config.takServersEnabled) {
+        servers.count { states[it.id]?.status == TakStatus.CONNECTED }
+    } else 0
+    return "$connected/${servers.size}"
 }
 
 internal fun dittoStatusResource(state: DittoState): Int = when (state) {

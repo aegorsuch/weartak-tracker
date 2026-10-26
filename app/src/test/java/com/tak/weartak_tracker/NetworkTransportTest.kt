@@ -27,6 +27,7 @@ import kotlinx.coroutines.runBlocking
 import com.tak.weartak_tracker.ui.NetworkTransport
 import com.tak.weartak_tracker.ui.dittoEnableBlocker
 import com.tak.weartak_tracker.ui.dittoStatusResource
+import com.tak.weartak_tracker.ui.takServerConnectionSummary
 import com.tak.weartak_tracker.ui.networkTransports
 import java.util.Locale
 import org.junit.Assert.*
@@ -154,6 +155,27 @@ class NetworkTransportTest {
                 connectionStatusIcon(off, mapOf("one" to TakServerState(status)), emptySet(), SitxState.Disabled),
             )
         }
+    }
+
+    @Test
+    fun takServerFastToggleShowsConnectedOverEligibleSavedServers() {
+        val servers = (1..6).map { index ->
+            TakServerConfig(
+                id = "server-$index",
+                address = "server-$index.example.invalid",
+                enabled = true,
+            )
+        } + TakServerConfig(id = "disabled", address = "disabled.example.invalid", enabled = false) +
+            TakServerConfig(id = "duplicate", address = "server-1.example.invalid", enabled = true)
+        val config = TrackerConfig(servers = servers)
+        val states = mapOf(
+            "server-1" to TakServerState(TakStatus.CONNECTED),
+            "server-2" to TakServerState(TakStatus.CONNECTING),
+        )
+
+        assertEquals("1/6", takServerConnectionSummary(config, states))
+        assertEquals("0/6", takServerConnectionSummary(config.copy(takServersEnabled = false), states))
+        assertEquals("0/0", takServerConnectionSummary(TrackerConfig(), emptyMap()))
     }
 
     @Test
