@@ -6,6 +6,24 @@ variables:
 stages:
   - build
 
+merge_request_checks:
+  stage: build
+  image:
+    name: ${TAK_REGISTRY_HOST}/devsecops/gradle-build-launcher:17-${GRADLE_BUILD_LAUNCHER_TAG}
+    entrypoint: [""]
+  script:
+    - chmod +x gradlew
+    - ./gradlew --no-daemon :app:testDebugUnitTest :app:assembleDebug
+  artifacts:
+    when: always
+    expire_in: 30 days
+    paths:
+      - app/build/reports/tests/testDebugUnitTest/
+    reports:
+      junit: app/build/test-results/testDebugUnitTest/TEST-*.xml
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+
 .release_build:
   stage: build
   image:

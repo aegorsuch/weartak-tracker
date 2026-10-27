@@ -46,6 +46,22 @@ class NetworkTransportTest {
     )
 
     @Test
+    fun checklistVisibilityIsOptInAndIndependentOfDeveloperModeAndTransportChoices() {
+        assertFalse(saved.networkPreferencesChecklist)
+        val shown = saved.copy(networkPreferencesChecklist = true)
+        assertTrue(shown.networkPreferencesChecklist)
+        assertTrue(shown.copy(developerMode = true).copy(developerMode = false).networkPreferencesChecklist)
+        assertTrue(shown.copy(networkPreferencesLocked = true).networkPreferencesChecklist)
+        for (transport in NetworkTransport.entries) {
+            assertEquals(transport.enabled(saved), transport.enabled(shown))
+            for (enabled in listOf(true, false)) {
+                assertTrue(transport.setEnabled(shown, enabled).networkPreferencesChecklist)
+            }
+        }
+        assertEquals(saved, shown.copy(networkPreferencesChecklist = false))
+    }
+
+    @Test
     fun checklistUsesSavedEnableStateAndRetainsEveryOtherPreferenceAndCredential() {
         for (transport in NetworkTransport.entries) {
             val enabled = transport.setEnabled(saved, true)

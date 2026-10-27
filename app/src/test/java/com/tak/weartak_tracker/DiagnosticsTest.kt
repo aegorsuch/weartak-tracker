@@ -68,15 +68,17 @@ class DiagnosticsTest {
         assertFalse(TrackerConfig().diagnosticsEnabled)
         assertFalse(DebugPreferences.developerMode(emptyPreferences()))
         assertFalse(DebugPreferences.diagnostics(emptyPreferences()))
+        assertFalse(TrackerConfig().networkPreferencesChecklist)
+        assertFalse(DebugPreferences.networkPreferencesChecklist(emptyPreferences()))
         val file = File(temporary.root, "debug.preferences_pb")
         val networkLock = booleanPreferencesKey("network_preferences_locked")
-        suspend fun roundTrip(developer: Boolean, diagnostics: Boolean) {
+        suspend fun roundTrip(developer: Boolean, diagnostics: Boolean, checklist: Boolean) {
             val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
             try {
                 val store = PreferenceDataStoreFactory.create(scope = scope, produceFile = { file })
                 store.edit {
                     it[networkLock] = true
-                    DebugPreferences.write(it, developer, diagnostics)
+                    DebugPreferences.write(it, developer, diagnostics, checklist)
                 }
             } finally {
                 scope.coroutineContext.job.cancelAndJoin()
@@ -87,14 +89,19 @@ class DiagnosticsTest {
                 val saved = reopened.data.first()
                 assertEquals(developer, DebugPreferences.developerMode(saved))
                 assertEquals(diagnostics, DebugPreferences.diagnostics(saved))
+                assertEquals(checklist, DebugPreferences.networkPreferencesChecklist(saved))
                 assertEquals(true, saved[networkLock])
             } finally {
                 reopenedScope.coroutineContext.job.cancelAndJoin()
             }
         }
-        roundTrip(true, true)
-        roundTrip(false, true)
-        roundTrip(false, false)
+        for (developer in listOf(true, false)) {
+            for (diagnostics in listOf(true, false)) {
+                for (checklist in listOf(true, false)) {
+                    roundTrip(developer, diagnostics, checklist)
+                }
+            }
+        }
         assertTrue(TrackerConfig(networkPreferencesLocked = true).copy(developerMode = true).networkPreferencesLocked)
     }
 
@@ -176,23 +183,27 @@ class DiagnosticsTest {
         )
         val sorted = sortedByDisplayedLabel(labels.keys.toList(), Locale.GERMAN) { labels.getValue(it) }
         assertEquals(listOf(DeveloperEntry.STAY_AWAKE, DeveloperEntry.BUILD, DeveloperEntry.DIAGNOSTICS), sorted)
-        assertEquals(13, DeveloperEntry.entries.size)
-        assertEquals(13, DeveloperEntry.entries.map { it.labelRes }.distinct().size)
+        assertEquals(14, DeveloperEntry.entries.size)
+        assertEquals(14, DeveloperEntry.entries.map { it.labelRes }.distinct().size)
     }
 
     @Test
-    fun simpleTogglesLeadWithLoggingThenStayAwakeAndRemainingActionsStaySorted() {
+    fun simpleTogglesLeadWithLoggingThenNetworkChecklistThenStayAwakeAndRemainingActionsStaySorted() {
         val labels = DeveloperEntry.entries.associateWith { it.name }.toMutableMap().apply {
             this[DeveloperEntry.DIAGNOSTICS] = "Logging"
+            this[DeveloperEntry.NETWORK_CHECKLIST] = "Network Preferences Checklist"
             this[DeveloperEntry.STAY_AWAKE] = "Stay awake"
         }
         val ordered = developerEntries(labels, Locale.ENGLISH)
-        assertEquals(listOf(DeveloperEntry.DIAGNOSTICS, DeveloperEntry.STAY_AWAKE), ordered.take(2))
-        assertEquals(sortedByDisplayedLabel(ordered.drop(2), Locale.ENGLISH) { labels.getValue(it) }, ordered.drop(2))
+        assertEquals(listOf(DeveloperEntry.DIAGNOSTICS, DeveloperEntry.NETWORK_CHECKLIST, DeveloperEntry.STAY_AWAKE), ordered.take(3))
+        assertEquals(sortedByDisplayedLabel(ordered.drop(3), Locale.ENGLISH) { labels.getValue(it) }, ordered.drop(3))
         assertEquals(DeveloperEntry.entries.toSet(), ordered.toSet())
-        assertTrue(DeveloperEntry.RESUME_AFTER_UPDATE in ordered.drop(2))
+        assertTrue(DeveloperEntry.RESUME_AFTER_UPDATE in ordered.drop(3))
         labels[DeveloperEntry.DIAGNOSTICS] = "Zustand"
         labels[DeveloperEntry.STAY_AWAKE] = "Änderung"
-        assertEquals(listOf(DeveloperEntry.STAY_AWAKE, DeveloperEntry.DIAGNOSTICS), developerEntries(labels, Locale.GERMAN).take(2))
+        assertEquals(
+            listOf(DeveloperEntry.STAY_AWAKE, DeveloperEntry.NETWORK_CHECKLIST, DeveloperEntry.DIAGNOSTICS),
+            developerEntries(labels, Locale.GERMAN).take(3),
+        )
     }
 }
