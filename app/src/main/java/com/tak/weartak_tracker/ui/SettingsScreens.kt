@@ -332,7 +332,7 @@ fun NavGraphBuilder.settingsGraph(repo: SettingsRepository, configState: State<T
 
     networkComposable("network_preferences", configState, back) {
         val currentConfig by repo.config.collectAsStateWithLifecycle(initialValue = config)
-        val checklist = networkTransportChecklist(repo, configState) { go("ditto_identity") }
+        val checklist = networkTransportChecklist(repo, configState, { go("ditto_identity") }) { go(it.settingsRoute()) }
         WearTAKPageWithBackArrow("Network Preferences", back) {
             checklist()
             item { WearTAKTitleChip("TAK Servers") { go("tak_servers") } }

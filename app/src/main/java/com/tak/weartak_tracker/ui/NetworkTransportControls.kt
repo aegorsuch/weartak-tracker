@@ -20,13 +20,15 @@ import androidx.compose.ui.res.stringResource
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.wear.compose.foundation.lazy.ScalingLazyListScope
 import androidx.wear.compose.material.Checkbox
+import androidx.wear.compose.material.SplitToggleChip
 import androidx.wear.compose.material.Text
-import androidx.wear.compose.material.ToggleChip
 import com.tak.weartak_tracker.BuildConfig
 import com.tak.weartak_tracker.R
 import com.tak.weartak_tracker.data.DittoPdlSource
 import com.tak.weartak_tracker.data.DittoState
 import com.tak.weartak_tracker.data.SettingsRepository
+import com.tak.weartak_tracker.data.TakServerState
+import com.tak.weartak_tracker.data.TakStatus
 import com.tak.weartak_tracker.data.TrackerConfig
 import com.tak.weartak_tracker.data.TrackerState
 import com.tak.weartak_tracker.data.sortedByDisplayedLabel
@@ -102,43 +104,64 @@ internal fun networkTransportChecklist(
     repo: SettingsRepository,
     config: State<TrackerConfig>,
     openDittoIdentity: () -> Unit,
+    openTransportSettings: (NetworkTransport) -> Unit,
 ): ScalingLazyListScope.() -> Unit {
     val context = LocalContext.current.applicationContext
     val labels = NetworkTransport.entries.associateWith { stringResource(it.labelRes) }
     val entries = networkTransports(labels, LocalConfiguration.current.locales[0])
     val toggleDitto = rememberDittoToggle(repo, config, openDittoIdentity)
-    val dittoState by TrackerState.ditto.collectAsStateWithLifecycle()
-    val subtitle = stringResource(
-        R.string.transport_ditto_subtitle,
-        stringResource(if (config.value.dittoPdlSource == DittoPdlSource.COMMUNITY) {
-            R.string.transport_community
-        } else R.string.transport_custom),
-        stringResource(dittoStatusResource(dittoState)),
-    )
+    val takServerStates by TrackerState.takServers.collectAsStateWithLifecycle()
     return {
         entries.forEach { transport ->
             item(key = "transport-${transport.name}") {
                 val enabled = transport.enabled(config.value)
-                ToggleChip(
+                val locked = config.value.networkPreferencesLocked
+                val serverSummary = if (transport == NetworkTransport.TAK_SERVERS) {
+                    takServerConnectionSummary(config.value, takServerStates)
+                } else null
+                // Row body opens the transport's settings (still allowed when locked); the checkbox only toggles.
+                SplitToggleChip(
                     modifier = Modifier.fillMaxWidth(),
                     label = { Text(labels.getValue(transport)) },
-                    secondaryLabel = if (transport == NetworkTransport.DITTO) ({ Text(subtitle) }) else null,
+                    secondaryLabel = serverSummary?.let { summary -> ({ Text(summary) }) },
                     checked = enabled,
-                    enabled = !config.value.networkPreferencesLocked,
                     toggleControl = {
-                        Checkbox(checked = enabled, onCheckedChange = null, enabled = !config.value.networkPreferencesLocked)
+                        Checkbox(checked = enabled, onCheckedChange = null, enabled = !locked)
                     },
                     onCheckedChange = { selected ->
-                        if (transport == NetworkTransport.DITTO) {
-                            toggleDitto(selected)
-                        } else saveNetworkPreference(
-                            repo, context, { transport.setEnabled(it, selected) },
-                        ) { if (selected) TrackerService.start(context) }
+                        when {
+                            locked -> Toast.makeText(context, R.string.network_settings_locked, Toast.LENGTH_LONG).show()
+                            transport == NetworkTransport.DITTO -> toggleDitto(selected)
+                            else -> saveNetworkPreference(
+                                repo, context, { transport.setEnabled(it, selected) },
+                            ) { if (selected) TrackerService.start(context) }
+                        }
                     },
+                    onClick = { openTransportSettings(transport) },
                 )
             }
         }
     }
+}
+
+internal fun NetworkTransport.settingsRoute(): String = when (this) {
+    NetworkTransport.DITTO -> "ditto_identity"
+    NetworkTransport.MULTICAST -> "tak_sa_multicast"
+    NetworkTransport.SITX -> "sitx_tak_screen"
+    NetworkTransport.TAK_SERVERS -> "tak_servers"
+}
+
+internal fun takServerConnectionSummary(
+    config: TrackerConfig,
+    states: Map<String, TakServerState>,
+): String {
+    val servers = config.servers
+        .filter { it.enabled && it.address.isNotBlank() }
+        .distinctBy { it.endpointKey }
+    val connected = if (config.takServersEnabled) {
+        servers.count { states[it.id]?.status == TakStatus.CONNECTED }
+    } else 0
+    return "$connected/${servers.size}"
 }
 
 internal fun dittoStatusResource(state: DittoState): Int = when (state) {
