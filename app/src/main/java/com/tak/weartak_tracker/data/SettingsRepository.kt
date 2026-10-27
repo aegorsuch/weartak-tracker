@@ -114,6 +114,7 @@ data class TrackerConfig(
     val medicalProfile: MedicalProfile = MedicalProfile(),
     val developerMode: Boolean = false,
     val diagnosticsEnabled: Boolean = false,
+    val networkPreferencesChecklist: Boolean = false,
     val networkPreferencesLocked: Boolean = false,
     val chatCommandsEnabled: Boolean = false,
     val chatCommandCallsigns: List<String> = emptyList(),
@@ -221,7 +222,7 @@ class SettingsRepository(private val context: Context) {
             val old = read(p)
             val n = transform(old)
             if (n == old) return@edit
-            DebugPreferences.write(p, n.developerMode, n.diagnosticsEnabled)
+            DebugPreferences.write(p, n.developerMode, n.diagnosticsEnabled, n.networkPreferencesChecklist)
             TakTransportPreferences.write(p, n.takServersEnabled)
             p[K.NETWORK_LOCKED] = n.networkPreferencesLocked
             p[K.CHAT_COMMANDS] = n.chatCommandsEnabled
@@ -315,6 +316,7 @@ class SettingsRepository(private val context: Context) {
             networkPreferencesLocked = p[K.NETWORK_LOCKED] ?: false,
             developerMode = DebugPreferences.developerMode(p),
             diagnosticsEnabled = DebugPreferences.diagnostics(p),
+            networkPreferencesChecklist = DebugPreferences.networkPreferencesChecklist(p),
             chatCommandsEnabled = p[K.CHAT_COMMANDS] ?: false,
             sensorManagerEnabled = p[K.SENSOR_MANAGER] ?: false,
             chatCommandCallsigns = ChatCommandAuthorizer.parseAllowList(p[K.CHAT_CALLSIGNS].orEmpty()),

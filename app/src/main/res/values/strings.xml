@@ -19,6 +19,8 @@
     <string name="debug_stay_awake_stop">Stop</string>
     <string name="debug_stay_awake_failed">Unable to start Stay awake. See WearTAK debug logs.</string>
     <string name="diagnostics">Logging</string>
+    <string name="network_preferences_checklist">Network Preferences Checklist</string>
+    <string name="network_preferences_checklist_save_failed">Unable to save Network Preferences Checklist. Try again.</string>
     <string name="diagnostics_unavailable">Some log entries could not be saved. Check app storage and toggle Logging off and on.</string>
     <string name="developer_save_failed">Unable to save Logging. Try again.</string>
     <string name="developer_build">Build</string>

@@ -65,6 +65,7 @@ internal enum class DeveloperEntry(val labelRes: Int, val primaryToggle: Boolean
     LAST_PLI(R.string.developer_last_pli),
     LOCATION(R.string.developer_location),
     NETWORK(R.string.developer_network),
+    NETWORK_CHECKLIST(R.string.network_preferences_checklist, true),
     REPORTING(R.string.developer_reporting),
     RESUME_AFTER_UPDATE(R.string.debug_stay_awake_resume_after_update),
     SITX(R.string.developer_sitx),
@@ -139,6 +140,18 @@ internal fun DeveloperDebugPage(repo: SettingsRepository, back: () -> Unit) {
                 when (entry) {
                     DeveloperEntry.STAY_AWAKE -> DebugStayAwakeSetting()
                     DeveloperEntry.RESUME_AFTER_UPDATE -> DebugStayAwakeResumeSetting()
+                    DeveloperEntry.NETWORK_CHECKLIST -> WearTAKToggleChip(
+                        checked = config.networkPreferencesChecklist,
+                        onCheckedChange = { enabled ->
+                            repo.updateAsync(onUpdated = {}, onError = { error ->
+                                Log.e("DeveloperSettings", "Unable to save Network Preferences Checklist preference", error)
+                                Handler(Looper.getMainLooper()).post {
+                                    Toast.makeText(context, R.string.network_preferences_checklist_save_failed, Toast.LENGTH_LONG).show()
+                                }
+                            }) { it.copy(networkPreferencesChecklist = enabled) }
+                        },
+                        title = title,
+                    )
                     DeveloperEntry.DIAGNOSTICS -> Column {
                         WearTAKToggleChip(
                             checked = config.diagnosticsEnabled,
