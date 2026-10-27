@@ -40,7 +40,7 @@ object ChatCommandParser {
         val body = text.trim()
         if (!hasCommandPrefix(body)) return ChatCommandParse.NotACommand
         val prefixLength = if (body.startsWith(PREFIX, true)) PREFIX.length else COMMON_PREFIX.length
-        val rest = body.substring(prefixLength)
+        val rest = body.substring(prefixLength).trimStart()
         val nameEnd = rest.indexOfFirst { it.isWhitespace() }.let { if (it < 0) rest.length else it }
         val name = rest.substring(0, nameEnd).lowercase()
         if (name != "usep12" && !NAME.matches(name)) return ChatCommandParse.Malformed("invalid command name")

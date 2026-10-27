@@ -24,6 +24,10 @@ import com.tak.weartak_tracker.command.PresetSource
 import com.tak.weartak_tracker.command.ProfileHandler
 import com.tak.weartak_tracker.command.ProfileStore
 import com.tak.weartak_tracker.command.ProfileUpdate
+import com.tak.weartak_tracker.command.NetworkCommandStore
+import com.tak.weartak_tracker.command.NetworkCommandTransport
+import com.tak.weartak_tracker.command.NetworkCommandApplyResult
+import com.tak.weartak_tracker.command.NetworkTransportCommandHandler
 import com.tak.weartak_tracker.cot.CotBuilder
 import com.tak.weartak_tracker.data.CustomAlerts
 import com.tak.weartak_tracker.data.DittoState
@@ -55,17 +59,49 @@ object ChatCommandRuntime {
         dittoChat: (String) -> Int,
         multicastChat: suspend (String) -> Int,
     ): ChatCommandProcessor {
-        val sendReply: suspend (ChatCommandRequest, String) -> Unit = { request, message ->
+        val sendReplyResult: suspend (ChatCommandRequest, String) -> Boolean = { request, message ->
             val c = repo.config.first()
             val xml = replyXml(repo.deviceUid, c.callsign, request, message)
             val routes = routeReply(request.sourceServerId, xml, dittoChat, multicastChat, tak()::sendTo)
             if (routes == 0) Log.w(TAG, "Command ack could not be published on ${request.sourceServerId}")
             else Log.i(TAG, "Command ack published locally via ${request.sourceServerId}; remote delivery unconfirmed")
+            routes > 0
+        }
+        val sendReply: suspend (ChatCommandRequest, String) -> Unit = { request, message ->
+            sendReplyResult(request, message)
+            Unit
         }
         val store = ProfileStore { update -> repo.update { c -> c.withProfile(update) } }
         val networkLocked: suspend () -> Boolean = { repo.config.first().networkPreferencesLocked }
+        val networkStore = NetworkCommandStore { transport, enabled ->
+            var locked = false
+            repo.update { c ->
+                locked = c.networkPreferencesLocked
+                if (locked) c else when (transport) {
+                    NetworkCommandTransport.TAK_SERVERS -> c.copy(takServersEnabled = enabled)
+                    NetworkCommandTransport.MULTICAST -> c.copy(multicastEnabled = enabled)
+                }
+            }
+            if (locked) NetworkCommandApplyResult(applied = false, locked = true)
+            else NetworkCommandApplyResult(applied = true)
+        }
+        fun networkHandler(transport: NetworkCommandTransport, enabled: Boolean) =
+            NetworkTransportCommandHandler(
+                transport = transport,
+                enabled = enabled,
+                networkLocked = networkLocked,
+                store = networkStore,
+                beforeDisableReply = sendReplyResult,
+                ackFailure = { Log.w(TAG, "${transport.label} disable ack publication failed") },
+            )
         val sink = PresetServerSink { servers -> addServers(repo, servers) }
         val handlers = ProfileHandler.COMMAND_KEYS.mapValues { (_, keys) -> ProfileHandler(keys, store) } +
+            mapOf(
+                "enabletakservers" to networkHandler(NetworkCommandTransport.TAK_SERVERS, true),
+                "disabletakservers" to networkHandler(NetworkCommandTransport.TAK_SERVERS, false),
+                "enablemulticast" to networkHandler(NetworkCommandTransport.MULTICAST, true),
+                "disablemulticast" to networkHandler(NetworkCommandTransport.MULTICAST, false),
+            ) +
             ("loadprofile" to loadProfileHandler(context, repo)) +
             ("enrollserver" to EnrollServerHandler(sink, networkLocked)) +
             ("toggleditto" to ToggleDittoHandler(

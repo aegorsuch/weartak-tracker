@@ -156,6 +156,17 @@ class DittoChatCommandsTest {
     }
 
     @Test
+    fun replyRoutingPreservesZeroWriteResultForDisableSafetyChecks() = runBlocking {
+        for (source in listOf("ditto:chat", "multicast:224.10.10.1:17012", "server-ops")) {
+            val routes = mutableListOf<String>()
+            assertEquals(0, ChatCommandRuntime.routeReply(source, "warning",
+                { routes += "ditto:chat"; 0 }, { routes += source; 0 },
+                { id, _ -> routes += id; 0 }))
+            assertEquals(listOf(source), routes)
+        }
+    }
+
+    @Test
     fun nativeOtherDeviceDirectMessagesAndUnknownGroupsAreNotMisclassifiedAsAddressedCommands() {
         assertNull(DittoChatDocument.request(native(room = "someone-else"), "watch", "local", now))
         assertNull(DittoChatDocument.request(native(room = "admin-device"), "watch", "local", now))
