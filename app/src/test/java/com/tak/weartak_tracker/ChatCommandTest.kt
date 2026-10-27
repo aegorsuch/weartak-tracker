@@ -44,6 +44,28 @@ class ChatCommandTest {
     }
 
     @Test
+    fun enrollserverCommaSyntaxKeepsCommasInPasswordAndSupportsPrefixSpacing() {
+        val parsed = ChatCommandParser.parse(
+            "#weartakcommand enrollserver OPS, tak.example.org, 8089, alice, secret,with,commas",
+            mapOf("enrollserver" to listOf("name", "url", "port", "username", "password")),
+        ) as ChatCommandParse.Parsed
+        assertEquals(
+            mapOf(
+                "name" to "OPS",
+                "url" to "tak.example.org",
+                "port" to "8089",
+                "username" to "alice",
+                "password" to "secret,with,commas",
+            ),
+            parsed.command.args,
+        )
+        assertTrue(ChatCommandParser.parse(
+            "#weartakcommand enrollserver OPS, tak.example.org, 8089, alice",
+            mapOf("enrollserver" to listOf("name", "url", "port", "username", "password")),
+        ) is ChatCommandParse.Malformed)
+    }
+
+    @Test
     fun parsesQuotedValuesWithSpacesAndEscapes() {
         val c = parsed("#weartaktrackercommandenrollserver name=\"TAK \\\"Ops\\\"\" url=cloud.tak-ops.com port=8089")
         assertEquals("TAK \"Ops\"", c.args["name"])
