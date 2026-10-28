@@ -155,6 +155,31 @@ class ChatCommandTest {
     }
 
     @Test
+    fun editingCallsignReplacesEntryAndKeepsSortedUppercase() {
+        assertEquals(
+            listOf("ALPHA", "CHARLIE"),
+            ChatCommandAuthorizer.replaceAllowedCallsign(listOf("ALPHA", "BRAVO"), "bravo", " charlie "),
+        )
+        // Re-saving the same value (or changing only case) is not a duplicate.
+        assertEquals(
+            listOf("ALPHA", "BRAVO"),
+            ChatCommandAuthorizer.replaceAllowedCallsign(listOf("ALPHA", "BRAVO"), "BRAVO", "bravo"),
+        )
+    }
+
+    @Test
+    fun editingCallsignRejectsInvalidAndDuplicateValues() {
+        val list = listOf("ALPHA", "BRAVO")
+        assertEquals(null, ChatCommandAuthorizer.replaceAllowedCallsign(list, "BRAVO", "alpha"))
+        assertEquals(null, ChatCommandAuthorizer.replaceAllowedCallsign(list, "BRAVO", "bad/callsign"))
+        assertEquals(
+            "This callsign is already allowed",
+            ChatCommandAuthorizer.validateEditedCallsign("BRAVO", "alpha", list),
+        )
+        assertEquals(null, ChatCommandAuthorizer.validateEditedCallsign("BRAVO", "bravo", list))
+    }
+
+    @Test
     fun removingCallsignIsCaseInsensitiveAndKeepsListSorted() {
         assertEquals(
             listOf("BRAVO"),

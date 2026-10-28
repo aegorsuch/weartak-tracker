@@ -274,6 +274,7 @@ fun WearTAKStringEntryPage(
     onBack: () -> Unit,
     keyboardType: KeyboardType = KeyboardType.Unspecified,
     validate: (String) -> String? = { null },
+    openKeyboard: Boolean = false,
     confirmFunction: (String) -> Unit,
 ) {
     val context = LocalContext.current
@@ -289,6 +290,7 @@ fun WearTAKStringEntryPage(
             onValueChange = { text = it },
             keyboardType = keyboardType,
             label = label,
+            openKeyboard = openKeyboard,
         )
         Row(modifier = Modifier.align(Alignment.BottomCenter)) {
             WearTAKConfirmCancelButtons(
