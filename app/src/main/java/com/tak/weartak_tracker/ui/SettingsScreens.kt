@@ -6,6 +6,7 @@ import android.hardware.SensorManager
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.net.Uri
 import android.os.Build
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -31,6 +32,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Refresh
@@ -38,6 +40,7 @@ import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -540,6 +543,28 @@ fun NavGraphBuilder.settingsGraph(repo: SettingsRepository, configState: State<T
                 current.copy(
                     chatCommandCallsigns =
                         ChatCommandAuthorizer.addAllowedCallsign(current.chatCommandCallsigns, value)
+                            ?: current.chatCommandCallsigns,
+                )
+            }
+        }
+    }
+    composable(
+        "chat_command_callsigns_edit/{callsign}",
+        arguments = listOf(navArgument("callsign") { type = NavType.StringType }),
+    ) { entry ->
+        val update = rememberUpdater(repo)
+        val original = entry.arguments?.getString("callsign").orEmpty()
+        WearTAKStringEntryPage(
+            item = original,
+            label = "Callsign",
+            onBack = back,
+            openKeyboard = true,
+            validate = { ChatCommandAuthorizer.validateEditedCallsign(original, it, config.chatCommandCallsigns) },
+        ) { value ->
+            update { current ->
+                current.copy(
+                    chatCommandCallsigns =
+                        ChatCommandAuthorizer.replaceAllowedCallsign(current.chatCommandCallsigns, original, value)
                             ?: current.chatCommandCallsigns,
                 )
             }
@@ -1090,31 +1115,22 @@ private fun AllowedCallsignsPage(
             item { Text("No callsigns allowed", textAlign = TextAlign.Center, color = Color.LightGray) }
         }
         itemsIndexed(sortedCallsigns, key = { _, callsign -> ChatCommandAuthorizer.normalize(callsign) }) { _, callsign ->
-            val revealState = rememberRevealState()
-            val scope = rememberCoroutineScope()
-            val remove = {
-                update { current ->
-                    current.copy(
-                        chatCommandCallsigns =
-                            ChatCommandAuthorizer.removeAllowedCallsign(current.chatCommandCallsigns, callsign),
-                    )
+            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Box(modifier = Modifier.weight(1f)) {
+                    WearTAKTitleChip(callsign) { go("chat_command_callsigns_edit/${Uri.encode(callsign)}") }
                 }
-            }
-            SwipeToRevealChip(
-                revealState = revealState,
-                modifier = Modifier.fillMaxWidth(),
-                primaryAction = {
-                    SwipeToRevealPrimaryAction(
-                        revealState = revealState,
-                        icon = { Icon(SwipeToRevealDefaults.Delete, "Remove") },
-                        label = { Text("Remove") },
-                        onClick = { remove() },
-                    )
-                },
-                onFullSwipe = { remove() },
-            ) {
-                WearTAKTitleChip(callsign) {
-                    scope.launch { revealState.animateTo(RevealValue.Revealing) }
+                IconButton(
+                    onClick = {
+                        update { current ->
+                            current.copy(
+                                chatCommandCallsigns =
+                                    ChatCommandAuthorizer.removeAllowedCallsign(current.chatCommandCallsigns, callsign),
+                            )
+                        }
+                    },
+                    modifier = Modifier.size(48.dp),
+                ) {
+                    Icon(Icons.Filled.Delete, contentDescription = "Delete $callsign", tint = Color.Red)
                 }
             }
         }

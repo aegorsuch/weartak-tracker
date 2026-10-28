@@ -1,11 +1,14 @@
 package com.tak.weartak_tracker
 
 import android.app.Activity
+import android.content.Context
+import android.os.Looper
 import android.text.InputType
 import android.text.method.PasswordTransformationMethod
 import android.view.inputmethod.BaseInputConnection
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.ExtractedTextRequest
+import android.view.inputmethod.InputMethodManager
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.TextFieldValue
@@ -16,13 +19,37 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.ConscryptMode
+import java.time.Duration
 
 @RunWith(RobolectricTestRunner::class)
 @Config(manifest = Config.NONE, sdk = [35])
 @ConscryptMode(ConscryptMode.Mode.OFF)
 class NativeTextFieldTest {
+    @Test
+    fun editingExistingCallsignOpensKeyboardWithPrefilledValueAfterAttachment() {
+        val controller = Robolectric.buildActivity(Activity::class.java).setup()
+        try {
+            val activity = controller.get()
+            val editor = TrackerEditText(activity)
+            editor.updateValue(TextFieldValue("ALPHA", TextRange(5)))
+            editor.openKeyboard()
+            activity.setContentView(editor)
+            controller.windowFocusChanged(true)
+            shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(1))
+
+            assertTrue(editor.hasFocus())
+            val input = activity.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+            assertTrue(shadowOf(input).isSoftInputVisible)
+            assertEquals("ALPHA", editor.text.toString())
+            assertEquals(5, editor.selectionStart)
+        } finally {
+            controller.pause().stop().destroy()
+        }
+    }
+
     private fun withEditor(test: (TrackerEditText) -> Unit) {
         val controller = Robolectric.buildActivity(Activity::class.java).setup()
         try {

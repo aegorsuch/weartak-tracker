@@ -68,6 +68,15 @@ class ChatCommandAuthorizer(
             return sortedAllowList(allowedCallsigns + value)
         }
 
+        /** Validates an edited value; the entry being edited does not count as a duplicate of itself. */
+        fun validateEditedCallsign(original: String, value: String, allowedCallsigns: Collection<String>): String? =
+            validateNewCallsign(value, allowedCallsigns.filterNot { normalize(it) == normalize(original) })
+
+        fun replaceAllowedCallsign(allowedCallsigns: Collection<String>, original: String, value: String): List<String>? {
+            if (validateEditedCallsign(original, value, allowedCallsigns) != null) return null
+            return sortedAllowList(allowedCallsigns.filterNot { normalize(it) == normalize(original) } + value)
+        }
+
         fun removeAllowedCallsign(allowedCallsigns: Collection<String>, value: String): List<String> =
             sortedAllowList(allowedCallsigns.filterNot { normalize(it) == normalize(value) })
     }

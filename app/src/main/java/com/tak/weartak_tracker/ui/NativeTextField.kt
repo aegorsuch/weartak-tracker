@@ -22,6 +22,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.view.doOnAttach
 import androidx.wear.compose.material.MaterialTheme.colors
 import androidx.wear.compose.material.Text
 
@@ -30,6 +31,16 @@ internal class TrackerEditText(context: Context) : EditText(context) {
     var onValueChange: (TextFieldValue) -> Unit = {}
     private var updating = false
     private var ready = false
+
+    fun openKeyboard() {
+        doOnAttach {
+            post {
+                requestFocus()
+                (context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager)
+                    .showSoftInput(this, InputMethodManager.SHOW_IMPLICIT)
+            }
+        }
+    }
 
     init {
         setSingleLine(true)
@@ -103,6 +114,7 @@ internal fun WearTAKNativeTextField(
     label: String,
     keyboardType: KeyboardType = KeyboardType.Unspecified,
     onDone: (() -> Unit)? = null,
+    openKeyboard: Boolean = false,
 ) {
     val foreground = colors.primary
     Column(Modifier.fillMaxWidth()) {
@@ -125,6 +137,7 @@ internal fun WearTAKNativeTextField(
                         cornerRadius = 4 * density
                         setStroke(density.toInt().coerceAtLeast(1), foreground.toArgb())
                     }
+                    if (openKeyboard) openKeyboard()
                 }
             },
             update = { editor ->
