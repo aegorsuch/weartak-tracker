@@ -28,7 +28,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -39,7 +38,6 @@ import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -58,7 +56,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -221,7 +218,6 @@ fun NavGraphBuilder.settingsGraph(repo: SettingsRepository, configState: State<T
 
     composable("callsign_and_device_preferences") {
         WearTAKPageWithBackArrow("Callsign and Device Preferences", back) {
-            item { PhysioToggle(repo, config) }
             item { WearTAKTitleChipWithState("My Callsign", config.callsign) { go("my_callsign") } }
             item { WearTAKTitleChipWithState("My Team", config.team) { go("my_team") } }
             item { WearTAKTitleChipWithState("My Role", config.role) { go("my_role") } }
@@ -234,6 +230,7 @@ fun NavGraphBuilder.settingsGraph(repo: SettingsRepository, configState: State<T
                 )
             }
             item { WearTAKTitleChip("Reporting Strategy") { go("reporting_strategy") } }
+            item { PhysioToggle(repo, config) }
             item {
                 val update = rememberUpdater(repo)
                 WearTAKToggleChip(
@@ -1511,15 +1508,13 @@ private fun SitxPage(repo: SettingsRepository, initialConfig: TrackerConfig, go:
             text = {
                 Column {
                     Text(stringResource(R.string.reauth_pin_explanation))
-                    OutlinedTextField(
+                    WearTAKNativeTextField(
                         value = pin,
                         onValueChange = { value ->
                             if (value.length <= 6 && value.all { it in '0'..'9' }) pin = value
                         },
-                        label = { Text(stringResource(R.string.reauth_pin_hint)) },
-                        singleLine = true,
-                        visualTransformation = PasswordVisualTransformation(),
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                        label = stringResource(R.string.reauth_pin_hint),
+                        keyboardType = KeyboardType.NumberPassword,
                     )
                 }
             },
