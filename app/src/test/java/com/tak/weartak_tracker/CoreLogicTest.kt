@@ -83,16 +83,19 @@ class CoreLogicTest {
     @Test
     fun pliPhysioMatchesCivAndIsOmittedWhenOff() {
         val time = CotTime.now(30, 0)
-        assertFalse(CotBuilder.pli("u1", "cs", "Cyan", "HQ", 50, null, time).contains("biometrics"))
+        val off = CotBuilder.pli("u1", "cs", "Cyan", "HQ", 50, null, time)
+        assertFalse(off.contains("physiology"))
+        assertFalse(off.contains("biometrics"))
         val on = CotBuilder.pli("u1", "cs", "Cyan", "HQ", 50, null, time, Physio(72))
         assertTrue(on.contains("<remarks>Exert:N/A%;HR:72;SkinTemp:N/A</remarks>"))
         assertTrue(
             on.contains(
-                "<biometrics><device><model>WEAROS</model><uid>u1</uid><hr>72</hr><skt>N/A</skt><exert>N/A</exert></device></biometrics>",
+                "<physiology><device><model>WEAROS</model><uid>u1</uid><hr>72</hr><skt>N/A</skt><exert>N/A</exert></device></physiology>",
             ),
         )
         // Physio detail follows <status> and precedes <contact>, as in CIV.
-        assertTrue(on.indexOf("<status") < on.indexOf("<remarks>") && on.indexOf("</biometrics>") < on.indexOf("<contact"))
+        assertTrue(on.indexOf("<status") < on.indexOf("<remarks>") && on.indexOf("</physiology>") < on.indexOf("<contact"))
+        assertFalse(on.contains("biometrics"))
         val noReading = CotBuilder.pli("u1", "cs", "Cyan", "HQ", 50, null, time, Physio(-1))
         assertTrue(noReading.contains("HR:N/A;") && noReading.contains("<hr>N/A</hr>"))
         val withSkin = CotBuilder.pli("u1", "cs", "Cyan", "HQ", 50, null, time, Physio(64, 91.26f))

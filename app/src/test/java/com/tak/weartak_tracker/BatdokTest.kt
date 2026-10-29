@@ -36,11 +36,11 @@ class BatdokTest {
         val off = pli(Physio(72, 98.6f), enabled = false, age = 36)
         assertTrue(off.contains("HR:72;SkinTemp:98.6"))
         assertFalse(off.contains("_atmist_"))
-        assertTrue(off.contains("<biometrics>"))
+        assertTrue(off.contains("<physiology>"))
         assertTrue(off.contains("<hr>72</hr>"))
         assertTrue(off.contains("<skt>98.6</skt>"))
         assertFalse(pli().contains("_atmist_"))
-        assertFalse(pli().contains("<biometrics>"))
+        assertFalse(pli().contains("<physiology>"))
     }
 
     @Test
