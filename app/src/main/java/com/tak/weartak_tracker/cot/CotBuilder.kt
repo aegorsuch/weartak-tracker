@@ -122,8 +122,8 @@ object CotBuilder {
             "ce" to (ce ?: UNKNOWN_LOCATION_ERROR_METERS),
             "le" to (location?.le?.takeIf { it.isFinite() && it >= 0f } ?: UNKNOWN_LOCATION_ERROR_METERS),
         )
-        val biometrics = element(
-            "biometrics",
+        val physiology = element(
+            "physiology",
             listOf(
                 "alertUid" to esc(alertUid),
                 "alertState" to state.name,
@@ -137,9 +137,9 @@ object CotBuilder {
             ),
         )
         val detail = if (state == AlertState.CANCEL) {
-            biometrics + element("emergency", listOf("cancel" to "true"), esc(callsign))
+            physiology + element("emergency", listOf("cancel" to "true"), esc(callsign))
         } else {
-            biometrics +
+            physiology +
                 element("link", listOf("uid" to esc(deviceUid), "type" to SELF_TYPE, "relation" to "p-p")) +
                 element("contact", listOf("callsign" to "${esc(callsign)}&#10;${esc(description)}")) +
                 element("emergency", listOf("type" to esc(StandardEmergencyType.emergencyType(description))), esc(callsign)) +
@@ -156,7 +156,7 @@ object CotBuilder {
         )
     }
 
-    /** CIV's physio remarks plus saved PPE, BATDOK and `<biometrics>` device blocks. */
+    /** Physio remarks plus saved PPE, BATDOK and `<physiology>` device blocks. */
     private fun physioDetail(
         uid: String, physio: Physio, time: CotTime, includeBatdok: Boolean, ageYears: Int?, ppeRemarks: String?,
     ): String {
@@ -193,7 +193,7 @@ object CotBuilder {
         )
         return remarks + atmist +
             element(
-                "biometrics",
+                "physiology",
                 content = element(
                     "device",
                     content = element("model", content = "WEAROS") + element("uid", content = esc(uid)) +

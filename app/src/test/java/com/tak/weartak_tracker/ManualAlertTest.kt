@@ -21,6 +21,7 @@ import com.tak.weartak_tracker.service.AlertResendPolicy
 import com.tak.weartak_tracker.ui.CUSTOM_ALERT_HINT
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -89,6 +90,19 @@ class ManualAlertTest {
     fun cancelKeepsCancelType() {
         val xml = alertXml("911 Alert", AlertState.CANCEL)
         assertTrue(xml.contains("type='b-a-o-can'") && xml.contains("<emergency cancel='true'>cs</emergency>"))
+    }
+
+    @Test
+    fun alertAndCancelUsePhysiologyAndPreserveMetadata() {
+        for (state in AlertState.entries) {
+            val xml = alertXml("Injury", state)
+            assertTrue(xml.contains(
+                "<physiology alertUid='a1' alertState='${state.name}' alertCategory='Manual Alert' " +
+                    "alertPriority='1' alertDescription='Injury'>" +
+                    "<device><model>WEAROS</model><uid>u1</uid></device></physiology>",
+            ))
+            assertFalse(xml.contains("biometrics"))
+        }
     }
 
     @Test
