@@ -198,6 +198,40 @@ class TrackerCommandsTest {
     }
 
     @Test
+    fun namedEnrollmentCarriesPasswordWithoutBypassingCommandGuards() = runBlocking {
+        val password = """ !p_ass\word\"=,; """
+        val encoded = password.replace("\\", "\\\\").replace("\"", "\\\"")
+        val text = """#weartaktrackercommand enrollserver name="Field Ops" url=tak.example.org username=alice password="$encoded""""
+        val added = mutableListOf<PresetServer>()
+        val replies = mutableListOf<String>()
+        val audits = mutableListOf<String>()
+        var enabled = true
+        var locked = false
+        val processor = ChatCommandProcessor(
+            isEnabled = { enabled }, allowedCallsigns = { listOf("ODIN") },
+            handlers = mapOf("enrollserver" to EnrollServerHandler(
+                { added += it; EnrollServerOutcome.ADDED }, { locked },
+            )),
+            reply = { _, message -> replies += message }, audit = { audits += it },
+            now = { 1_000_000 }, positional = ProfileHandler.POSITIONAL_KEYS,
+        )
+        val command = ChatCommandRequest("U1", "ODIN", text, "enroll", 1_000_000, 1_000_000, "multicast:x")
+        assertTrue(processor.handle(command))
+        assertEquals(PresetServer("Field Ops", "tak.example.org", 8089, "alice", password), added.single())
+
+        assertTrue(processor.handle(command))
+        assertTrue(processor.handle(command.copy(messageId = "unknown", senderCallsign = "EVE")))
+        assertTrue(processor.handle(command.copy(messageId = "stale", sentAtMs = 1)))
+        locked = true
+        assertTrue(processor.handle(command.copy(messageId = "locked")))
+        assertTrue(replies.last().contains("locked"))
+        enabled = false
+        assertFalse(processor.handle(command.copy(messageId = "disabled")))
+        assertEquals(1, added.size)
+        assertTrue((replies + audits).none { it.contains(password) || it.contains(encoded) || it.contains("alice") })
+    }
+
+    @Test
     fun presetSummaryNeverShowsCredentials() {
         val json = """{"profile":{"team":"Blue","Callsign":"ODIN"},"servers":[{"name":"A","url":"a.example.org","port":8443,"username":"alice","password":"s3cret"}]}"""
         val s = ProfilePresets.summarize("odin", json)

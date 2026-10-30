@@ -74,6 +74,81 @@ class ChatCommandTest {
     }
 
     @Test
+    fun enrollserverQuotedCredentialsSurviveAllArgumentForms() {
+        val password = " !p_ass\\word\\\"x,;= "
+        val encoded = password.replace("\\", "\\\\").replace("\"", "\\\"")
+        val commands = listOf(
+            """name="Field Ops" url=tak.example.org username=alice password="$encoded"""",
+            """"Field Ops", tak.example.org, 8089, alice, "$encoded"""",
+            """"Field Ops"; tak.example.org; 8089; alice; "$encoded"""",
+        )
+        for (prefix in listOf(ChatCommandParser.PREFIX, ChatCommandParser.COMMON_PREFIX)) {
+            for (args in commands) {
+                val result = ChatCommandParser.parse("$prefix enrollserver $args", ProfileHandler.POSITIONAL_KEYS)
+                assertTrue(result.toString(), result is ChatCommandParse.Parsed)
+                val command = (result as ChatCommandParse.Parsed).command
+                assertEquals("Field Ops", command.args["name"])
+                assertEquals(password, command.args["password"])
+            }
+        }
+    }
+
+    @Test
+    fun enrollserverPreservesLiteralUnquotedBackslashesAndPunctuation() {
+        val password = """!p_ass\word\\x,;="""
+        for (args in listOf(
+            "name=OPS url=tak.example.org username=alice password=$password",
+            "OPS, tak.example.org, 8089, alice, $password",
+            "OPS; tak.example.org; 8089; alice; $password",
+        )) {
+            val result = ChatCommandParser.parse(
+                "${ChatCommandParser.PREFIX} enrollserver $args", ProfileHandler.POSITIONAL_KEYS,
+            ) as ChatCommandParse.Parsed
+            assertEquals(password, result.command.args["password"])
+        }
+    }
+
+    @Test
+    fun enrollserverSeparatorsInsideQuotesDoNotSplitCredentials() {
+        for (delimiter in listOf(',', ';')) {
+            val result = ChatCommandParser.parse(
+                """${ChatCommandParser.PREFIX} enrollserver "OPS"$delimiter tak.example.org$delimiter 8089$delimiter "alice,;ops"$delimiter "p,;w"""",
+                ProfileHandler.POSITIONAL_KEYS,
+            ) as ChatCommandParse.Parsed
+            assertEquals("alice,;ops", result.command.args["username"])
+            assertEquals("p,;w", result.command.args["password"])
+        }
+    }
+
+    @Test
+    fun enrollserverQuotedPasswordLimitAppliesAfterDecodingEscapes() {
+        for (delimiter in listOf(',', ';')) {
+            val password = "\\".repeat(ChatCommandParser.MAX_VALUE_LENGTH)
+            val encoded = password.replace("\\", "\\\\")
+            val result = ChatCommandParser.parse(
+                """${ChatCommandParser.PREFIX} enrollserver OPS$delimiter tak.example.org$delimiter 8089$delimiter alice$delimiter "$encoded"""",
+                ProfileHandler.POSITIONAL_KEYS,
+            ) as ChatCommandParse.Parsed
+            assertEquals(password, result.command.args["password"])
+        }
+    }
+
+    @Test
+    fun enrollserverRejectsMalformedQuotedPositionalValues() {
+        for (args in listOf(
+            """OPS, tak.example.org, 8089, alice, "unterminated""",
+            """OPS; tak.example.org; 8089; alice; "closed"junk""",
+            """OPS, tak.example.org, 8089, alice, """"",
+            """OPS; tak.example.org; 8089; alice; "${"x".repeat(129)}"""",
+            "OPS, tak.example.org, 8089, alice, \"bad\u0007value\"",
+        )) {
+            assertTrue(ChatCommandParser.parse(
+                "${ChatCommandParser.PREFIX} enrollserver $args", ProfileHandler.POSITIONAL_KEYS,
+            ) is ChatCommandParse.Malformed)
+        }
+    }
+
+    @Test
     fun commandWithoutArgumentsParses() {
         assertEquals(emptyMap<String, String>(), parsed("#weartaktrackercommandping").args)
     }

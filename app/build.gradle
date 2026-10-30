@@ -97,6 +97,17 @@ android {
         compose true
         buildConfig true
     }
+    testOptions {
+        unitTests.all { test ->
+            // Robolectric downloads Android jars outside Gradle's repositories.
+            if (gradle.ext.has('takArtifactoryUrl')) {
+                test.systemProperty 'robolectric.dependency.repo.id', 'takArtifactory'
+                test.systemProperty 'robolectric.dependency.repo.url', gradle.ext.takArtifactoryUrl
+                test.systemProperty 'robolectric.dependency.repo.username', gradle.ext.takArtifactoryUser
+                test.systemProperty 'robolectric.dependency.repo.password', gradle.ext.takArtifactoryPassword
+            }
+        }
+    }
     packaging {
         resources {
             excludes += ['/META-INF/{AL2.0,LGPL2.1}']

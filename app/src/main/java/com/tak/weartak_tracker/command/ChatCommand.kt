@@ -80,11 +80,7 @@ object ChatCommandParser {
         val keys = positional[name]
         if (keys != null && argText.isNotEmpty() && !KEY_VALUE_START.containsMatchIn(argText)) {
             if (name == "enrollserver") {
-                val comma = argText.indexOf(',')
-                val semicolon = argText.indexOf(';')
-                if (comma >= 0 && (semicolon < 0 || comma < semicolon)) {
-                    return parseCommaSeparatedEnrollServer(argText, keys)
-                }
+                return parseDelimitedEnrollServer(argText, keys)
             }
             return parsePositional(name, argText, keys)
         }
@@ -102,15 +98,9 @@ object ChatCommandParser {
             i = eq + 1
             val value = StringBuilder()
             if (i < rest.length && rest[i] == '"') {
-                i++
-                var closed = false
-                while (i < rest.length) {
-                    val c = rest[i++]
-                    if (c == '\\' && i < rest.length && (rest[i] == '"' || rest[i] == '\\')) value.append(rest[i++])
-                    else if (c == '"') { closed = true; break }
-                    else value.append(c)
-                }
-                if (!closed) return ChatCommandParse.Malformed("unterminated quote")
+                val quoted = readQuotedValue(rest, i) ?: return ChatCommandParse.Malformed("unterminated quote")
+                value.append(quoted.first)
+                i = quoted.second
                 if (i < rest.length && !rest[i].isWhitespace()) return ChatCommandParse.Malformed("text after quote")
             } else {
                 while (i < rest.length && !rest[i].isWhitespace()) value.append(rest[i++])
@@ -138,14 +128,52 @@ object ChatCommandParser {
         return ChatCommandParse.Parsed(ChatCommand(name, LinkedHashMap(keys.zip(values).toMap())))
     }
 
-    private fun parseCommaSeparatedEnrollServer(argText: String, keys: List<String>): ChatCommandParse {
-        val values = argText.split(',', limit = keys.size).map { it.trim() }
-        if (values.size != keys.size) {
-            return ChatCommandParse.Malformed("expected ${keys.size} values separated by commas")
+    private fun readQuotedValue(text: String, start: Int): Pair<String, Int>? {
+        val value = StringBuilder()
+        var i = start + 1
+        while (i < text.length) {
+            val c = text[i++]
+            if (c == '\\' && i < text.length && (text[i] == '"' || text[i] == '\\')) value.append(text[i++])
+            else if (c == '"') return value.toString() to i
+            else value.append(c)
         }
-        if (values.any { it.isEmpty() || it.length > MAX_VALUE_LENGTH || it.any(Char::isISOControl) }) {
-            return ChatCommandParse.Malformed("invalid argument value")
+        return null
+    }
+
+    private fun parseDelimitedEnrollServer(argText: String, keys: List<String>): ChatCommandParse {
+        val firstEnd = if (argText.startsWith('"')) {
+            readQuotedValue(argText, 0)?.second ?: return ChatCommandParse.Malformed("unterminated quote")
+        } else 0
+        val delimiter = argText.substring(firstEnd).firstOrNull { it == ',' || it == ';' } ?: ';'
+        val args = LinkedHashMap<String, String>()
+        var i = 0
+        for ((index, key) in keys.withIndex()) {
+            while (i < argText.length && argText[i].isWhitespace()) i++
+            val value = if (i < argText.length && argText[i] == '"') {
+                val quoted = readQuotedValue(argText, i)
+                    ?: return ChatCommandParse.Malformed("unterminated quote")
+                i = quoted.second
+                while (i < argText.length && argText[i].isWhitespace()) i++
+                if (i < argText.length && (index == keys.lastIndex || argText[i] != delimiter)) {
+                    return ChatCommandParse.Malformed("text after quote")
+                }
+                quoted.first
+            } else {
+                val end = if (index == keys.lastIndex) argText.length else
+                    argText.indexOf(delimiter, i).let { if (it < 0) argText.length else it }
+                argText.substring(i, end).trim().also { i = end }
+            }
+            if (value.isEmpty() || value.length > MAX_VALUE_LENGTH || value.any(Char::isISOControl)) {
+                return ChatCommandParse.Malformed("invalid argument value")
+            }
+            args[key] = value
+            if (index != keys.lastIndex) {
+                if (i >= argText.length) {
+                    return ChatCommandParse.Malformed("expected ${keys.size} values separated by $delimiter")
+                }
+                i++
+            }
         }
-        return ChatCommandParse.Parsed(ChatCommand("enrollserver", LinkedHashMap(keys.zip(values).toMap())))
+        return ChatCommandParse.Parsed(ChatCommand("enrollserver", args))
     }
 }
