@@ -3,9 +3,9 @@
 Extremely lightweight Wear OS position tracker modeled on WearTAK-WearOS
 
 ## Downloads
-Download installable APKs from [GitHub Releases](https://github.com/aegorsuch/weartak-tracker/releases), or go directly to the [latest release](https://github.com/aegorsuch/weartak-tracker/releases/latest). Expand **Assets** and select `WearTAK-Tracker-<version>-release.apk`; the source-code archives are not watch installers.
+Download installable APKs from [GitHub Releases](https://github.com/aegorsuch/weartak-tracker/releases), or go directly to the [TAK.gov pipeline release](https://github.com/aegorsuch/weartak-tracker/releases/tag/takgov-pipeline). Expand **Assets** and select `WearTAK-Tracker-5.8.4-p<IID>.apk`; the source-code archives are not watch installers.
 
-Version **5.8.0.3** is distributed as an optimized, non-debuggable APK signed with the permanent Tracker release key. Its Android update code is 584 so it can update the previously installed build without changing the displayed app version. Release-signed builds can use `adb install -r` while retaining settings. Moving from an earlier debug-signed build requires uninstalling first (`adb uninstall com.tak.weartak_tracker`), which removes app data and settings, then installing the release APK.
+Current base version is **5.8.4**, distributed as an optimized, non-debuggable APK signed with the permanent Tracker release key. TAK.gov CI builds use versionName `5.8.4-p<IID>+<short sha>` and Android versionCode `5860000 + <IID>`, preserving increasing update codes. Release notes report the actual APK version, code, pipeline, and source commit. Release-signed builds can use `adb install -r` while retaining settings. Moving from an earlier debug-signed build requires uninstalling first (`adb uninstall com.tak.weartak_tracker`), which removes app data and settings, then installing the release APK.
 
 **Updated 5.8.0.3 build:** The manual Alert picker adds 911 Alert, Ring The Bell, Geofence Breached, and In Contact, alphabetizes all presets, and sends immediately when a preset is tapped. Custom text and alert cancellation retain their confirmation buttons.
 
