@@ -409,6 +409,8 @@ Local release signing above describes the `signing.properties` path. TAK Forge r
 
 **Rights:** Unlimited rights granted to TAK Product Center.
 
-No root LICENSE/COPYING file or explicit project-wide license grant is present in this canonical source snapshot. The rights statement above does not establish a public redistribution license; project-wide licensing remains unspecified here. This README reformat does not relicense code or third-party assets.
+WearTAK-Tracker's original code is licensed under the GNU General Public License, version 3 or (at your option) any later version (**GPL-3.0-or-later**). See [LICENSE](LICENSE) for the complete license text. The existing grant of Unlimited Rights to TAK Product Center is preserved.
 
-Integration artwork retains the permission/provenance restrictions documented under [Features](#features). The Samsung Health Sensor SDK remains proprietary and is not committed; Ditto identities must remain out of source control as documented under [Compilation](#compilation).
+Integration assets are declared under GPL-3.0-or-later on the project owner's stated authority that permission has been obtained; the underlying asset-owner grants have not been independently verified here. The earlier permission/provenance record under [Features](#features) and existing third-party notices are retained. Everywhere Comms, GoTenna, Somewear Labs and ATAK names and marks remain their respective owners' property; this license declaration grants no trademark rights.
+
+Third-party components retain their own licenses and notices, including the Apache-2.0 Gradle wrapper scripts and bundled wrapper JAR. The proprietary Samsung Health Sensor SDK is not committed and is not covered by this GPL declaration. Ditto identities must remain out of source control as documented under [Compilation](#compilation).
