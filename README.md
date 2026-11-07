@@ -335,6 +335,10 @@ The job is serialized and requires both canonical and mirrored `main` heads
 to match the pipeline commit before publication and again before final publication.
 A stale mirror fails the job; synchronize it before retrying. The approved
 `takgov-pipeline` anchor tag must already exist and is never moved by the publisher.
+New releases are staged as drafts with `make_latest=false`; the final verified
+publish/update explicitly sets `make_latest=true`, rather than relying on GitHub's
+default. Intermediate metadata-only staging updates leave the current latest
+release designation unchanged.
 It rechecks the established Tracker signing certificate and uploads the unchanged
 APK bytes as `WearTAK-Tracker-<APK version without +SHA>-p<IID>.apk`, omitting
 the extra `-p<IID>` when already present (for example `WearTAK-Tracker-5.8.4-p7.apk`).

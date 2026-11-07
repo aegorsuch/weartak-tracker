@@ -174,6 +174,16 @@ class ReleasePublisherTests(OfflineTests):
         self.assertEqual(api.release["tag_name"], "takgov-pipeline")
         self.assertFalse(api.release["draft"])
         self.assertFalse(api.release["prerelease"])
+        release_writes = [entry for entry in api.writes if entry[0] in ("create-release", "update-release")]
+        self.assertEqual(release_writes[0][1]["draft"], True)
+        self.assertEqual(release_writes[0][1]["make_latest"], "false")
+        self.assertNotIn("make_latest", release_writes[1][1])
+        self.assertEqual(release_writes[-1][1]["draft"], False)
+        self.assertEqual(release_writes[-1][1]["make_latest"], "true")
+        self.assertLess(
+            next(i for i, entry in enumerate(api.writes) if entry[0] == "verify"),
+            max(i for i, entry in enumerate(api.writes) if entry[0] == "update-release"),
+        )
         self.assertEqual(api.tag_ref["object"]["sha"], "0" * 40)
         self.assertFalse(any(entry[0] in ("move-tag", "create-tag") for entry in api.writes))
         self.assertEqual(list(api.assets.values()), [
