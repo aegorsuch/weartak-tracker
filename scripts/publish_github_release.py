@@ -363,7 +363,8 @@ class ReleasePublisher:
                 {
                     "tag_name": RELEASE_TAG, "name": title,
                     "body": update_marker("", []), "draft": True,
-                    "prerelease": False, "target_commitish": commit_sha,
+                    "prerelease": False, "make_latest": "false",
+                    "target_commitish": commit_sha,
                 },
             )
         owned_names = read_owned_names(release.get("body", ""))
@@ -407,7 +408,8 @@ class ReleasePublisher:
                         release.get("body", ""), [asset_name],
                     ), presentation,
                 ),
-                "draft": False, "prerelease": False, "target_commitish": commit_sha,
+                "draft": False, "prerelease": False, "make_latest": "true",
+                "target_commitish": commit_sha,
             },
         )
         return asset_name
