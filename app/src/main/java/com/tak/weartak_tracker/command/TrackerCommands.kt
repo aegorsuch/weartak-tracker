@@ -189,7 +189,7 @@ class EnrollServerHandler(
 
     companion object {
         val POSITIONAL_KEYS = listOf("name", "url", "port", "username", "password")
-        const val USAGE = "enrollserver needs <name>, <address>, <port>, <username>, <password>"
+        const val USAGE = "enrollserver needs name=<name> url=<host> username=<user> password=<password> [port=8089]"
     }
 }
 

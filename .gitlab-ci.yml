@@ -1,3 +1,10 @@
+include:
+  - project: devsecops/gitlab-ci-common
+    ref: master
+    file: /template/artifactory_token_service.yml
+
+before_script: []
+
 variables:
   GRADLE_BUILD_LAUNCHER_TAG: "2.6.2"
   KUBERNETES_MEMORY_LIMIT: "8Gi"
@@ -6,7 +13,14 @@ variables:
 stages:
   - build
 
+.artifactory_credentials:
+  extends: .artifactory_service_create_token_no_depends_bash
+  before_script:
+    - !reference [.artifactory_service_create_token_no_depends_bash, before_script]
+    - export ARTIFACTORY_USER="$GITLAB_USER_EMAIL" ARTIFACTORY_PASSWORD="$CI_JOB_ARTIFACTORY_TOKEN"
+
 merge_request_checks:
+  extends: .artifactory_credentials
   stage: build
   image:
     name: ${TAK_REGISTRY_HOST}/devsecops/gradle-build-launcher:17-${GRADLE_BUILD_LAUNCHER_TAG}
@@ -25,12 +39,14 @@ merge_request_checks:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
 
 .release_build:
+  extends: .artifactory_credentials
   stage: build
   image:
     name: ${TAK_REGISTRY_HOST}/devsecops/gradle-build-launcher:17-${GRADLE_BUILD_LAUNCHER_TAG}
     entrypoint: [""]
 
   before_script:
+    - !reference [.artifactory_credentials, before_script]
     - chmod +x gradlew
     - |
       set -eu
