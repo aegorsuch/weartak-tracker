@@ -15,13 +15,13 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import org.json.JSONObject
 import java.util.UUID
+import java.io.IOException
 
 private val Context.trackerStore: DataStore<Preferences> by preferencesDataStore(name = "tracker")
 
@@ -107,11 +107,14 @@ data class TrackerConfig(
     val sitxClientId: String = DEFAULT_SITX_CLIENT_ID,
     val sitxGroup: String = "",
     val servers: List<TakServerConfig> = emptyList(),
+    val takServersEnabled: Boolean = true,
     /** WearTAK-CIV's "Physiological Monitoring": adds heart rate to PLI (needs BODY_SENSORS). */
     val physioMonitoring: Boolean = false,
     val batdokEnabled: Boolean = true,
     val medicalProfile: MedicalProfile = MedicalProfile(),
     val developerMode: Boolean = false,
+    val diagnosticsEnabled: Boolean = false,
+    val networkPreferencesChecklist: Boolean = false,
     val networkPreferencesLocked: Boolean = false,
     val chatCommandsEnabled: Boolean = false,
     val chatCommandCallsigns: List<String> = emptyList(),
@@ -119,7 +122,23 @@ data class TrackerConfig(
     val dittoPdlSource: DittoPdlSource = DittoPdlSource.COMMUNITY,
     val dittoCustomPdl: String = "",
     val sensorManagerEnabled: Boolean = false,
+    val customAlerts: List<String> = emptyList(),
+    val moppStatus: MoppStatus = MoppStatus.NONE,
 )
+
+internal object TakTransportPreferences {
+    private val enabledKey = booleanPreferencesKey("tak_servers_enabled")
+
+    fun enabled(preferences: Preferences): Boolean = preferences[enabledKey] ?: true
+
+    fun write(preferences: androidx.datastore.preferences.core.MutablePreferences, enabled: Boolean) {
+        preferences[enabledKey] = enabled
+    }
+}
+
+/** Runtime-only mask; the saved per-server choices and credentials remain untouched. */
+val TrackerConfig.runtimeTakServers: List<TakServerConfig>
+    get() = if (takServersEnabled) servers else servers.map { it.copy(enabled = false) }
 
 /** SITX OAuth device-flow state (persisted encrypted). */
 data class SitxTokens(
@@ -163,6 +182,8 @@ class SettingsRepository(private val context: Context) {
         val DITTO_ENABLED = booleanPreferencesKey("ditto_enabled")
         val DITTO_PDL_SOURCE = stringPreferencesKey("ditto_pdl_source")
         val DITTO_CUSTOM_PDL = stringPreferencesKey("ditto_custom_pdl.enc")
+        val CUSTOM_ALERTS = stringPreferencesKey("custom_manual_alerts")
+        val MOPP_STATUS = stringPreferencesKey("manual_mopp_status")
     }
 
     @SuppressLint("HardwareIds")
@@ -171,28 +192,38 @@ class SettingsRepository(private val context: Context) {
 
     private val defaultCallsign = "WT-" + deviceUid.takeLast(4).uppercase()
 
-    // Like CIV, dev mode resets on process startup; the network lock does not.
-    private val developerMode = MutableStateFlow(false)
-    val config: Flow<TrackerConfig> = combine(store.data, developerMode) { p, dev ->
-        read(p).copy(developerMode = dev)
-    }
+    val config: Flow<TrackerConfig> = store.data.map(::read)
         .distinctUntilChanged()
 
     suspend fun current(): TrackerConfig = config.first()
 
     /** Applies [transform] in a repository-owned scope so the write completes even if the calling screen closes. */
-    fun updateAsync(transform: (TrackerConfig) -> TrackerConfig) {
-        writeScope.launch { update(transform) }
+    fun updateAsync(transform: (TrackerConfig) -> TrackerConfig) = updateAsync(onUpdated = {}, transform = transform)
+
+    fun updateAsync(
+        onUpdated: () -> Unit,
+        onError: (IOException) -> Unit = { throw it },
+        transform: (TrackerConfig) -> TrackerConfig,
+    ) {
+        writeScope.launch {
+            try {
+                update(transform)
+                onUpdated()
+            } catch (error: IOException) {
+                onError(error)
+            }
+        }
     }
 
     private val writeScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     suspend fun update(transform: (TrackerConfig) -> TrackerConfig) {
         store.edit { p ->
-            val old = read(p).copy(developerMode = developerMode.value)
+            val old = read(p)
             val n = transform(old)
             if (n == old) return@edit
-            developerMode.value = n.developerMode
+            DebugPreferences.write(p, n.developerMode, n.diagnosticsEnabled, n.networkPreferencesChecklist)
+            TakTransportPreferences.write(p, n.takServersEnabled)
             p[K.NETWORK_LOCKED] = n.networkPreferencesLocked
             p[K.CHAT_COMMANDS] = n.chatCommandsEnabled
             p[K.SENSOR_MANAGER] = n.sensorManagerEnabled
@@ -220,6 +251,8 @@ class SettingsRepository(private val context: Context) {
             p[K.SITX_URL] = n.sitxUrl.trim()
             p[K.PHYSIO] = n.physioMonitoring
             p[K.BATDOK] = n.batdokEnabled
+            p[K.MOPP_STATUS] = n.moppStatus.name
+            if (n.customAlerts != old.customAlerts) p[K.CUSTOM_ALERTS] = CustomAlerts.encode(n.customAlerts)
             if (n.medicalProfile != old.medicalProfile) {
                 p[K.MEDICAL_PROFILE] = SecretBox.encrypt(MedicalProfileCodec.encode(n.medicalProfile))
             }
@@ -276,10 +309,14 @@ class SettingsRepository(private val context: Context) {
             sitxClientId = sitxClientIdOrDefault(SecretBox.decrypt(p[K.SITX_CLIENT_ID])),
             sitxGroup = SecretBox.decrypt(p[K.SITX_GROUP]) ?: "",
             servers = ServerListCodec.decode(SecretBox.decrypt(p[K.SERVERS])),
+            takServersEnabled = TakTransportPreferences.enabled(p),
             physioMonitoring = p[K.PHYSIO] ?: false,
             batdokEnabled = p[K.BATDOK] ?: true,
             medicalProfile = MedicalProfileCodec.decode(SecretBox.decrypt(p[K.MEDICAL_PROFILE])),
             networkPreferencesLocked = p[K.NETWORK_LOCKED] ?: false,
+            developerMode = DebugPreferences.developerMode(p),
+            diagnosticsEnabled = DebugPreferences.diagnostics(p),
+            networkPreferencesChecklist = DebugPreferences.networkPreferencesChecklist(p),
             chatCommandsEnabled = p[K.CHAT_COMMANDS] ?: false,
             sensorManagerEnabled = p[K.SENSOR_MANAGER] ?: false,
             chatCommandCallsigns = ChatCommandAuthorizer.parseAllowList(p[K.CHAT_CALLSIGNS].orEmpty()),
@@ -288,5 +325,7 @@ class SettingsRepository(private val context: Context) {
                 runCatching { DittoPdlSource.valueOf(it) }.getOrNull()
             } ?: DittoPdlSource.COMMUNITY,
             dittoCustomPdl = SecretBox.decrypt(p[K.DITTO_CUSTOM_PDL]).orEmpty(),
+            customAlerts = CustomAlerts.decode(p[K.CUSTOM_ALERTS]),
+            moppStatus = MoppStatus.fromStored(p[K.MOPP_STATUS]),
         )
 }

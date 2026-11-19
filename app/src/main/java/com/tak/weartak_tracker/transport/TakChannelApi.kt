@@ -69,6 +69,16 @@ internal object TakChannelJson {
 /** mTLS client for TAK Server's group API on port 8443. */
 internal class TakChannelApi(private val address: String, private val socketFactory: SSLSocketFactory) {
     private val base = "https://${hostForUrl(address.trim())}:$TAK_API_PORT/Marti/api/groups"
+    private val requests = mutableSetOf<HttpsURLConnection>()
+    private var closed = false
+
+    fun close() {
+        val pending = synchronized(requests) {
+            closed = true
+            requests.toList().also { requests.clear() }
+        }
+        pending.forEach { it.disconnect() }
+    }
 
     fun load(checkSupport: Boolean): TakChannelSnapshot {
         if (checkSupport && !TakChannelJson.parseSupport(request("GET", "$base/groupCacheEnabled"))) {
@@ -87,6 +97,10 @@ internal class TakChannelApi(private val address: String, private val socketFact
 
     private fun request(method: String, url: String, body: String? = null): String {
         val conn = URL(url).openConnection() as HttpsURLConnection
+        synchronized(requests) {
+            if (closed) throw java.io.IOException("TAK Server is disabled or disconnected")
+            requests.add(conn)
+        }
         try {
             conn.sslSocketFactory = socketFactory
             // The socket factory's trust manager already checks the server identity during the handshake
@@ -107,6 +121,7 @@ internal class TakChannelApi(private val address: String, private val socketFact
             if (code !in 200..299) throw java.io.IOException("TAK channel request failed: $code $method $path")
             return conn.inputStream.bufferedReader().use { it.readText() }
         } finally {
+            synchronized(requests) { requests.remove(conn) }
             conn.disconnect()
         }
     }

@@ -16,7 +16,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.filled.Check
@@ -28,7 +27,6 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -38,9 +36,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextAlign
@@ -154,7 +151,10 @@ fun WearTAKTitleChipWithState(title: String, state: String, onClick: () -> Unit)
 }
 
 @Composable
-fun WearTAKToggleChip(checked: Boolean, onCheckedChange: (Boolean) -> Unit, title: String, description: String = "") {
+fun WearTAKToggleChip(
+    checked: Boolean, onCheckedChange: (Boolean) -> Unit, title: String, description: String = "",
+    icon: (@Composable () -> Unit)? = null,
+) {
     ToggleChip(
         modifier = Modifier.fillMaxWidth(),
         label = { Text(title, maxLines = 3, overflow = TextOverflow.Ellipsis) },
@@ -162,6 +162,7 @@ fun WearTAKToggleChip(checked: Boolean, onCheckedChange: (Boolean) -> Unit, titl
             { Text(description, maxLines = 2, overflow = TextOverflow.Ellipsis) }
         },
         checked = checked,
+        appIcon = if (icon == null) null else { { icon() } },
         colors = ToggleChipDefaults.toggleChipColors(uncheckedToggleControlColor = ToggleChipDefaults.SwitchUncheckedIconColor),
         toggleControl = { Switch(checked = checked, onCheckedChange = null, enabled = true) },
         onCheckedChange = onCheckedChange,
@@ -200,7 +201,7 @@ fun <T> WearTAKSelectableChip(
 fun WearTAKSplitToggleChip(
     appIcon: @Composable () -> Unit,
     title: String,
-    label: String,
+    label: String = "",
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit,
     onClick: () -> Unit,
@@ -213,7 +214,9 @@ fun WearTAKSplitToggleChip(
                 modifier = Modifier.align(Alignment.CenterVertically),
             )
         },
-        secondaryLabel = { Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+        secondaryLabel = if (label.isEmpty()) null else {
+            { Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+        },
         checked = checked,
         toggleControl = { Switch(checked = checked, onCheckedChange = null, enabled = true, modifier = Modifier.size(25.dp)) },
         onCheckedChange = onCheckedChange,
@@ -229,14 +232,11 @@ fun WearTAKOutlinedTextField(
     label: String,
     keyboardType: KeyboardType = KeyboardType.Unspecified,
 ) {
-    OutlinedTextField(
+    WearTAKNativeTextField(
         value = value,
         onValueChange = onValueChange,
-        singleLine = true,
-        keyboardOptions = KeyboardOptions(keyboardType = keyboardType, imeAction = ImeAction.Done),
-        label = { Text(text = label, color = colors.primary) },
-        placeholder = { Text(text = label, color = colors.primary) },
-        textStyle = TextStyle(color = colors.primary),
+        keyboardType = keyboardType,
+        label = label,
     )
 }
 
@@ -276,22 +276,23 @@ fun WearTAKStringEntryPage(
     onBack: () -> Unit,
     keyboardType: KeyboardType = KeyboardType.Unspecified,
     validate: (String) -> String? = { null },
+    openKeyboard: Boolean = false,
     confirmFunction: (String) -> Unit,
 ) {
     val context = LocalContext.current
-    var text by rememberSaveable(stateSaver = TextFieldValue.Saver) { mutableStateOf(TextFieldValue(item)) }
+    var text by rememberSaveable(stateSaver = TextFieldValue.Saver) {
+        mutableStateOf(TextFieldValue(item, TextRange(item.length)))
+    }
     Box(
         modifier = Modifier.fillMaxSize().background(colors.background).padding(bottom = 16.dp).padding(horizontal = 16.dp),
         contentAlignment = Alignment.Center,
     ) {
-        OutlinedTextField(
+        WearTAKNativeTextField(
             value = text,
             onValueChange = { text = it },
-            singleLine = true,
-            keyboardOptions = KeyboardOptions(keyboardType = keyboardType, imeAction = ImeAction.Done),
-            label = { Text(text = label, color = colors.primary) },
-            placeholder = { Text(text = label, color = colors.primary) },
-            textStyle = TextStyle(color = colors.primary),
+            keyboardType = keyboardType,
+            label = label,
+            openKeyboard = openKeyboard,
         )
         Row(modifier = Modifier.align(Alignment.BottomCenter)) {
             WearTAKConfirmCancelButtons(

@@ -25,6 +25,9 @@ data class MedicalProfile(
     val allergies: Set<String> = emptySet(),
     val userType: String = "N/A",
     val restingHeartRateBpm: Int = 60,
+    /** Uniform pants length and waist size in inches; 0 means not set. */
+    val pantsLengthInches: Int = 0,
+    val waistInches: Int = 0,
 ) {
     fun ageYears(currentYear: Int = Year.now().value): Int? =
         birthYear?.takeIf { it in 1900..currentYear }?.let { currentYear - it }
@@ -42,6 +45,8 @@ object MedicalProfileCodec {
         .put("allergies", JSONArray(profile.allergies.toList()))
         .put("userType", profile.userType)
         .put("restingHeartRateBpm", profile.restingHeartRateBpm)
+        .put("pantsLengthInches", profile.pantsLengthInches)
+        .put("waistInches", profile.waistInches)
         .toString()
 
     fun decode(raw: String?): MedicalProfile {
@@ -58,6 +63,8 @@ object MedicalProfileCodec {
             allergies = (0 until allergies.length()).map { allergies.getString(it) }.toSet(),
             userType = json.optString("userType", "N/A"),
             restingHeartRateBpm = json.optInt("restingHeartRateBpm", 60),
+            pantsLengthInches = json.optInt("pantsLengthInches"),
+            waistInches = json.optInt("waistInches"),
         )
     }
 }

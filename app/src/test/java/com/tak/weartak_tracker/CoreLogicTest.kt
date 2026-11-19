@@ -3,8 +3,9 @@ package com.tak.weartak_tracker
 import com.tak.weartak_tracker.cot.AlertState
 import com.tak.weartak_tracker.cot.CotBuilder
 import com.tak.weartak_tracker.cot.CotTime
+import com.tak.weartak_tracker.cot.Fix
 import com.tak.weartak_tracker.cot.Physio
-import com.tak.weartak_tracker.data.Activity
+import com.tak.weartak_tracker.cot.StandardEmergencyType
 import com.tak.weartak_tracker.data.ManualAlert
 import com.tak.weartak_tracker.data.TrackerConfig
 import com.tak.weartak_tracker.service.AlertForwarder
@@ -23,26 +24,26 @@ class CoreLogicTest {
 
     @Test
     fun reportingStrategy() {
-        assertEquals(30, ReportingStrategy.intervalSecs(config.copy(dynamicReporting = false), true, Activity.STILL))
-        assertEquals(5, ReportingStrategy.intervalSecs(config, true, Activity.STILL))
-        assertEquals(600, ReportingStrategy.intervalSecs(config, false, Activity.STILL))
-        assertEquals(20, ReportingStrategy.intervalSecs(config, false, Activity.ON_FOOT))
-        assertEquals(40, ReportingStrategy.intervalSecs(config, false, Activity.IN_VEHICLE))
-        assertEquals(40, ReportingStrategy.intervalSecs(config, false, Activity.UNKNOWN))
+        assertEquals(30, ReportingStrategy.intervalForSpeedSecs(config.copy(dynamicReporting = false), true, 0.0))
+        assertEquals(5, ReportingStrategy.intervalForSpeedSecs(config, true, 0.0))
+        assertEquals(600, ReportingStrategy.intervalForSpeedSecs(config, false, 0.0))
+        assertEquals(20, ReportingStrategy.intervalForSpeedSecs(config, false, ReportingStrategy.MOTION_BOUNDARY_MPS))
+        assertEquals(40, ReportingStrategy.intervalForSpeedSecs(config, false, ReportingStrategy.VEHICLE_BOUNDARY_MPS))
+        assertEquals(40, ReportingStrategy.intervalForSpeedSecs(config, false, null))
     }
 
     @Test
     fun pliExpiresAfterTwiceActiveIntervalPlusFifteenSeconds() {
         val modes = listOf(
-            Triple(config.copy(dynamicReporting = false), false, Activity.STILL),
-            Triple(config, true, Activity.STILL),
-            Triple(config, false, Activity.STILL),
-            Triple(config, false, Activity.ON_FOOT),
-            Triple(config, false, Activity.IN_VEHICLE),
-            Triple(config, false, Activity.UNKNOWN),
+            Triple(config.copy(dynamicReporting = false), false, 0.0),
+            Triple(config, true, 0.0),
+            Triple(config, false, 0.0),
+            Triple(config, false, ReportingStrategy.MOTION_BOUNDARY_MPS),
+            Triple(config, false, ReportingStrategy.VEHICLE_BOUNDARY_MPS),
+            Triple(config, false, null),
         )
-        modes.forEach { (c, alerting, activity) ->
-            val interval = ReportingStrategy.intervalSecs(c, alerting, activity)
+        modes.forEach { (c, alerting, speed) ->
+            val interval = ReportingStrategy.intervalForSpeedSecs(c, alerting, speed)
             val time = CotTime.now(CotBuilder.pliStaleSeconds(interval), 0)
             val staleMillis = java.time.Instant.parse(time.staleCot).toEpochMilli()
             assertEquals((2L * interval + 15L) * 1000L, staleMillis)
@@ -53,6 +54,20 @@ class CoreLogicTest {
         assertEquals(7215L, CotBuilder.pliStaleSeconds(3600))
         assertEquals(17L, CotBuilder.pliStaleSeconds(0))
         assertEquals(2L * Int.MAX_VALUE + 15, CotBuilder.pliStaleSeconds(Int.MAX_VALUE))
+    }
+
+    @Test
+    fun stationaryAndFallbackPliRetainSampleTimeAndReportedAccuracy() {
+        val fix = Fix(1.0, 2.0, 3.0, 17f, 23f, 0f, 0f, 1_000, 500)
+        for (interval in listOf(10, 60, 3600)) {
+            val time = CotTime.now(CotBuilder.pliStaleSeconds(interval), fix.timeMillis)
+            val xml = CotBuilder.pli("u1", "cs", "Cyan", "HQ", 50, fix, time)
+            assertTrue(xml.contains("time='1970-01-01T00:00:01.000Z'"))
+            assertTrue(xml.contains("start='1970-01-01T00:00:01.000Z'"))
+            assertTrue(xml.contains("ce='17'"))
+            assertEquals(fix.timeMillis + (2L * interval + 15) * 1000,
+                java.time.Instant.parse(time.staleCot).toEpochMilli())
+        }
     }
 
     @Test
@@ -68,16 +83,19 @@ class CoreLogicTest {
     @Test
     fun pliPhysioMatchesCivAndIsOmittedWhenOff() {
         val time = CotTime.now(30, 0)
-        assertFalse(CotBuilder.pli("u1", "cs", "Cyan", "HQ", 50, null, time).contains("biometrics"))
+        val off = CotBuilder.pli("u1", "cs", "Cyan", "HQ", 50, null, time)
+        assertFalse(off.contains("physiology"))
+        assertFalse(off.contains("biometrics"))
         val on = CotBuilder.pli("u1", "cs", "Cyan", "HQ", 50, null, time, Physio(72))
         assertTrue(on.contains("<remarks>Exert:N/A%;HR:72;SkinTemp:N/A</remarks>"))
         assertTrue(
             on.contains(
-                "<biometrics><device><model>WEAROS</model><uid>u1</uid><hr>72</hr><skt>N/A</skt><exert>N/A</exert></device></biometrics>",
+                "<physiology><device><model>WEAROS</model><uid>u1</uid><hr>72</hr><skt>N/A</skt><exert>N/A</exert></device></physiology>",
             ),
         )
         // Physio detail follows <status> and precedes <contact>, as in CIV.
-        assertTrue(on.indexOf("<status") < on.indexOf("<remarks>") && on.indexOf("</biometrics>") < on.indexOf("<contact"))
+        assertTrue(on.indexOf("<status") < on.indexOf("<remarks>") && on.indexOf("</physiology>") < on.indexOf("<contact"))
+        assertFalse(on.contains("biometrics"))
         val noReading = CotBuilder.pli("u1", "cs", "Cyan", "HQ", 50, null, time, Physio(-1))
         assertTrue(noReading.contains("HR:N/A;") && noReading.contains("<hr>N/A</hr>"))
         val withSkin = CotBuilder.pli("u1", "cs", "Cyan", "HQ", 50, null, time, Physio(64, 91.26f))
@@ -109,7 +127,7 @@ class CoreLogicTest {
                 "u1", "cs", null, CotTime.now(CotBuilder.ALERT_STALE_SECONDS, 0),
             )
             assertTrue(xml.contains("alertDescription='$description'"))
-            assertTrue(xml.contains("<emergency type='$description'>cs</emergency>"))
+            assertTrue(xml.contains("<emergency type='${StandardEmergencyType.emergencyType(description)}'>cs</emergency>"))
         }
         assertEquals(descriptions, sent.map { it.description })
         assertTrue(forwarder.pending.isEmpty())
@@ -186,5 +204,25 @@ class CoreLogicTest {
         assertEquals(listOf(AlertState.ALERT, AlertState.CANCEL), sent.map { it.state })
         assertTrue(forwarder.alerts.isEmpty())
         assertTrue(forwarder.pending.isEmpty())
+    }
+
+    @Test
+    fun repeatedSubmitOfTheSameUidAndStateSendsOnce() = runBlocking {
+        var online = true
+        val sent = mutableListOf<ManualAlert>()
+        val forwarder = AlertForwarder(send = { if (online) { sent += it; true } else false }, onChanged = { _, _ -> })
+        val alert = forwarder.newAlert("911 Alert")
+        repeat(3) { forwarder.submit(alert, ready = true) }
+        assertEquals(1, sent.size)
+
+        online = false
+        val queued = forwarder.newAlert("911 Alert")
+        repeat(3) { forwarder.submit(queued, ready = true) }
+        assertEquals(1, forwarder.pending.size)
+        online = true
+        forwarder.flush()
+        forwarder.flush()
+        assertEquals(listOf(alert.uid, queued.uid), sent.map { it.uid })
+        assertEquals(2, forwarder.alerts.size)
     }
 }

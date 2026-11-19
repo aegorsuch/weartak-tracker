@@ -7,18 +7,24 @@ data class ChatCommandRequest(
     val messageId: String?,
     val sentAtMs: Long,
     val receivedAtMs: Long,
-    val sourceServerId: String
-)
+    val sourceServerId: String,
+    val replyRoomId: String? = null,
+    val replyRoomName: String? = null,
+    val replyMemberUids: List<String> = emptyList(),
+) {
+    override fun toString(): String = "ChatCommandRequest(source=$sourceServerId, text=redacted)"
+}
 
-data class ChatCommandResult(val ok: Boolean, val message: String)
+data class ChatCommandResult(val ok: Boolean, val message: String, val replyAttempted: Boolean = false)
 
 fun interface ChatCommandHandler {
     suspend fun execute(command: ChatCommand, request: ChatCommandRequest): ChatCommandResult
 }
 
 /**
- * Runs `#weartaktrackercommand...` chat messages. Only direct messages from allow-listed callsigns are
- * acted on, and only when the Commands setting is on. Messages from other senders are swallowed
+ * Runs `#weartaktrackercommand...` chat messages. Only messages from allow-listed callsigns are
+ * acted on, and only when the Commands setting is on. Direct, broadcast and member-group chats
+ * use the same authorizer. Messages from other senders are swallowed
  * silently so the feature cannot be probed. Argument values are never logged or echoed.
  */
 class ChatCommandProcessor(
@@ -28,20 +34,53 @@ class ChatCommandProcessor(
     private val reply: suspend (ChatCommandRequest, String) -> Unit,
     private val audit: (String) -> Unit,
     private val now: () -> Long = System::currentTimeMillis,
-    private val authorizer: ChatCommandAuthorizer = ChatCommandAuthorizer()
+    private val authorizer: ChatCommandAuthorizer = ChatCommandAuthorizer(),
+    private val positional: Map<String, List<String>> = emptyMap(),
+    private val onAuthorized: (ChatCommandRequest) -> Unit = {},
+    private val isRouteEnabled: suspend (ChatCommandRequest) -> Boolean = { true },
 ) {
+    private val commandMutex = kotlinx.coroutines.sync.Mutex()
+
     /** Returns true when the message was a command and must not be shown as ordinary chat. */
     suspend fun handle(request: ChatCommandRequest): Boolean {
-        val parsed = ChatCommandParser.parse(request.text)
-        if (parsed is ChatCommandParse.NotACommand) return false
-        if (!isEnabled()) return false
+        commandMutex.lock()
+        try {
+            return handleSerialized(request)
+        } finally {
+            commandMutex.unlock()
+        }
+    }
 
-        val messageKey = request.messageId ?: "${request.sentAtMs}:${request.text.hashCode()}"
-        val decision = authorizer.authorize(
-            request.senderCallsign, allowedCallsigns(), messageKey, request.sentAtMs, now()
-        )
+    private suspend fun handleSerialized(request: ChatCommandRequest): Boolean {
+        val parsed = ChatCommandParser.parse(request.text, positional)
+        if (parsed is ChatCommandParse.NotACommand) return false
+        if (!isEnabled()) {
+            audit("ignored command from ${request.senderCallsign}: commands disabled")
+            return false
+        }
+        if (!isRouteEnabled(request)) {
+            audit("ignored command from disabled route")
+            return true
+        }
+
+        val messageKey = request.senderUid + "|" + (request.messageId ?: (
+            request.sentAtMs.toString() + ":" + java.security.MessageDigest.getInstance("SHA-256")
+                .digest(request.text.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }))
+        val decision = try {
+            authorizer.authorize(request.senderCallsign, allowedCallsigns(), messageKey, request.sentAtMs, now())
+        } catch (error: kotlinx.coroutines.CancellationException) {
+            throw error
+        } catch (_: Exception) {
+            audit("command replay journal unavailable")
+            // No ack without a durable claim: writing an ack triggers another Ditto snapshot.
+            return true
+        }
         if (decision != ChatCommandDecision.ALLOWED) {
             audit("ignored command from ${request.senderCallsign}: $decision")
+            // Allowed senders learn why; unknown senders get nothing so the feature can't be probed.
+            if (decision == ChatCommandDecision.STALE) {
+                reply(request, "Command rejected: message time is missing or more than 5 minutes off. Check both devices' clocks.")
+            }
             return true
         }
 
@@ -50,7 +89,16 @@ class ChatCommandProcessor(
                 audit("malformed command from ${request.senderCallsign}: ${parsed.reason}")
                 reply(request, "Command rejected: ${parsed.reason}")
             }
-            is ChatCommandParse.Parsed -> run(parsed.command, request)
+            is ChatCommandParse.Parsed -> {
+                try {
+                    onAuthorized(request)
+                } catch (_: Exception) {
+                    audit("command room roster unavailable")
+                    reply(request, "Command rejected: room roster unavailable")
+                    return true
+                }
+                run(parsed.command, request)
+            }
             ChatCommandParse.NotACommand -> Unit
         }
         return true
@@ -68,9 +116,10 @@ class ChatCommandProcessor(
         } catch (error: kotlinx.coroutines.CancellationException) {
             throw error
         } catch (error: Exception) {
-            ChatCommandResult(false, "Command failed")
+            ChatCommandResult(false,
+                if (command.name in setOf("setpdl", "toggleditto")) "Ditto update failed" else "Command failed")
         }
         audit("command ${command.name} from ${request.senderCallsign}: ${if (result.ok) "ok" else "failed"}")
-        reply(request, result.message)
+        if (!result.replyAttempted) reply(request, result.message)
     }
 }

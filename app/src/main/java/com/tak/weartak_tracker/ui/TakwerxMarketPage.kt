@@ -53,6 +53,7 @@ internal fun TakwerxMarketPage(onBack: () -> Unit) {
         (context.applicationContext as TrackerApp).marketUpdateMonitor
     }
     val snapshot by updateMonitor.snapshot.collectAsStateWithLifecycle()
+    val hostName = stringResource(R.string.market_host_name)
     val permissionNeeded = stringResource(R.string.market_permission_needed)
     val permissionSettingsError = stringResource(R.string.market_permission_settings_error)
     val installerConfirmation = stringResource(R.string.market_installer_confirmation)
@@ -76,8 +77,8 @@ internal fun TakwerxMarketPage(onBack: () -> Unit) {
     var operationPackage by remember { mutableStateOf<String?>(null) }
     var activePackage by remember { mutableStateOf<String?>(null) }
     var installedRevision by remember { mutableIntStateOf(0) }
-    val displayPlugins = remember(catalog, installedRevision) {
-        catalog?.plugins.orEmpty().map { plugin ->
+    val displayPlugins = remember(catalog, installedRevision, hostName) {
+        marketPluginsInDisplayOrder(catalog?.plugins.orEmpty(), hostName).map { plugin ->
             try {
                 MarketPluginDisplay(
                     plugin = plugin,
@@ -209,6 +210,13 @@ internal fun TakwerxMarketPage(onBack: () -> Unit) {
         }
     }
 }
+
+internal fun marketPluginsInDisplayOrder(plugins: List<MarketPlugin>, hostName: String): List<MarketPlugin> =
+    plugins.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { plugin ->
+        if (plugin.hostUpdate && plugin.packageName == com.tak.weartak_tracker.BuildConfig.APPLICATION_ID) {
+            hostName
+        } else plugin.name
+    })
 
 private data class MarketPluginDisplay(
     val plugin: MarketPlugin,

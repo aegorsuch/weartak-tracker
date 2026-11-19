@@ -55,6 +55,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.wear.compose.foundation.AnchorType
 import androidx.wear.compose.foundation.CurvedDirection
 import androidx.wear.compose.foundation.CurvedLayout
@@ -78,6 +79,7 @@ import com.tak.weartak_tracker.data.TrackerConfig
 import com.tak.weartak_tracker.data.TrackerState
 import com.tak.weartak_tracker.service.TrackerService
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.awaitCancellation
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 
@@ -86,6 +88,11 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         val repo = (application as TrackerApp).settings
         setContent { MaterialTheme { WearTAKTextSelection { TrackerNav(repo) } } }
+    }
+
+    override fun onUserInteraction() {
+        super.onUserInteraction()
+        TrackerService.start(this, TrackerService.ACTION_LOCATION_INTERACTION)
     }
 }
 
@@ -112,18 +119,26 @@ private fun TrackerNav(repo: SettingsRepository) {
     val permissions = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
         TrackerService.start(context)
     }
-    LaunchedEffect(Unit) {
-        val missing = buildList {
-            if (!LocationAccess.current(context).granted) {
-                addAll(foregroundPermissions().filterNot(context::granted))
+    LaunchedEffect(lifecycleOwner) {
+        var permissionsRequested = false
+        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            val missing = buildList {
+                if (!LocationAccess.current(context).granted) {
+                    addAll(foregroundPermissions().filterNot(context::granted))
+                } else if (Build.VERSION.SDK_INT >= 33 && !context.granted(Manifest.permission.POST_NOTIFICATIONS)) {
+                    add(Manifest.permission.POST_NOTIFICATIONS)
+                }
+                val heartRatePermission = heartRatePermission()
+                if (!context.granted(heartRatePermission)) {
+                    add(heartRatePermission)
+                }
             }
-            val heartRatePermission = heartRatePermission()
-            if (!context.granted(heartRatePermission)) {
-                add(heartRatePermission)
-            }
+            if (missing.isNotEmpty() && !permissionsRequested) {
+                permissionsRequested = true
+                permissions.launch(missing.toTypedArray())
+            } else TrackerService.start(context)
+            awaitCancellation()
         }
-        if (missing.isNotEmpty()) permissions.launch(missing.toTypedArray())
-        else TrackerService.start(context)
     }
     // Navigation retains its graph callbacks; they must read the latest settings.
     val currentConfig = rememberUpdatedState(config)
@@ -145,7 +160,10 @@ private fun TrackerNav(repo: SettingsRepository) {
     }
     SwipeDismissableNavHost(navController = nav, startDestination = "main_screen") {
         composable("main_screen") { MainScreen(currentConfig.value, go) }
-        composable("sos_screen") { SosScreen(repo, home) }
+        composable("sos_screen") {
+            SosScreen(repo, currentConfig.value.customAlerts, home) { nav.navigate("custom_alert_entry") }
+        }
+        composable("custom_alert_entry") { CustomAlertEntryPage(repo, currentConfig.value.customAlerts, back) }
         settingsGraph(repo, currentConfig, go, back)
     }
 }

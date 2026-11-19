@@ -6,7 +6,7 @@ import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
 import android.os.SystemClock
-import android.util.Log
+import com.tak.weartak_tracker.diagnostics.AppLog as Log
 import com.tak.weartak_tracker.data.TrackerState
 import com.tak.weartak_tracker.data.heartRatePermission
 
@@ -75,7 +75,9 @@ class PhysioMonitor(private val context: Context) {
             accuracy = SensorManager.SENSOR_STATUS_UNRELIABLE
             running = manager.registerListener(listener, heartRate, SAMPLING_PERIOD_US)
             offBody?.let { manager.registerListener(listener, it, SensorManager.SENSOR_DELAY_NORMAL) }
-            if (!running) Log.w(TAG, "Heart rate sensor registration failed")
+            if (!running) {
+                Log.w(TAG, "Heart rate sensor registration failed")
+            }
             skin.setEnabled(running)
         } else {
             manager.unregisterListener(listener)

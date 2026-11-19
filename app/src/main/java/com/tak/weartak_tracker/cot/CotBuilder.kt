@@ -1,5 +1,6 @@
 package com.tak.weartak_tracker.cot
 
+import com.tak.weartak_tracker.data.MoppStatus
 import java.text.SimpleDateFormat
 import java.time.Instant
 import java.util.Date
@@ -26,6 +27,7 @@ data class Fix(
     val course: Float,
     val speed: Float,
     val timeMillis: Long,
+    val elapsedRealtimeMillis: Long? = null,
 )
 
 enum class AlertState { ALERT, CANCEL }
@@ -41,6 +43,8 @@ object CotBuilder {
         2L * reportingIntervalSeconds.coerceAtLeast(1) + 15L
     const val ALERT_STALE_SECONDS = 15L * 60L
     private const val FRESH_EMERGENCY_FIX_MILLIS = 3_000L
+    /** Walking pace, used to grow ce for an older fix when the fix's own speed is lower or unknown. */
+    private const val ASSUMED_DRIFT_MPS = 1.5f
     private const val UNKNOWN_LOCATION_ERROR_METERS = 9_999_999f
     private const val NA = "N/A"
 
@@ -56,6 +60,7 @@ object CotBuilder {
         physio: Physio? = null,
         includeBatdok: Boolean = true,
         ageYears: Int? = null,
+        moppStatus: MoppStatus = MoppStatus.NONE,
     ): String {
         val ce = fix?.ce?.takeIf { !it.isNaN() }?.toInt() ?: 9999
         val le = fix?.le?.takeIf { !it.isNaN() }?.toInt() ?: 9999
@@ -65,9 +70,13 @@ object CotBuilder {
             "hae" to "%.1f".format(Locale.US, fix?.hae ?: 0.0),
             "ce" to ce, "le" to le,
         )
+        val ppeRemarks = moppStatus.takeUnless { it == MoppStatus.NONE }?.label?.replace(" ", "")
+        val wearerDetail = if (physio != null) {
+            physioDetail(uid, physio, time, includeBatdok, ageYears, ppeRemarks)
+        } else ppeRemarks?.let { element("remarks", content = esc(it)) } ?: ""
         val detail =
             element("status", listOf("readiness" to "true", "battery" to battery)) +
-                (physio?.let { physioDetail(uid, it, time, includeBatdok, ageYears) } ?: "") +
+                wearerDetail +
                 element("contact", listOf("endpoint" to "*:-1:stcp", "callsign" to esc(callsign))) +
                 element("__group", listOf("role" to esc(role), "name" to esc(team))) +
                 element("track", listOf("course" to (fix?.course?.toInt() ?: 0), "speed" to (fix?.speed?.toInt() ?: 0))) +
@@ -93,19 +102,28 @@ object CotBuilder {
         time: CotTime,
     ): String {
         val eventMillis = Instant.parse(time.startCot).toEpochMilli()
+        // Any valid fix beats 0,0. GPS and system clocks can disagree, so a fix dated "in the future" counts as current.
         val location = fix?.takeIf {
-            eventMillis - it.timeMillis in 0 until FRESH_EMERGENCY_FIX_MILLIS &&
-                it.lat.isFinite() && it.lat in -90.0..90.0 &&
+            it.lat.isFinite() && it.lat in -90.0..90.0 &&
                 it.lon.isFinite() && it.lon in -180.0..180.0
+        }
+        val ageMillis = location?.let { (eventMillis - it.timeMillis).coerceAtLeast(0) } ?: 0
+        val ce = location?.ce?.takeIf { it.isFinite() && it >= 0f }?.let { base ->
+            // An older fix's error grows with how far the wearer could have moved since it was taken.
+            if (ageMillis < FRESH_EMERGENCY_FIX_MILLIS) base
+            else minOf(
+                base + maxOf(location.speed.takeIf { it.isFinite() } ?: 0f, ASSUMED_DRIFT_MPS) * ageMillis / 1000f,
+                UNKNOWN_LOCATION_ERROR_METERS,
+            )
         }
         val point = listOf(
             "lat" to (location?.lat ?: 0.0), "lon" to (location?.lon ?: 0.0),
             "hae" to (location?.hae?.takeIf { it.isFinite() } ?: 0.0),
-            "ce" to (location?.ce?.takeIf { it.isFinite() && it >= 0f } ?: UNKNOWN_LOCATION_ERROR_METERS),
+            "ce" to (ce ?: UNKNOWN_LOCATION_ERROR_METERS),
             "le" to (location?.le?.takeIf { it.isFinite() && it >= 0f } ?: UNKNOWN_LOCATION_ERROR_METERS),
         )
-        val biometrics = element(
-            "biometrics",
+        val physiology = element(
+            "physiology",
             listOf(
                 "alertUid" to esc(alertUid),
                 "alertState" to state.name,
@@ -119,16 +137,16 @@ object CotBuilder {
             ),
         )
         val detail = if (state == AlertState.CANCEL) {
-            biometrics + element("emergency", listOf("cancel" to "true"), esc(callsign))
+            physiology + element("emergency", listOf("cancel" to "true"), esc(callsign))
         } else {
-            biometrics +
+            physiology +
                 element("link", listOf("uid" to esc(deviceUid), "type" to SELF_TYPE, "relation" to "p-p")) +
                 element("contact", listOf("callsign" to "${esc(callsign)}&#10;${esc(description)}")) +
-                element("emergency", listOf("type" to esc(description)), esc(callsign)) +
+                element("emergency", listOf("type" to esc(StandardEmergencyType.emergencyType(description))), esc(callsign)) +
                 element("usericon", listOf("iconsetpath" to "911 Alert")) +
                 element("color", listOf("argb" to "-1"))
         }
-        val type = if (state == AlertState.CANCEL) "b-a-o-can" else "b-a-o"
+        val type = if (state == AlertState.CANCEL) StandardEmergencyType.CANCEL_COT_TYPE else StandardEmergencyType.cotType(description)
         return event(
             listOf(
                 "version" to "2.0", "uid" to esc(alertUid), "type" to type, "time" to time.startCot,
@@ -138,15 +156,20 @@ object CotBuilder {
         )
     }
 
-    /** CIV's physio remarks plus BATDOK and `<biometrics>` device blocks. */
-    private fun physioDetail(uid: String, physio: Physio, time: CotTime, includeBatdok: Boolean, ageYears: Int?): String {
+    /** Physio remarks plus saved PPE, BATDOK and `<physiology>` device blocks. */
+    private fun physioDetail(
+        uid: String, physio: Physio, time: CotTime, includeBatdok: Boolean, ageYears: Int?, ppeRemarks: String?,
+    ): String {
         val hr = physio.heartRateBpm?.takeIf { it > 0 }?.toString() ?: NA
         val skinF = physio.skinTempF?.takeIf { it.isFinite() && it != -1f }
         val skt = skinF?.let { String.format(Locale.US, "%.1f", it) } ?: NA
         // CIV transmits a reserve fraction (0.5 means 50%), including in its legacy "%" remarks.
         val exert = physio.exertion?.takeIf { hr != NA && it.isFinite() && it >= 0 }
             ?.let { String.format(Locale.US, "%.2f", it) } ?: NA
-        val remarks = element("remarks", content = "Exert:$exert%;HR:$hr;SkinTemp:$skt")
+        val remarks = element(
+            "remarks",
+            content = esc(listOfNotNull("Exert:$exert%;HR:$hr;SkinTemp:$skt", ppeRemarks).joinToString("\n")),
+        )
         val readings = buildList {
             if (hr != NA) add("HR,$hr")
             if (skinF != null) {
@@ -170,7 +193,7 @@ object CotBuilder {
         )
         return remarks + atmist +
             element(
-                "biometrics",
+                "physiology",
                 content = element(
                     "device",
                     content = element("model", content = "WEAROS") + element("uid", content = esc(uid)) +
@@ -179,7 +202,12 @@ object CotBuilder {
             )
     }
 
-    /** Direct GeoChat reply to [toUid], matching the WearTAK-CIV chat CoT. */
+    /** PLI for the mesh: the contact endpoint points ATAK's direct chat at the mesh chat group, like WearOS. */
+    fun meshContact(pliXml: String): String = pliXml.replace("endpoint='*:-1:stcp'", "endpoint='$MESH_CHAT_ENDPOINT'")
+
+    const val MESH_CHAT_ENDPOINT = "224.10.10.1:17012:udp"
+
+    /** GeoChat reply; [groupMembers] preserves a group conversation instead of opening a direct chat. */
     fun chat(
         senderUid: String,
         senderCallsign: String,
@@ -188,9 +216,14 @@ object CotBuilder {
         message: String,
         messageId: String = java.util.UUID.randomUUID().toString(),
         nowMillis: Long = System.currentTimeMillis(),
+        groupMembers: List<String>? = null,
     ): String {
         val t = CotTime.now(60, nowMillis).startCot
-        val chatGroup = element("chatgrp", listOf("uid0" to esc(senderUid), "id" to esc(toUid), "uid1" to esc(toUid)))
+        val broadcast = groupMembers != null && toUid == "All Chat Rooms"
+        val members = if (broadcast) listOf(toUid)
+        else (groupMembers ?: listOf(toUid)).filter { it != senderUid && (groupMembers == null || it != toUid) }.distinct()
+        val chatGroup = element("chatgrp", listOf("uid0" to esc(senderUid), "id" to esc(toUid)) +
+            members.mapIndexed { i, uid -> "uid${i + 1}" to esc(uid) })
         val chat = element(
             "__chat",
             listOf(
@@ -199,10 +232,11 @@ object CotBuilder {
             ),
             chatGroup,
         )
+        val destinations = members.joinToString("") { element("dest", listOf("uid" to esc(it))) }
         val detail = chat +
             element("link", listOf("uid" to esc(senderUid), "type" to SELF_TYPE, "relation" to "p-p")) +
             element("remarks", listOf("source" to esc(senderUid), "to" to esc(toUid), "time" to t), esc(message)) +
-            element("marti", content = element("dest", listOf("uid" to esc(toUid))))
+            (if (broadcast) "" else element("marti", content = destinations))
         return event(
             listOf(
                 "version" to "2.0", "uid" to esc("GeoChat.$senderUid.$toUid.$messageId"), "type" to "b-t-f",

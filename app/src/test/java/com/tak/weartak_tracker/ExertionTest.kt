@@ -50,7 +50,7 @@ class ExertionTest {
         assertTrue(on.contains("<exert>0.50</exert>"))
         val off = pli(false, physio)
         assertTrue(off.contains("Exert:0.50%;"))
-        assertTrue(off.contains("<biometrics>"))
+        assertTrue(off.contains("<physiology>"))
         assertTrue(off.contains("<exert>0.50</exert>"))
         assertFalse(off.contains("_atmist_"))
         assertTrue(pli(true, Physio(-1, exertion = 0.5)).contains("<exert>N/A</exert>"))

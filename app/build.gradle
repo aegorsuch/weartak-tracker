@@ -36,9 +36,10 @@ android {
             versionName baseVersionName
         }
         setProperty("archivesBaseName", "WearTAK-Tracker-${baseVersionName}-${versionCode}")
+        // CI's protected DITTO_COMMUNITY_IDENTITY wins so a Gradle property can never shadow it.
         def dittoCommunityIdentity = (
-                project.findProperty("dittoCommunityIdentity") ?:
                 System.getenv("DITTO_COMMUNITY_IDENTITY") ?:
+                project.findProperty("dittoCommunityIdentity") ?:
                 localBuildProperties.getProperty("dittoCommunityIdentity") ?:
                 ""
         ).toString().trim()
@@ -140,6 +141,17 @@ android {
         compose true
         buildConfig true
     }
+    testOptions {
+        unitTests.all { test ->
+            // Robolectric downloads Android jars outside Gradle's repositories.
+            if (gradle.ext.has('takArtifactoryUrl')) {
+                test.systemProperty 'robolectric.dependency.repo.id', 'takArtifactory'
+                test.systemProperty 'robolectric.dependency.repo.url', gradle.ext.takArtifactoryUrl
+                test.systemProperty 'robolectric.dependency.repo.username', gradle.ext.takArtifactoryUser
+                test.systemProperty 'robolectric.dependency.repo.password', gradle.ext.takArtifactoryPassword
+            }
+        }
+    }
     packaging {
         resources {
             excludes += ['/META-INF/{AL2.0,LGPL2.1}']
@@ -175,4 +187,5 @@ dependencies {
 
     testImplementation 'junit:junit:4.13.2'
     testImplementation 'org.json:json:20231013'
+    testImplementation 'org.robolectric:robolectric:4.14.1'
 }

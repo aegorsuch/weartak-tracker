@@ -28,12 +28,25 @@ class EmergencyLocationTest {
     }
 
     @Test
-    fun absentStaleFutureOrInvalidLocationUsesUnknownPositionForAlertsAndCancels() {
+    fun olderFixIsUsedWithErrorGrownByElapsedTime() {
+        // 60 s old at walking pace: 5 + 1.5 * 60 = 95 m.
+        assertTrue(emergency(fix.copy(timeMillis = nowMillis - 60_000)).contains(
+            "<point lat='38.0' lon='-77.0' hae='100.0' ce='95.0' le='8.0'/>",
+        ))
+        // Faster recorded speed grows the error faster: 5 + 10 * 10 = 105 m.
+        assertTrue(emergency(fix.copy(speed = 10f, timeMillis = nowMillis - 10_000)).contains("ce='105.0'"))
+        // A very old fix is still the best position, with error capped at the unknown value.
+        assertTrue(emergency(fix.copy(timeMillis = nowMillis - 100L * 86_400_000L)).contains(
+            "<point lat='38.0' lon='-77.0' hae='100.0' ce='9999999.0' le='8.0'/>",
+        ))
+        // GPS/system clock skew: a future-dated fix counts as current.
+        assertTrue(emergency(fix.copy(timeMillis = nowMillis + 120_000)).contains("ce='5.0'"))
+    }
+
+    @Test
+    fun absentOrInvalidLocationUsesUnknownPositionForAlertsAndCancels() {
         val unusable = listOf(
             null,
-            fix.copy(timeMillis = nowMillis - 3_000),
-            fix.copy(timeMillis = nowMillis - 600_000),
-            fix.copy(timeMillis = nowMillis + 1),
             fix.copy(lat = Double.NaN),
             fix.copy(lat = 90.1),
             fix.copy(lon = Double.POSITIVE_INFINITY),

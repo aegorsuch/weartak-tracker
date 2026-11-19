@@ -1,7 +1,7 @@
 package com.tak.weartak_tracker.transport
 
 import android.net.Network
-import android.util.Log
+import com.tak.weartak_tracker.diagnostics.AppLog as Log
 import com.tak.weartak_tracker.data.Endpoint
 import com.tak.weartak_tracker.data.TrackerState
 import kotlinx.coroutines.Dispatchers
@@ -17,6 +17,8 @@ class MulticastPublisher(private val onStarted: () -> Unit) {
     private var port = 0
     private var key: Triple<Boolean, String, Int>? = null
     private var network: Network? = null
+    private var generation = 0L
+    val readyGeneration: Long? @Synchronized get() = generation.takeIf { socket != null }
 
     val running: Boolean get() = socket != null
 
@@ -37,20 +39,34 @@ class MulticastPublisher(private val onStarted: () -> Unit) {
             group = InetAddress.getByName(address.trim())
             this.port = port
             socket = ms
+            generation++
             TrackerState.setEndpoint(Endpoint.MULTICAST, true)
+            Log.i(TAG, "Multicast publisher ready for ${address.trim()}:$port")
             onStarted()
         } catch (e: Exception) {
-            Log.w(TAG, "Unable to start multicast publisher", e)
+            Log.w(TAG, "Unable to start multicast publisher; will retry", e)
             close()
+            key = null
         }
     }
 
     suspend fun send(xml: String): Int = withContext(Dispatchers.IO) {
         val (s, g, p) = synchronized(this@MulticastPublisher) { Triple(socket, group, port) }
         if (s == null || g == null) return@withContext 0
+        sendPacket(s, xml, g, p)
+    }
+
+    /** Sends to a specific group, e.g. ATAK's mesh chat group for chat command replies. */
+    suspend fun sendTo(xml: String, address: String, port: Int): Int = withContext(Dispatchers.IO) {
+        val s = synchronized(this@MulticastPublisher) { socket } ?: return@withContext 0
+        val g = runCatching { InetAddress.getByName(address) }.getOrNull() ?: return@withContext 0
+        sendPacket(s, xml, g, port)
+    }
+
+    private fun sendPacket(s: MulticastSocket, xml: String, g: InetAddress, p: Int): Int {
         val bytes = xml.toByteArray(Charsets.UTF_8)
         if (bytes.size > 1300) Log.w(TAG, "Multicast CoT is ${bytes.size} bytes and may be fragmented")
-        try {
+        return try {
             s.send(DatagramPacket(bytes, bytes.size, g, p))
             1
         } catch (e: Exception) {

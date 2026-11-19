@@ -1,11 +1,13 @@
 # WearTAK-Tracker
 
+## Purpose and Capabilities
+
 Extremely lightweight Wear OS position tracker modeled on WearTAK-WearOS
 
-## Downloads
-Download installable APKs from [GitHub Releases](https://github.com/aegorsuch/weartak-tracker/releases), or go directly to the [latest release](https://github.com/aegorsuch/weartak-tracker/releases/latest). Expand **Assets** and select `WearTAK-Tracker-<version>-release.apk`; the source-code archives are not watch installers.
+### Downloads
+Download installable APKs from [GitHub Releases](https://github.com/aegorsuch/weartak-tracker/releases), or go directly to the [TAK.gov pipeline release](https://github.com/aegorsuch/weartak-tracker/releases/tag/takgov-pipeline). Expand **Assets** and select `WearTAK-Tracker-5.8.4-p<IID>.apk`; the source-code archives are not watch installers.
 
-Version **5.8.0.3** is distributed as an optimized, non-debuggable APK signed with the permanent Tracker release key. Its Android update code is 584 so it can update the previously installed build without changing the displayed app version. Release-signed builds can use `adb install -r` while retaining settings. Moving from an earlier debug-signed build requires uninstalling first (`adb uninstall com.tak.weartak_tracker`), which removes app data and settings, then installing the release APK.
+Current base version is **5.8.4**, distributed as an optimized, non-debuggable APK signed with the permanent Tracker release key. TAK.gov CI builds use versionName `5.8.4-p<IID>+<short sha>` and Android versionCode `5860000 + <IID>`, preserving increasing update codes. Release notes report the actual APK version, code, pipeline, and source commit. Release-signed builds can use `adb install -r` while retaining settings. Moving from an earlier debug-signed build requires uninstalling first (`adb uninstall com.tak.weartak_tracker`), which removes app data and settings, then installing the release APK.
 
 **Updated 5.8.0.3 build:** The manual Alert picker adds 911 Alert, Ring The Bell, Geofence Breached, and In Contact, alphabetizes all presets, and sends immediately when a preset is tapped. Custom text and alert cancellation retain their confirmation buttons.
 
@@ -15,48 +17,256 @@ Version **5.8.0.3** is distributed as an optimized, non-debuggable APK signed wi
 
 **Windows sideloading:** [Wear OS Windows Bridge](https://github.com/aegorsuch/wearos-windows-bridge) is a useful companion tool for pairing/connecting to your watch, installing downloaded APKs, capturing logs, and mirroring the screen. Enable Wireless Debugging on the watch and follow the bridge's setup instructions; the PC and watch need to be on the same Wi-Fi for these operations. Normal Tracker operation can use LTE afterward.
 
-## Design intent
+### Design intent
 WearTAK-Tracker is intended primarily for standalone **LTE-connected watches**, with long-duration battery life as a core design goal. TAK Server and Sit(x) reporting over LTE are the primary use cases; Bluetooth/phone-relay and other connection-specific features are not a development priority. Existing network status indicators remain informational.
 
 For an LTE deployment, disable **TAK SA Multicast** under Network Preferences: it is a Wi-Fi-only option, not an LTE delivery route. Tune reporting intervals for the required position freshness and leave physiological monitoring off unless needed. Actual battery life depends on coverage, GPS use, reporting intervals, and enabled sensors.
 
-While **TAK SA Multicast** is enabled and Tracker is running, Tracker actively requests local Wi-Fi (internet is not required) and holds a non-reference-counted high-performance Wi-Fi lock. This best-effort retention keeps Wi-Fi demand across network loss, without keeping the screen or CPU awake or changing the default/LTE route. Disabling multicast or stopping Tracker releases both; failed acquisition rolls back the lock and can retry on the next settings/network update. Tracker is send-only and does not need a multicast receive lock. This uses extra battery and cannot override disabled Wi-Fi, pin an SSID, or guarantee screen-off delivery. On Android 14+, high-performance mode maps to low-latency mode, which only takes effect while the app is foreground and the screen is on; the active network request remains the source of Wi-Fi demand.
+While **TAK SA Multicast** is enabled and Tracker is running, Tracker actively requests local Wi-Fi (internet is not required) and holds a non-reference-counted high-performance Wi-Fi lock. This best-effort retention keeps Wi-Fi demand across network loss, without keeping the screen or CPU awake or changing the default/LTE route. Disabling multicast or stopping Tracker releases both; failed acquisition rolls back the lock and can retry on the next settings/network update. PLI publishing is send-only; only the mesh chat-command listener (when Commands is also on) holds a multicast receive lock. This uses extra battery and cannot override disabled Wi-Fi, pin an SSID, or guarantee screen-off delivery. On Android 14+, high-performance mode maps to low-latency mode, which only takes effect while the app is foreground and the screen is on; the active network request remains the source of Wi-Fi demand.
 
-## Features
+### Features
+Plugin rows, including TAKwerx Market, are alphabetized and retain separate toggle/navigation actions without redundant Enabled/Disabled subtitles. Market releases are also alphabetized by displayed app name. Rows use proportionally fitted 24 dp artwork and visible labels. Icons do not activate unfunded integrations. Commands uses original WearTAK megaphone artwork; Sensor Manager uses a neutral radio-wave glyph; MOPP retains its mask. The following integration assets are reused unchanged from WearTAK-WearOS under the user's confirmed 2026-10-21 permission (not a claim of a public redistribution license):
+
+| Entry | Asset provenance |
+| --- | --- |
+| Ditto Edge Sync | Existing ATAK Ditto `ic_ditto_menu`, four original paths/colors, transparent bounds trimmed (`ic_integration_ditto.xml`). |
+| Everywhere Comms | Approved white globe crop of [official logo](https://everywherecomms.com/cdn/shop/files/everywhere_logo_white.png?v=1727986047), 192 px (`ic_integration_everywhere.png`). |
+| GoTenna | Approved [official favicon](https://gotenna.com/cdn/shop/files/favicon.webp?v=1680207627), original 100 px WebP (`ic_integration_gotenna.webp`). |
+| Somewear Labs | Approved [official 192 px symbol](https://somewearlabs.com/wp-content/uploads/2026/07/cropped-somewear-favicon-rounded-corners-192x192.png) (`ic_integration_somewear.png`). |
+
+Only Ditto is exact ATAK plugin artwork; other marks are approved company assets. No new remote artwork or absent DataSync row was added.
+
 - Reports position (PLI) to one or more TAK Servers (TLS, enrollment on 8446), Sit(x) TAK, and TAK SA UDP multicast.
-- Constant or dynamic reporting (stationary / on foot / vehicle / while alerting intervals). Dynamic reporting classifies movement from GPS speed (like ATAK) and uses the significant-motion sensor to leave the stationary interval as soon as the wearer moves.
+- Constant or dynamic reporting using saved stationary / on foot / vehicle / while alerting intervals. Dynamic reporting interpolates moving GPS speed like ATAK; observations and report deadlines are separate.
+  GPS observations follow the activity profile rather than a universal 60-second cap: stationary uses the saved stationary interval only while the low-power significant-motion trigger is successfully armed; on foot, vehicle, and active alerts use their respective saved intervals. Unknown activity or unusable/stale speed does not imply stationary. Without a usable motion trigger, stationary observations retain the previous polling fallback (at most 60 seconds, or a faster configured interval) so movement cannot be stranded until an hourly fix. Motion, a faster profile, and opening or interacting with the app request a fresh fix promptly instead of waiting for the old stationary alarm; repeated requests share the existing bounded in-flight fix. Constant mode retains its exact saved interval. Settings and tracking-start intent are unchanged.
 - PLI stale time is twice the active reporting interval plus 15 seconds (60-second reporting expires after 135 seconds). When reporting stops, the last transmitted PLI expires naturally; no immediate clear message is sent. Manual alerts retain their 15-minute stale time.
-- Manual alerts with an alphabetized, tap-to-send picker: 911 Alert, Gate Runner, Geofence Breached, Gunshot, Gunshot Injury, In Contact, Injury, Ring The Bell, UAS, and Vehicle. Selecting a preset sends it immediately without an extra confirmation; custom text still uses the confirm button. Cancel the last alert with confirmation. Store-and-forward queues alerts in memory and sends them in order when an endpoint reconnects; the queue does not survive the app process being killed. Incoming alerts are not displayed on the watch.
-- Connected alerts and cancellations request a fresh GPS fix and send immediately without waiting for it. Only a valid position less than 3 seconds old is attached; missing, stale, future-dated, or invalid coordinates use unknown-position values. A new fix triggers an updated PLI; the original alert is not resent. Failed sends remain queued in order, and a usable TAK Server, Sit(x), or multicast route drains that queue before rebroadcasting PLI. Cancellation selection and queue changes are serialized together.
-- Reporting starts only when the app is opened; nothing starts automatically at boot.
+  PLI time/start and its stale deadline are based on the actual location sample's timestamp, including last-known fallback; retransmission does not make an old position look newly acquired. Provider-reported accuracy is retained, and manual alerts keep their existing age-adjusted circular error.
+- Manual alerts as a single column of full-width, one-line rows: built-in presets (911 Alert, Gate Runner, Geofence Breached, Gunshot, Gunshot Injury, In Contact, Injury, Ring The Bell, UAS, Vehicle) and saved custom alerts are combined alphabetically using the current locale, ignoring case. Sorting affects presentation only, not saved order, labels, backup, send, cancellation, or custom-delete targeting. Tapping a row sends it immediately. The **+** row at the bottom opens **Type Custom Alert**. New alerts allow up to 60 UTF-16 code units after Unicode whitespace normalization, 20 alerts, and no case-insensitive duplicates. New input rejects all ISO control characters, including newline and tab, rather than flattening them. Existing saved text/order and backup text are retained without truncation or revalidation; imported additions must satisfy the new rules. Confirming saves the text as a new row without sending it. Saved custom alerts persist, can be deleted from their row after confirming, and send exactly like presets. The cancel button sits below the list and never covers a row. CoT types match WearTAK-WearOS and ATAK: 911 Alert `b-a-o-tbl`, Ring The Bell `b-a-o-pan`, Geofence Breached `b-a-g` (emergency text "Geo-fence Breached"), In Contact `b-a-o-opn` (emergency text "Troops In Contact"), every other preset and custom alert `b-a-o`, and cancel `b-a-o-can` on the same UID. All manual alerts use category Manual Alert and priority 1. Each alert is sent once; an alert raised before the watch has any fix is sent once more on the first fix so it gains a position, and later position updates travel in PLI. Cancel the last alert with confirmation. Store-and-forward queues alerts in memory and sends them in order when an endpoint reconnects; the queue does not survive the app process being killed. Incoming alerts are not displayed on the watch.
+- Pressing an alert actively requests a high-accuracy GPS fix. If the last fix is under 3 seconds old the alert sends at once; otherwise it waits at most 3 seconds for the requested fix, then sends with the newest known fix regardless. A fix under 3 seconds old is attached as reported; an older one is still attached, with its circular error grown by walking pace (or the fix's recorded speed, if faster) for each second of age, capped at 9999999 m. Unknown-position values (0,0, ce 9999999) are used only when no valid fix exists. While an alert is active, it is resent with each newer fix (the first newer fix immediately if the alert went out with an old or missing position, then at most every 10 seconds). Cancellations also request a fix but never wait. Re-submitting an alert or cancel that is already sent or queued for the same alert uid does not send it again. The explicitly requested alert fix also triggers an updated PLI; routine observation fixes remain report-due gated. Failed sends remain queued in order, and a usable TAK Server, Sit(x), or multicast route drains that queue before rebroadcasting PLI. Cancellation selection and queue changes are serialized together.
+- Reporting starts only while the app UI is resumed, not merely created in the background. After an app update or watch boot, a **Tracking is stopped** notification lets previously configured users tap to resume; these broadcasts never start a location foreground service. Android 14+ while-in-use location restrictions are respected without requesting background location or bypassing them. A rejected foreground-service start also posts this notification, and reopening the app retries startup. Notifications must be permitted (including the **Resume tracking** channel) for this reminder to be visible; if blocked, open the app manually. There is no automatic reporting at boot.
 - Tracker has its own Recent Apps task. Swiping it away stops reporting, sensors, connections, and scheduled location alarms. Simply returning to the watch face leaves tracking running; reopen the app after closing its task to restart.
 - PLI is resent immediately using the latest known fix when a network changes, an endpoint reconnects, or the callsign/settings button is tapped. If no fix is available yet, a single fix is requested instead.
-- Saving a changed callsign, team, or role requests a fresh location and immediately resends PLI with the new identity and latest known fix, without waiting for GPS. The fresh fix sends an updated PLI when it arrives. Unrelated settings changes do not trigger this extra request.
-- Optional physiological monitoring (off by default): heart rate and, on Samsung Galaxy watches, skin temperature are added to each PLI like CIV.
+- Saving a changed callsign, team, or role requests a fresh location and immediately resends PLI with the new identity and latest known fix, without waiting for GPS. The fresh fix sends an updated PLI when it arrives. Medical profile changes and chat-command changes (`setcallsign`, `setprofile`, `loadprofile`, and so on) are handled the same way, as are a manual PLI and starting tracking. While a requested fix is still pending (up to 10 seconds), further requests are dropped, so repeated taps do not stack GPS requests. Unrelated settings changes do not trigger this extra request.
+- Optional physiological monitoring (off by default): heart rate and, on Samsung Galaxy watches, skin temperature are added to each PLI like CIV. The existing **Physiological Monitoring** control is first in **My User Metrics** and immediately above **BATDOK** in **Callsign and Device Preferences**, with a standard filled-heart glyph. Both controls share the same stored setting and sensor-permission flow; Tracker has no automatic physiological-alert engine or metric dashboard.
+- Outbound readiness (TAK, Sit(x), multicast and Ditto Edge Sync start/resume/identity change) requests the current self-PLI through one coalesced refresh path. Each actual ready connection owns a generation: unchanged readiness does not repeat, while reconnects, a second TAK server or a replaced multicast destination request a new refresh. A pending outbound refresh requires an actual fix no more than **3 seconds** old, reusing Tracker's existing current-fix bound, measured from Android's monotonic acquisition timestamp rather than callback arrival or send time. Fixes must have valid coordinates and horizontal accuracy. A usable fix acquired shortly before readiness can qualify; there is no new mandatory post-connection acquisition rule. No-fix timeout leaves the refresh pending until a usable normal fix arrives or the route is removed/disabled. An ordinary valid PLI satisfies the pending generation instead of causing another send, and an older send cannot clear a replacement generation. Refresh CoT time and Ditto position time retain the original sample timestamp. Outside pending outbound refreshes, existing scheduled last-known-position fallback remains unchanged. Revoked location access suppresses sends, and changed precise/approximate access requires a new fix. This refresh does not replay chat, command, alert or location history; existing queued manual-alert delivery on TAK/Sit(x)/multicast readiness is unchanged.
+- **Tool Preferences → Plugins → MOPP** opens manual **PPE Status** selection with a protective-mask icon: **None**, **MOPP 0**, **MOPP 1**, **MOPP 2**, **MOPP 3**, **MOPP 4**. None is unset, not level 0. The selected row previews a candidate; **Save** persists it and confirms the local save. Back without Save discards the candidate. Reopening selects the saved status, which persists on this watch across restarts, independently of other settings. Saved levels 0–4 are included in standalone self-PLI remarks; None omits PPE. Saving a changed status uses the existing PLI refresh path while tracking; unsaved candidates never publish. Existing opted-in physio remarks and `<physiology>` are preserved in the same PLI. Save does not confirm remote receipt. This is manually reported PPE, not a commanded MOPP level. No CBR detection, compliance colors, filter timer, or remote acknowledgment is implied. Tracker has no Companion phone bridge or DataSync plugin.
+  The outgoing PPE token is exactly `MOPP0` through `MOPP4`, with no space or prefix, on its own line after any existing physio remarks. Physiological device data uses `<physiology>`. UI labels and stored selections are unchanged.
 - Settings: callsign, team, role (MIL/LEO), BATDOK/medical profile, reporting strategy/intervals, TAK servers, multicast (address, output protocol, port), Sit(x) (with Re-Auth and Remove).
   TAK Server Connections and the Channels server picker display servers alphabetically by name, ignoring capitalization; saved order and connection behavior are unchanged.
   Menus follow CIV's hierarchy: WearTAK-Tracker Preferences > Callsign and Device Preferences / Network Preferences.
 
-## UI
+**Network Preferences Checklist** in **Developer Preferences** controls the optional native checkboxes at the top of **Network Preferences**. It is off by default and persists across app restarts and updates, independently of developer mode and transport settings. It appears alphabetically between **Logging** and **Stay awake**. When on, the checklist shows **Ditto Edge Sync**, **Sit(x) TAK**, **TAK SA Multicast**, and **TAK Servers**, sorted by localized displayed label. Checked means **enabled**, not connected, authorized or delivering. Existing configuration screens remain in place whether the checklist is shown or hidden; unchecking a transport retains its settings and credentials. Only implemented transports appear: unfunded plugin placeholders and non-transport plugins are excluded. Tracker has no Companion transport or bonded-phone exclusivity path.
+
+**TAK Servers** is a separate, persisted master gate, default on to preserve existing behavior. Off closes TAK streaming/channel connections and stops automatic reconnects and explicit retry/channel actions; it does not rewrite any server's individual enabled flag, endpoint or credentials. On restores exactly the individual choices, including an empty or all-disabled list. Server configuration can still be edited while the master is off, without connecting. Network locks apply to the checklist, equivalent existing controls, Ditto identity selection/editing, and delayed permission results; locking does not disable already-configured transports.
+
+### UI
 Main screen is kept minimal: alert button, callsign chip (opens settings), status icons in the corners, time at the bottom.
 Long callsigns are truncated with an ellipsis on the main screen; the saved and transmitted callsign remains unchanged.
-Settings refresh immediately after saving, including medical profile values and the physiological monitoring switch. TAK Server passwords are visible while editing, matching regular WearTAK. Long-press an editable text field to select text and open watch-sized Copy, Paste, Cut, and Select all actions when available; copied passwords enter the Android clipboard, so use care when screen sharing.
+Settings refresh immediately after saving, including medical profile values and the physiological monitoring switch. TAK Server passwords are visible while editing, matching regular WearTAK. Text fields use a native Android editor to avoid Samsung fullscreen-keyboard input getting stuck after the first character. Existing text is prefilled with the cursor at the end; drafts retain text and selection across screen recreation. Done dismisses the keyboard without saving settings; use the screen's confirm button to save, or cancel/back to discard. Custom Alert retains its existing save-on-Done behavior, and the Sit(x) reauthorization PIN remains masked and numeric. Long-press an editable field for Android's available text-selection/clipboard actions; copied passwords enter the Android clipboard, so use care when screen sharing.
 - Top left: TAK/Sit(x)/multicast connection (tap for Network Preferences). Top right: location (tap for Reporting Strategy).
 The TAK icon is green when all enabled, distinct TAK Servers are connected and split red/green when only some are connected. Disabled and duplicate server entries do not count against it; servers still connecting or without runtime status count as not connected.
 - Bottom left: watch network (Wi-Fi, cellular, Bluetooth via phone, airplane mode, or none). Bottom right: battery (red at 20% or below).
 The location icon is white while reporting with precise location, yellow with approximate location, and grey when stopped.
 
-## Chat commands (WEARTAK-130)
+### Chat commands (WEARTAK-130)
 
-Settings > Tool Preferences > Plugins > Commands (off by default; the switch turns it on or off, and tapping the chip opens Allowed Callsigns). When on, a direct chat message to the tracker from an allow-listed callsign that starts with `#weartaktrackercommand` is run, and the tracker replies in chat. Other senders are ignored silently, and nothing is parsed from the server stream while the setting is off.
+Settings > Tool Preferences > Plugins > Commands (off by default; the switch turns it on or off, and tapping the chip opens Allowed Callsigns and Profiles). When on, a chat message from an allow-listed callsign that starts with `#weartakcommand` (or the compatible Tracker prefix `#weartaktrackercommand`) is run, and the tracker replies in chat. Every command, including `usep12`, accepts direct messages, All Chat Rooms and groups over TAK Server TLS streams, GeoChat multicast, and Ditto Edge Sync chat. Replies stay in the originating conversation and transport; server acknowledgments use only the incoming server, not every connected server. A shared persistent digest-only replay journal prevents a message with the same author UID/message ID from executing again across routes or process restarts while fresh. No command text is stored in the journal; if replay protection cannot be persisted or is full, commands fail closed.
 
-Allowed Callsigns shows one callsign per row in case-insensitive alphabetical order. Select **Add Callsign** to enter one callsign; entries are trimmed, displayed in uppercase, and cannot be added twice. Swipe a row or tap it to reveal **Remove**. Older comma-separated allow-lists are read alongside the current newline-separated format.
+XML/TAK protocol v1 mesh chat listens on the configured multicast group plus ATAK's chat group `224.10.10.1:17012`; replies use ATAK's chat group. XML groups must list this watch's UID. A direct XML message has this watch's conversation ID, or the sender's ID with this watch listed as a chatgrp member or remarks destination. Ditto subscribes to the native ATAK Edge Sync 1.1.1 `chat` collection (`_id` message UID, `d` author device UID, `e` callsign, `a` peer, `b` timestamp, `msg`, `room`, `roomId`, `parent`, `authorType`, `authorLoc`). Six-field locations with optional NaN altitude/errors are accepted. Native Ditto has no participant roster or direct/group flag: named groups need a roster learned from authorized addressed GeoChat or a matching lossless detail listing this watch; unknown rooms and other devices' DMs are ignored, not guessed to be groups. Direct chats to this watch and All Chat Rooms need no learned roster. Acks are native chat documents in that same room. Other senders, self-authored/removed documents, and expired/stale Ditto snapshots are ignored; all routes use the existing five-minute command freshness check. XML senders with missing/stale times receive the clock-check rejection. Sit(x) is publishing-only in Tracker and exposes no inbound chat route.
 
-- `#weartaktrackercommandsetcallsign callsign=ODIN`, `setteam team="Dark Green"`, `setrole role=K9`, `setprofile callsign=.. team=.. role=..`
-- `#weartaktrackercommandloadprofile name=odin-weartak` applies `Android/data/<package>/files/presets/<name>.json` (`{"profile":{"team":"Blue"},"servers":[{"name","url","port","username","password"}]}`). Credentials come only from that file, never from chat. Servers already configured are skipped, and servers are not touched when network settings are locked.
+The mesh listeners retry every 15 seconds after a bind/join failure. Ignored command chats, datagram sizes and reply routes are logged without message text or credentials (`adb logcat -s TrackerService MulticastChatReceiver ChatCommands`). Multicast receives up to 64 KiB per datagram (IPv4 UDP itself caps payload at 65,507 bytes); TLS events are reassembled across 8 KiB reads, with a 64 KiB event limit. Large hex messages fit these limits but fragment on ordinary multicast networks and can be lost; sender/server/bridge limits may be smaller.
+
+Allowed Callsigns shows one callsign per row in case-insensitive alphabetical order. Select **Add Callsign** to enter one callsign; entries are trimmed, displayed in uppercase, and cannot be added twice. Tap an existing callsign to edit it with the keyboard, then confirm to save or cancel to keep the original value. Tap the delete icon on the right of a row to remove that callsign. Older comma-separated allow-lists are read alongside the current newline-separated format.
+
+**Profiles** lists the `loadprofile` presets saved on the watch, so presets work as settings backups. Select one to view its profile fields, servers and custom alerts (name, host and port; server usernames and passwords are never shown), then **Load** or **Delete** it after confirming. Load uses the same path, validation and network-lock rule as the `loadprofile` command (an identity change sends a fresh-fix PLI) and keeps the file. Delete removes only the file, not current settings. **Save Current Settings** writes a new `backup-<yyyyMMdd-HHmm>.json` preset (never overwriting) with the set profile fields, saved custom alerts, and each server that has an enrollment username and password; like pushed presets, the file holds those passwords in plain text in the app's external files folder, which is removed on uninstall.
+
+Profile commands match WearOS WearTAK. Each takes `key=value` or, for single-value commands, the bare value (`#weartaktrackercommandsetusertype Coalition Civilian`):
+
+- `setcallsign callsign=ODIN`, `setteam team="Dark Green"`, `setrole role=K9`
+- `setheight 5'8"` (feet 1-8, inches 0-11), `setweight 150` (lbs), `setbirthyear 1988`, `setsex Male`, `setusertype Coalition Civilian`
+- `setpants 30` (uniform pants length, 20-50 in; alias `setuniformpantslengthinches`), `setwaist 30` (20-60 in; alias `setwaistsize`)
+- `setprofile` takes any of `callsign team role height weight birthyear sex usertype pants waist`; every value is validated before anything changes.
+- Tracker has no managed-configuration/MDM source for network lock state; command changes enforce the existing network-settings lock only.
+- **Enroll with credentials in the command:** `#weartaktrackercommand enrollserver name="Field Ops" url=tak.example.org username=alice password="example!_pass"`. No on-device preset is required. `url=` is a bare host, not an HTTPS URL. Optional `port=` defaults to streaming port **8089**; normal certificate enrollment uses **8446**, with TLS trust and hostname validation unchanged. Saving uses the normal server configuration/runtime path. Connection/enrollment runs while tracking and the TAK Servers master switch are enabled; the acknowledgment confirms the settings change, not completed enrollment or remote delivery.
+- Named and comma/semicolon positional enrollment values support double quotes. For example, `password=" space!_and\\backslash\"quote "` preserves surrounding spaces and decodes `\\` to one backslash and `\"` to a quote. Unquoted backslashes, `!`, `_`, `=`, and remaining password separators are literal. Use quotes when the password contains spaces; malformed quotes are rejected, never stored as part of the password. Existing 768-character command and 128-character decoded-value limits apply. Positional forms still require all five fields, including port.
+- `#weartakcommand enrollserver OPS, tak.example.org, 8089, user, pass,with,commas` adds an enabled server that starts connecting and enrolling right away. If a saved server has the same address and port, or the same name (trimmed, case-insensitive), it is updated in place with the new name, address, port and credentials, enabled, and the reply is `Server <name> updated`; no duplicate is created. If the name matches one saved server but the address and port match a different one, the command is refused and nothing changes. The password is the entire remainder after the fourth comma. This comma-separated form, the joined-prefix form, the Tracker prefix, existing named arguments, and the semicolon-separated positional form are supported. Commands are accepted from any allow-listed callsign on any channel. Credentials are never logged, echoed, or replay-journaled, but do travel in the command message, so use only trusted networks. The command uses the existing enabled-command, allow-list, freshness, replay, secure settings-storage, and certificate enrollment paths; it is refused when network settings are locked. Tracker consumes the command without displaying it in an app chat screen or chat notification (Tracker has no such UI or notification). The message may remain in TAK Server, peer, or shared Ditto chat history; Tracker does not delete shared chat records because that would affect other peers.
+- `#weartaktrackercommandenrollserver OPS; tak.example.org; 8089; user; pass` (or `name=`, `url=`, `port=`, `username=`, `password=` arguments; port defaults to 8089) adds the server and enrolls for a client certificate with those credentials. Credentials are never logged or echoed in replies, but they do travel in the chat message, so use it only on trusted networks. A saved server with the same address and port, or the same name, is updated in place instead of duplicated, and it is refused when network settings are locked.
+- `#weartaktrackercommandloadprofile name=odin-weartak` (or `loadprofile odin-weartak`) applies `Android/data/<package>/files/presets/<name>.json` (`{"profile":{"team":"Blue","pants":"30"},"servers":[{"name","url","port","username","password"}],"customAlerts":["Need water"]}`, profile keys as for `setprofile`). Servers already configured are skipped, and servers are not touched when network settings are locked. Optional `customAlerts` are merged into the saved custom alerts, skipping duplicates (case-insensitive, including presets); any invalid entry rejects the whole preset.
+- `#weartakcommandsetpdl community` selects the built-in Ditto Edge Sync identity; `#weartakcommandsetpdl <PDL>` validates, stores and selects a Custom PDL. Both also accept the Tracker prefix (`#weartaktrackercommandsetpdl`). This command takes exactly one positional argument: no `source=`, `pdl=` or `enabled=` arguments, and the previous `setdittopdl` command is not supported. The identity must be unexpired SK-v2, and network settings must be unlocked. The running client applies it immediately, preserving the current enable switch setting; changing identity closes the previous session. Acknowledgments contain only status, source, app ID prefix and expiry, never the PDL. The PDL still travels in the original chat (including group or broadcast recipients): use trusted networks and allow-listed senders only. Its limit is 16,384 PDL characters (17,408 total command characters).
+- `#weartakcommandtoggleditto on` / `#weartakcommandtoggleditto off` sets an explicit persisted state, never blindly toggles. Exactly one `on` or `off` argument is accepted; identity/source are preserved, repeated states are idempotent, and the existing SDK pause/resume path is used. Network settings must be unlocked. It uses the same authorization, freshness and cross-route replay checks on all chat routes. For Ditto-origin `off`, a room ack is attempted before persistence/runtime pause; it says **off requested; remote delivery unconfirmed**, not that another peer received it. No second success ack is attempted after shutdown. Once Ditto is off, send `on` using another active route or open the UI; a disabled transport cannot receive its own re-enable command.
+- `#weartakcommandusep12 <hex> server=<configured-server-id> [password="<P12 password>"]` imports one client PKCS12 identity. Both command prefixes work. Omit the password to use the existing TAK default. An explicit configured server ID is always required, even with only one server or when received over that server. Missing/unknown IDs receive a not-changed reply; there is no implicit selection or all-server mode. The identity targets only that server, never other ports on the same host. Hex must be contiguous, even-length ASCII (no `0x`, whitespace or separators), at most 32,768 characters / 16 KiB decoded. Total command limit is 34,816 characters; password/server options retain the 128-character limit and support quoted values. Other commands retain their 768-character total / 128-character value limits.
+
+`usep12` requires unlocked network settings, exactly one usable private-key entry, a matching leaf certificate, valid dates/clientAuth usage and a valid chain to a supplied CA. Validation does not perform online revocation checks. The identity is staged as an Android Keystore-encrypted record in memory, scoped to server ID plus endpoint. The old connection stays live until the candidate completes the existing CA/hostname-checked TLS handshake; offline/unreachable/rejected candidates leave settings unchanged. Then an atomic encrypted record is committed in app-private storage and that same authenticated socket is adopted. Commit/apply failures restore the prior record; interrupted file writes recover atomically on restart. A committed record has already passed the handshake and is used after restart, ahead of sideload/enrollment credentials. Acks contain only server ID, certificate SHA256 fingerprint and expiry, or a generic error. They never contain P12, private key, password, or raw crypto exceptions. Imported identities are not included in profiles.
+
+- `#weartakcommand enabletakservers` / `disabletakservers` controls the persisted global TAK Server master switch without changing any server's saved enabled choice. `enablemulticast` / `disablemulticast` controls the persisted multicast switch. All four commands take no arguments, also accept the joined form (for example, `#weartakcommanddisablemulticast`), and honor the existing network-settings lock. A disable command received over the transport it would disable sends its warning on that route first; if the route cannot accept the write, the setting is left unchanged. Commands persist the same explicit user choice as the settings UI. Tracker currently has no managed-configuration/MDM source, so `networkPreferencesLocked` remains the only network-settings lock.
+
+**Credential exposure:** all routes and direct/group/broadcast rooms are deliberately supported, including `usep12`. Hex is not encryption. The P12 and supplied password remain in the sender's, server's, Ditto peers' and recipients' chat history/retention; a direct message on multicast is still visible on the LAN. Callsign allow-lists are not cryptographic authentication. Prefer certificate enrollment or securely managed provisioning; use a dedicated trusted network and narrowly allow-listed administrators if sending credentials in chat. Remote import never disables TLS server-name verification. A reply can be lost if the source transport disconnects or its identity is changed by the command; it is not rerouted to unrelated connections.
 
 Callsigns are not authenticated, so only allow-list callsigns you trust on your servers.
-## Windows development setup
+### Setup
+1. Download the APK from [GitHub Releases](https://github.com/aegorsuch/weartak-tracker/releases) and install it on the watch (`adb install -r WearTAK-Tracker-<version>-release.apk`). Uninstall the old debug-signed app first if migrating to the release key; this clears settings.
+2. Open the app and grant **location** (precise or approximate) and, on Wear OS 4+, **notifications**. Startup also requests heart-rate access if missing; it is optional for position tracking and granting it does not turn Physiological Monitoring on.
+3. Tap the callsign chip > **Callsign and Device Preferences** to set callsign, team and role.
+4. Under **Network Preferences**, add a TAK Server, enable TAK SA Multicast, and/or configure Sit(x).
+
+#### Sit(x) setup
+Enter your organization/address under **Network Preferences > Sit(x) TAK**, enable the service, and authorize the watch using the code/URL in **Sit(x) State**, then select a group. Tracker supplies the same default public OAuth client ID as WearTAK-CIV; there is no Client ID entry in the submenu. Previously saved custom IDs are preserved, and existing blank values use the default automatically.
+
+The Network Preferences entry shows **Enabled** or **Disabled**, matching WearTAK-CIV. This describes the service setting, not live connectivity; check **Sit(x) State** for authorization, connection, and errors. The submenu order is **Sit(x) TAK**, **Address**, **Group**, **Sit(x) State**, the account row, **Re-Auth**, and **Remove Sit(x) connection**. An eight-character alphanumeric pairing code is shown in uppercase as `XXXX-XXXX`; other code formats remain unchanged, and the raw code is used for authorization.
+
+When authorized, the account row is **Linked Account** with the person's email (or callsign), or **NPE Name** with the non-person entity's name. A token is an NPE when `user_email` has no `@` or `access_type` is not `user`; a nameless NPE displays `NPE`. Without authorization, the row is **Linked Account: Not authorized**. An authorized NPE can select **Renew with Reauth PIN** to renew using its six-digit PIN; the PIN is entered securely and never stored. **Re-Auth** is greyed out whenever authorized (and while Sit(x) is off, has no host, or settings are admin-locked); remove the Sit(x) connection before switching accounts. After authorization, the group picker opens automatically when no group is selected and multiple groups are available; a single available group is selected automatically. The picker has a Cancel action and is not opened while network settings are locked.
+
+#### Permissions
+| Permission | Why |
+|---|---|
+| Location (precise or approximate) | Required. Without either, the tracker does not start. |
+| Heart rate / Fitness and wellness | Requested at startup if missing, and when enabling Physiological Monitoring. Uses `BODY_SENSORS` before Wear OS 6 and `READ_HEART_RATE` on Wear OS 6+; optional for position tracking. |
+| Notifications | Shows the ongoing "Reporting every Ns" notification required for a location foreground service. |
+
+**Precise vs approximate:** both work. With approximate location the system coarsens every fix (TAK clients will see a large CE), the notification says "approximate location", and dynamic reporting cannot classify speed, so it stays on the "moving/unknown" interval (the larger of on-foot and vehicle). Grant precise location in system settings and reopen the app to switch; no restart is needed.
+
+#### Physiological monitoring
+Off by default (CIV defaults to on); enable it under **Callsign and Device Preferences** (the toggle shows the latest HR, skin temperature, and exertion). When on, each PLI carries physiological `<remarks>` and `<physiology>`, regardless of the BATDOK setting. Dashboard consumers should listen for `detail/physiology/device`, containing the unchanged `model`, `uid`, `hr`, `skt`, and `exert` fields. All outgoing CoT detail blocks formerly named `<biometrics>` now use `<physiology>`, including manual alerts and cancellations. Alert blocks retain `alertUid`, `alertState`, `alertCategory`, `alertPriority`, and `alertDescription` attributes and the `device/model` and `device/uid` children; they do not contain physiological readings. Consumers must distinguish alert metadata from PLI readings by payload content rather than the wrapper alone. No legacy `<biometrics>` CoT block is emitted. The separate **BATDOK** toggle controls only the `<_atmist_>` block.
+- **Heart rate** comes from the standard heart-rate sensor, using only high-accuracy samples, and is sent as N/A when the watch is off-wrist or no reading is newer than 5 minutes.
+- **Skin temperature** uses the Samsung Health Sensor SDK (same AAR as CIV), one reading per minute while worn, in °F. Other watches and the emulator report N/A. The SDK is proprietary and not committed: copy `samsung-health-sensor-api-1.4.1.aar` into `app/libs/` before building. Without it the build still succeeds and skin temperature is always N/A. Samsung partner approval is tied to the package name/signing key, so `com.tak.weartak_tracker` must be registered (or Health Platform developer mode enabled) for readings.
+- **Exertion** uses the same Karvonen heart-rate-reserve calculation as regular WearTAK: `max(0, HR - resting HR) / (208 - 0.7 × age - resting HR)`. Age comes from birth year; resting HR defaults to 60 bpm and is editable in Medical Profile. This is an estimate, not a measured resting baseline or medical assessment. Missing age/HR or an invalid reserve produces N/A. The settings toggle displays a percentage; CoT retains CIV's fraction format (`0.50` means 50%, including its legacy `Exert:0.50%` remarks). Values above the estimated maximum can exceed 100%, as in CIV.
+
+#### BATDOK and medical profile
+**Callsign and Device Preferences > BATDOK** is on by default, matching WearTAK. It adds BATDOK-compatible `<_atmist_>` vital signs (heart rate and skin temperature in Fahrenheit/Celsius) to PLI while Physiological Monitoring is active. No vital sign is fabricated when a sensor reading is unavailable. Turning BATDOK off leaves the physio remarks, `<physiology>`, and sensor collection on; turning Physiological Monitoring off omits all physiological PLI data. Neither toggle affects manual-alert CoT.
+
+Under **My User Metrics > Medical Profile (BATDOK)**, set birth year, height (feet/inches), weight (lbs), sex, blood type, allergies (multiple selections), user type, resting heart rate, and uniform pants length and waist size (inches, N/A until set). The profile persists across app restarts and is encrypted at rest. As in WearTAK's current CoT builder, only age (calculated from birth year) is included in the BATDOK block; the other profile fields are stored locally, not transmitted. Birth year and resting HR also drive the exertion value in remarks and `<physiology>`. Unset birth year omits age rather than inventing one.
+
+On the emulator, set a heart rate with `adb emu sensor set heart-rate 72`.
+
+#### Dynamic reporting
+Constant mode keeps its saved Constant interval, including while alerting. Dynamic mode uses the saved Alert interval while a manual alert is active; otherwise valid speed below 0.44704 m/s selects Stationary, and speed at or above 13.4112 m/s selects Vehicle. Between those boundaries, the interval interpolates linearly from On Foot to Vehicle, rounds half up to whole seconds, and stays within the two saved endpoints. Reversed rates are respected, not reordered; saved rates and defaults are unchanged.
+
+Dynamic location observation uses the minimum of 60 seconds, saved On Foot, saved Vehicle, and the currently selected reporting interval. For example, Stationary 3600 / On Foot 30 / Vehicle 60 observes every 30 seconds but normally sends stationary PLI only every 3600 seconds. A faster existing stream is reused; Constant acquisition remains unchanged. The optional significant-motion sensor still requests a fix when leaving the classified stationary state. Android permissions, alarms, location availability and power restrictions can delay observations; this is not a hard wall-clock or battery-saving guarantee.
+
+Speed must be present, finite, nonnegative, precise, and from the current input/provider, with a nonfuture monotonic acquisition timestamp. Tracker retains its existing speed-accuracy filter. It is valid through the expected next observation plus Tracker's existing 10-second acquisition timeout; missing, invalid or expired speed selects the larger saved On Foot / Vehicle interval, never Stationary. Expiry changes only the send decision: it does not request a fix or restart/reschedule acquisition. One-second cached due checks remain anchored to the last PLI send; ordinary observations do not send extra PLI, and the timer does not redraw coordinates. Explicit manual, identity, alert and fresh outbound-ready refreshes retain their existing paths. No continuous one-second GPS subscription is added.
+
+#### Developer mode and network admin lock
+In **WearTAK-Tracker Preferences**, tap the version label eight times, with no more than 1.5 seconds between taps, to toggle developer mode. The version turns red and shows the build code. The developer/admin UI unlock now persists across navigation, process restart, reboot, and in-place updates until the gesture explicitly disables it. This is a local UI unlock, not authenticated privilege elevation; transport authentication, credential expiry and the separately persisted Network Preferences Lock are unchanged. It does not enable Stay awake or Logging automatically.
+
+**Developer Preferences** puts the simple Logging and Stay awake toggles first, sorted by localized displayed label (Logging then Stay awake in English), without routine helper text. Remaining rows are alphabetized separately by their localized displayed labels. Build, device, network, endpoints and reporting information remain read-only; the existing Resume after update control remains available and Stay awake retains its lifecycle.
+
+#### Logging
+The single **Logging** toggle in Developer Preferences is opt-in and defaults off. Its own saved preference survives navigation, process restart, reboot and in-place updates until explicitly toggled off, independently of the developer UI unlock. Clearing app data or uninstalling resets app-local settings and logs. Recording only occurs while Tracker's existing app/service process is running; Logging never starts tracking or a background service to keep itself alive. The former Diagnostics feature name is now Logging; saved keys, consent, state, file names, schema and behavior are unchanged.
+
+There was no persistent Tracker event journal/export infrastructure to reuse. The native implementation now retains fixed-category troubleshooting metadata: app/UI/tracking lifecycle, crash and app warning/error markers, location access/fix/timeout, speed validity category, reporting/PLI events, sensor availability, coarse battery/power state, existing Stay awake state, and TAK/Sit(x)/multicast/Ditto state/failures. Existing Android warning/error logging remains unchanged, but only allowlisted category/failure markers enter these files: no raw logcat, other-app capture, coordinates, identities, heart-rate values, messages, credentials, server addresses, exception text/stack traces, or network payloads. Maps, routes, Bloodhound, Companion and DataSync are absent in Tracker and have no fabricated diagnostics.
+
+The app-scoped local files are `diagnostics-current.log` and, after the first rotation, `diagnostics-previous.log`, capped at **128 KiB each / 256 KiB total**. A single idle-timeout writer has a bounded 64-event queue; repeated category/state pairs write at most once every 30 seconds and report the number suppressed on the next permitted event. Queue or storage failures use ordinary error logging and show an unavailable message in Developer Preferences, not a success fallback. Turning Logging off discards queued records from that consent generation; already saved files remain available until ordinary rotation or app-data removal. No uploads, new GPS/sensor subscriptions, wake locks, or polling loops are added. Android app backup remains disabled.
+
+After manually pairing/connecting wireless debugging, retrieve the release app's files without `run-as` or a debug APK:
+
+```powershell
+adb devices
+adb -s <connected-watch-serial> pull /sdcard/Android/data/com.tak.weartak_tracker/files/diagnostics .\tracker-diagnostics
+Get-Content .\tracker-diagnostics\diagnostics-current.log
+```
+
+Each tab-separated line contains wall-clock epoch milliseconds, monotonic elapsed milliseconds, build code, fixed event, fixed state, and suppressed-repeat count. The folder appears after the first successfully recorded opt-in event. Files remain private app-scoped storage under normal Android access; an explicitly authorized ADB shell can retrieve them on supported devices. Managed devices may block shell access; do not bypass those restrictions. These retrieval instructions have not been executed against a device as part of this change.
+
+With developer mode enabled, open **Developer Preferences > Stay awake** to keep the screen, CPU, and Wi-Fi awake for development and demos. In addition to the Wi-Fi lock, it actively requests a Wi-Fi network without requiring internet access, keeping demand for Wear OS Wi-Fi while enabled without binding Tracker's default/LTE traffic to it. Wireless debugging is not required, and disabling it or dismissing the app's recent task does not stop Stay awake. The adjacent **Resume after update** checkbox opts in to restoring an explicitly enabled session after an in-place app update. Turning off Stay awake or using the notification's **Stop** action clears that session; no automatic resume happens after an ordinary process restart or watch reboot. Locks and the Wi-Fi request are released when the service is destroyed and reacquired only for an eligible update restore. There is no timed expiry. Stay awake only runs while Wi-Fi is switched on and the watch is on its charger: turning it on otherwise is refused with a brief explanation, and switching Wi-Fi off or taking the watch off its charger turns it off automatically, releasing its locks and Wi-Fi request and saving it as off (no polling; it reacts to the system Wi-Fi-state and power-disconnected broadcasts). It does not turn itself back on when Wi-Fi or charging returns, after a reboot, or after an update. A brief Wi-Fi disconnection while Wi-Fi stays switched on does not stop it. This uses extra battery and may heat the watch; it does not prevent an explicit screen-off action or guarantee ADB delivery.
+
+Open **Admin Preferences > Network Preferences Lock** to block Network Preferences, its subpages, and the main-screen network shortcut without stopping configured connections or reporting. The lock persists across app restarts. To unlock, enable developer mode again and turn the same switch off. This is CIV's UI administration lock, not PIN authentication or an Android device-management policy.
+
+#### TAK Server certificates
+The tracker connects with a client certificate obtained in one of three ways, in order:
+1. **Sideloaded P12** for the server's address (see below). Username/password are then optional.
+2. **Cached enrollment** from a previous connection (renewed automatically 3 days before expiry).
+3. **Enrollment** with username/password against `https://<address>:8446`.
+
+Enrollment retains the watch's normal HTTPS trust and hostname validation. Certificate configuration must parse successfully before generating a CSR or requesting a signature. Signing responses accept JSON or namespace-aware XML, including PEM certificates, with a required `signedCert`, optional OpenTAKServer `ca`, and optional numbered `caN` certificates in numeric order (after `ca`). Errors identify the failed stage (configuration, request, signing, certificate, or connection) and distinguish HTTP 401, other HTTP failures, TLS, connectivity, and invalid certificate data. Saving waits for settings to persist; **Retry** starts a fresh attempt for that server even when settings have not changed. Rejected credentials still require correction; retry does not bypass authentication.
+
+##### Sideloading a certificate
+Copy files named after the exact address entered in the server form into the app's external files directory:
+```
+adb push tak.example.com.p12 /sdcard/Android/data/com.tak.weartak_tracker/files/certs/tak.example.com.p12
+adb push tak.example.com.pwd /sdcard/Android/data/com.tak.weartak_tracker/files/certs/tak.example.com.pwd
+```
+- `<address>.p12` or `<address>.p12.b64` (base64 text) – client key, certificate and the server's CA chain.
+- `<address>.pwd` – optional P12 password (default `atakatak`).
+
+##### Server identity checks
+The server certificate must chain to a CA in the client P12/enrollment response **and** be issued for the configured address:
+- Hostnames must match a DNS subjectAltName (a `*.` wildcard covers one label).
+- IP addresses must match an IP subjectAltName.
+- Certificates without any subjectAltName are matched against their CN (common for TAK Server certs made with `makeCert.sh`).
+
+**Automatic TLS name discovery** (same rules as WearTAK-iOS/CIV): when the server is reached by an IP or another name that the certificate doesn't list, the tracker accepts the certificate's name only if the chain comes from the server's private CA (not a public CA) **and** the certificate has exactly one exact DNS subjectAltName. That name is saved as the server's TLS name (shown in Edit Server) and used for SNI and validation from then on. The CoT stream and the 8443 API save their names separately. A saved name is never replaced automatically. It is cleared when the address or port is edited. Certificates with several names, wildcards only, or no subjectAltName are rejected.
+
+If the server form shows `TLS: Certificate is for [...], not <address>`, enter the address that appears in the brackets (add a DNS entry if needed) or reissue the server certificate with the address as a subjectAltName.
+
+#### Channels
+**Network Preferences > Channels** lists each TAK Server. Open one to see its channels (TAK Server groups) and turn them on or off, as in WearTAK-CIV. The list loads after each connect, when the page is opened or **Refresh** is tapped, and when the server announces a group change. A toggle shows "Updating..." until the server confirms, and it reverts if the request fails. Channels use the client certificate on `https://<address>:8443/Marti/api/groups/...`, which requires TAK Server's group cache (otherwise "Channels unsupported").
+
+### Troubleshooting
+| Symptom | Check |
+|---|---|
+| Location icon grey, no notification | Location permission denied. Grant it in system settings and reopen the app. |
+| `Client certificate: no client certificate...` | Neither credentials nor a sideloaded P12 for that exact address. File names are case-sensitive. |
+| `Certificate configuration/signing: authentication rejected (HTTP 401)...` | Credentials are wrong or the user lacks enrollment rights on the TAK Server. |
+| `Certificate signing: server rejected request (HTTP 403).` | The server denied enrollment; check server-side authorization. |
+| `Certificate configuration/signing: secure connection failed...` / `server unreachable...` | Check port 8446, network access, and the enrollment certificate's trust and hostname; sideload a P12 if needed. |
+| `Certificate configuration` / `Client certificate: invalid or missing certificate data.` | Server response is malformed or required certificate data is missing; check enrollment configuration. |
+| `TLS: Certificate is for [...]` | Address doesn't match the server certificate and discovery wasn't possible (see above). |
+| Channels: "Not connected" / error | The TAK Server must be connected, and port 8443 reachable with the same client certificate. |
+| `TAK connection: secure connection failed...` repeatedly | After 3 TLS failures the cached enrollment is discarded and re-enrolled. Check the server's CA is in the P12. |
+| Multicast never shows connected | Multicast needs Wi-Fi (Bluetooth/LTE do not carry it). Check the address is 224.0.0.0–239.255.255.255. |
+| Reporting interval never drops to stationary | Approximate location, or GPS speed accuracy too poor indoors. |
+| Sit(x) stuck on "Authorize" | Open the verification URL on a phone and enter the code shown under Sit(x) State. |
+
+Logs: `adb logcat -s TrackerService TakServerManager TakCertificates TakChannelManager TakChannelApi SitxClient MulticastPublisher MulticastChatReceiver ChatCommands MulticastWifiRequest`
+
+## Status
+
+The canonical source is maintained on TAK Forge's `main` branch. The current build configuration uses base version **5.8.4**; CI adds the pipeline IID and source SHA as described under [Compilation](#compilation). The 5.8.0.3 download notes above describe earlier builds, not a guarantee of the latest published version. Confirm the installed/downloaded APK version against its release notes.
+
+Release and debug build workflows are defined in this repository; deployment readiness and a tested-device matrix are not specified. Everywhere Comms, GoTenna, Somewear Labs and Sensor Manager remain **Unfunded Request** placeholders, with the limitations described under [Features](#features) and [Build](#build).
+
+## Point of Contacts
+
+### Project Information
+
+**Point of contact:** Alex Gorsuch on chat.tak.gov or Signal.
+
+**Repositories:** The [TAK Forge repository](https://git.tak.gov/core/weartak-core/weartak-tracker) is canonical. [GitHub](https://github.com/aegorsuch/weartak-tracker) is a secondary repository.
+
+## Ports Required
+
+Allow only the transports enabled for the deployment; not every port below is required for every configuration.
+
+| Transport / use | Protocol and destination | Conditions |
+|---|---|---|
+| TAK Server position and chat stream | TLS/TCP, configured server port (default `8089`) | Enabled TAK Server connections. |
+| TAK Server certificate enrollment | HTTPS/TCP `8446` | Credential-based enrollment and renewal; trust and hostname checks remain enabled. |
+| TAK Server Channels API | HTTPS/TCP `8443` | Channel/group queries and changes using the client certificate. |
+| TAK SA multicast | UDP, configured group/port (default `239.2.3.1:6969`) | Local Wi-Fi only; not an LTE or Bluetooth delivery route. |
+| GeoChat multicast commands | UDP `224.10.10.1:17012`, plus the configured multicast group/port | Receive listeners when multicast and Commands are enabled; replies use the ATAK chat group. |
+| Sit(x) | HTTPS to the configured organization/address | Enabled Sit(x) service; confirm deployment-specific endpoint and firewall requirements. |
+| Ditto Edge Sync | SDK-managed peer-to-peer connectivity | Enabled Ditto with a valid identity and Nearby permissions. A complete SDK port inventory is not documented here; confirm requirements for the deployed SDK/network. |
+| Wireless debugging / sideloading | Watch-assigned ADB pairing and connection ports | Development and installation only, not normal Tracker reporting; use the watch's displayed ports. |
+
+See [TAK Server certificates](#tak-server-certificates), [Channels](#channels), [Sit(x) setup](#sitx-setup) and [Chat commands](#chat-commands-weartak-130) for authentication and routing limitations. Deployment-specific DNS and network-service requirements must also be confirmed.
+
+## Equipment Required
+
+A Wear OS watch with location capability and Android API level **30 or newer** (`app/build.gradle` minimum), plus connectivity to at least one configured reporting destination. Standalone LTE-connected watches are the primary design target; local Wi-Fi is required for multicast. Location permission is required; heart-rate access is optional for position tracking.
+
+For APK sideloading, use a computer with ADB and an authorized watch connection. Wireless installation requires the PC and watch on the same Wi-Fi; normal Tracker operation can use LTE afterward. See [Downloads](#downloads) and [Setup](#setup).
+
+## Equipment Supported
+
+The manifest declares a standalone watch application. No verified model-by-model compatibility or certification matrix is provided.
+
+Heart-rate reporting uses the standard watch sensor when available. Skin temperature requires a compatible Samsung Galaxy watch, Samsung Health Platform access and a build containing the proprietary Samsung Health Sensor SDK; other watches and the emulator report N/A for skin temperature. See [Physiological monitoring](#physiological-monitoring) for permissions, SDK approval and reading limitations. Bluetooth/phone relay is not a development priority, and Tracker has no Companion phone bridge or DataSync plugin.
+
+## Compilation
+
+Build prerequisites: JDK **17**, Android SDK **36**, and the repository's Gradle wrapper. TAK Forge CI also requires Android build-tools **35.0.0**. The optional Samsung Health AAR is proprietary and not committed; builds without it use the skin-temperature stub. See [Physiological monitoring](#physiological-monitoring).
+
+### Windows development setup
 
 Use JDK 17, the checked-in Gradle wrapper (8.14.5), and Android SDK Platform 36.
 Install required SDK packages through Android Studio's SDK Manager; review and
@@ -87,115 +297,14 @@ configuration described below; a successful debug build does not verify that
 integration. Preserve existing release signing material and use the established
 release process rather than generating a replacement key during environment setup.
 
-## Setup
-1. Download the APK from [GitHub Releases](https://github.com/aegorsuch/weartak-tracker/releases) and install it on the watch (`adb install -r WearTAK-Tracker-<version>-release.apk`). Uninstall the old debug-signed app first if migrating to the release key; this clears settings.
-2. Open the app and grant **location** (precise or approximate) and, on Wear OS 4+, **notifications**. Startup also requests heart-rate access if missing; it is optional for position tracking and granting it does not turn Physiological Monitoring on.
-3. Tap the callsign chip > **Callsign and Device Preferences** to set callsign, team and role.
-4. Under **Network Preferences**, add a TAK Server, enable TAK SA Multicast, and/or configure Sit(x).
-
-### Sit(x) setup
-Enter your organization/address under **Network Preferences > Sit(x) TAK**, enable the service, and authorize the watch using the code/URL in **Sit(x) State**, then select a group. Tracker supplies the same default public OAuth client ID as WearTAK-CIV; there is no Client ID entry in the submenu. Previously saved custom IDs are preserved, and existing blank values use the default automatically.
-
-The Network Preferences entry shows **Enabled** or **Disabled**, matching WearTAK-CIV. This describes the service setting, not live connectivity; check **Sit(x) State** for authorization, connection, and errors. The submenu order is **Sit(x) TAK**, **Address**, **Group**, **Sit(x) State**, the account row, **Re-Auth**, and **Remove Sit(x) connection**. An eight-character alphanumeric pairing code is shown in uppercase as `XXXX-XXXX`; other code formats remain unchanged, and the raw code is used for authorization.
-
-When authorized, the account row is **Linked Account** with the person's email (or callsign), or **NPE Name** with the non-person entity's name. A token is an NPE when `user_email` has no `@` or `access_type` is not `user`; a nameless NPE displays `NPE`. Without authorization, the row is **Linked Account: Not authorized**. An authorized NPE can select **Renew with Reauth PIN** to renew using its six-digit PIN; the PIN is entered securely and never stored. **Re-Auth** is greyed out whenever authorized (and while Sit(x) is off, has no host, or settings are admin-locked); remove the Sit(x) connection before switching accounts. After authorization, the group picker opens automatically when no group is selected and multiple groups are available; a single available group is selected automatically. The picker has a Cancel action and is not opened while network settings are locked.
-
-### Permissions
-| Permission | Why |
-|---|---|
-| Location (precise or approximate) | Required. Without either, the tracker does not start. |
-| Heart rate / Fitness and wellness | Requested at startup if missing, and when enabling Physiological Monitoring. Uses `BODY_SENSORS` before Wear OS 6 and `READ_HEART_RATE` on Wear OS 6+; optional for position tracking. |
-| Notifications | Shows the ongoing "Reporting every Ns" notification required for a location foreground service. |
-
-**Precise vs approximate:** both work. With approximate location the system coarsens every fix (TAK clients will see a large CE), the notification says "approximate location", and dynamic reporting cannot classify speed, so it stays on the "moving/unknown" interval (the larger of on-foot and vehicle). Grant precise location in system settings and reopen the app to switch; no restart is needed.
-
-### Physiological monitoring
-Off by default (CIV defaults to on); enable it under **Callsign and Device Preferences** (the toggle shows the latest HR, skin temperature, and exertion). When on, each PLI carries physiological `<remarks>` and `<biometrics>`, regardless of the BATDOK setting. The separate **BATDOK** toggle controls only the `<_atmist_>` block.
-- **Heart rate** comes from the standard heart-rate sensor, using only high-accuracy samples, and is sent as N/A when the watch is off-wrist or no reading is newer than 5 minutes.
-- **Skin temperature** uses the Samsung Health Sensor SDK (same AAR as CIV), one reading per minute while worn, in °F. Other watches and the emulator report N/A. The SDK is proprietary and not committed: copy `samsung-health-sensor-api-1.4.1.aar` into `app/libs/` before building. Without it the build still succeeds and skin temperature is always N/A. Samsung partner approval is tied to the package name/signing key, so `com.tak.weartak_tracker` must be registered (or Health Platform developer mode enabled) for readings.
-- **Exertion** uses the same Karvonen heart-rate-reserve calculation as regular WearTAK: `max(0, HR - resting HR) / (208 - 0.7 × age - resting HR)`. Age comes from birth year; resting HR defaults to 60 bpm and is editable in Medical Profile. This is an estimate, not a measured resting baseline or medical assessment. Missing age/HR or an invalid reserve produces N/A. The settings toggle displays a percentage; CoT retains CIV's fraction format (`0.50` means 50%, including its legacy `Exert:0.50%` remarks). Values above the estimated maximum can exceed 100%, as in CIV.
-
-### BATDOK and medical profile
-**Callsign and Device Preferences > BATDOK** is on by default, matching WearTAK. It adds BATDOK-compatible `<_atmist_>` vital signs (heart rate and skin temperature in Fahrenheit/Celsius) to PLI while Physiological Monitoring is active. No vital sign is fabricated when a sensor reading is unavailable. Turning BATDOK off leaves the physio remarks, biometrics, and sensor collection on; turning Physiological Monitoring off omits all physiological PLI data. Manual-alert CoT is unchanged.
-
-Under **My User Metrics > Medical Profile (BATDOK)**, set birth year, height (feet/inches), weight (lbs), sex, blood type, allergies (multiple selections), user type, and resting heart rate. The profile persists across app restarts and is encrypted at rest. As in WearTAK's current CoT builder, only age (calculated from birth year) is included in the BATDOK block; the other profile fields are stored locally, not transmitted. Birth year and resting HR also drive the exertion value in remarks and biometrics. Unset birth year omits age rather than inventing one.
-
-On the emulator, set a heart rate with `adb emu sensor set heart-rate 72`.
-
-### Dynamic reporting
-Each precise fix with a reliable GPS speed is classified as stationary (< 0.5 m/s), on foot (≤ 4.5 m/s) or vehicle. Switching state needs 2 consecutive fixes (3 to become stationary) so GPS noise or a stop at a light does not change the interval. While stationary, the significant-motion sensor is armed; When it fires, the tracker takes a fresh fix immediately. Watches without that sensor only leave stationary at the next stationary-interval fix.
-
-### Developer mode and network admin lock
-In **WearTAK-Tracker Preferences**, tap the version label eight times, with no more than 1.5 seconds between taps, to toggle developer mode (matching CIV). The version turns red and shows the build code. **Developer Preferences** displays read-only build, device, network, endpoint, and reporting information. Developer mode resets when the app process starts again.
-
-With developer mode enabled, open **Developer Preferences > Stay awake** to keep the screen, CPU, and Wi-Fi awake for development and demos. In addition to the Wi-Fi lock, it actively requests a Wi-Fi network without requiring internet access, keeping demand for Wear OS Wi-Fi while enabled without binding Tracker's default/LTE traffic to it. Wireless debugging is not required, and disabling it or dismissing the app's recent task does not stop Stay awake. The adjacent **Resume after update** checkbox opts in to restoring an explicitly enabled session after an in-place app update. Turning off Stay awake or using the notification's **Stop** action clears that session; no automatic resume happens after an ordinary process restart or watch reboot. Locks and the Wi-Fi request are released when the service is destroyed and reacquired only for an eligible update restore. There is no timed expiry. This uses extra battery and may heat the watch; it does not override manually disabled Wi-Fi, prevent an explicit screen-off action, or guarantee ADB delivery.
-
-Open **Admin Preferences > Network Preferences Lock** to block Network Preferences, its subpages, and the main-screen network shortcut without stopping configured connections or reporting. The lock persists across app restarts. To unlock, enable developer mode again and turn the same switch off. This is CIV's UI administration lock, not PIN authentication or an Android device-management policy.
-
-### TAK Server certificates
-The tracker connects with a client certificate obtained in one of three ways, in order:
-1. **Sideloaded P12** for the server's address (see below). Username/password are then optional.
-2. **Cached enrollment** from a previous connection (renewed automatically 3 days before expiry).
-3. **Enrollment** with username/password against `https://<address>:8446`.
-
-Enrollment retains the watch's normal HTTPS trust and hostname validation. Certificate configuration must parse successfully before generating a CSR or requesting a signature. Signing responses accept JSON or namespace-aware XML, including PEM certificates, with a required `signedCert`, optional OpenTAKServer `ca`, and optional numbered `caN` certificates in numeric order (after `ca`). Errors identify the failed stage (configuration, request, signing, certificate, or connection) and distinguish HTTP 401, other HTTP failures, TLS, connectivity, and invalid certificate data. Saving waits for settings to persist; **Retry** starts a fresh attempt for that server even when settings have not changed. Rejected credentials still require correction; retry does not bypass authentication.
-
-#### Sideloading a certificate
-Copy files named after the exact address entered in the server form into the app's external files directory:
-```
-adb push tak.example.com.p12 /sdcard/Android/data/com.tak.weartak_tracker/files/certs/tak.example.com.p12
-adb push tak.example.com.pwd /sdcard/Android/data/com.tak.weartak_tracker/files/certs/tak.example.com.pwd
-```
-- `<address>.p12` or `<address>.p12.b64` (base64 text) – client key, certificate and the server's CA chain.
-- `<address>.pwd` – optional P12 password (default `atakatak`).
-
-#### Server identity checks
-The server certificate must chain to a CA in the client P12/enrollment response **and** be issued for the configured address:
-- Hostnames must match a DNS subjectAltName (a `*.` wildcard covers one label).
-- IP addresses must match an IP subjectAltName.
-- Certificates without any subjectAltName are matched against their CN (common for TAK Server certs made with `makeCert.sh`).
-
-**Automatic TLS name discovery** (same rules as WearTAK-iOS/CIV): when the server is reached by an IP or another name that the certificate doesn't list, the tracker accepts the certificate's name only if the chain comes from the server's private CA (not a public CA) **and** the certificate has exactly one exact DNS subjectAltName. That name is saved as the server's TLS name (shown in Edit Server) and used for SNI and validation from then on. The CoT stream and the 8443 API save their names separately. A saved name is never replaced automatically. It is cleared when the address or port is edited. Certificates with several names, wildcards only, or no subjectAltName are rejected.
-
-If the server form shows `TLS: Certificate is for [...], not <address>`, enter the address that appears in the brackets (add a DNS entry if needed) or reissue the server certificate with the address as a subjectAltName.
-
-### Channels
-**Network Preferences > Channels** lists each TAK Server. Open one to see its channels (TAK Server groups) and turn them on or off, as in WearTAK-CIV. The list loads after each connect, when the page is opened or **Refresh** is tapped, and when the server announces a group change. A toggle shows "Updating..." until the server confirms, and it reverts if the request fails. Channels use the client certificate on `https://<address>:8443/Marti/api/groups/...`, which requires TAK Server's group cache (otherwise "Channels unsupported").
-
-## Troubleshooting
-| Symptom | Check |
-|---|---|
-| Location icon grey, no notification | Location permission denied. Grant it in system settings and reopen the app. |
-| `Client certificate: no client certificate...` | Neither credentials nor a sideloaded P12 for that exact address. File names are case-sensitive. |
-| `Certificate configuration/signing: authentication rejected (HTTP 401)...` | Credentials are wrong or the user lacks enrollment rights on the TAK Server. |
-| `Certificate signing: server rejected request (HTTP 403).` | The server denied enrollment; check server-side authorization. |
-| `Certificate configuration/signing: secure connection failed...` / `server unreachable...` | Check port 8446, network access, and the enrollment certificate's trust and hostname; sideload a P12 if needed. |
-| `Certificate configuration` / `Client certificate: invalid or missing certificate data.` | Server response is malformed or required certificate data is missing; check enrollment configuration. |
-| `TLS: Certificate is for [...]` | Address doesn't match the server certificate and discovery wasn't possible (see above). |
-| Channels: "Not connected" / error | The TAK Server must be connected, and port 8443 reachable with the same client certificate. |
-| `TAK connection: secure connection failed...` repeatedly | After 3 TLS failures the cached enrollment is discarded and re-enrolled. Check the server's CA is in the P12. |
-| Multicast never shows connected | Multicast needs Wi-Fi (Bluetooth/LTE do not carry it). Check the address is 224.0.0.0–239.255.255.255. |
-| Reporting interval never drops to stationary | Approximate location, or GPS speed accuracy too poor indoors. |
-| Sit(x) stuck on "Authorize" | Open the verification URL on a phone and enter the code shown under Sit(x) State. |
-
-Logs: `adb logcat -s TrackerService TakServerManager TakCertificates TakChannelManager TakChannelApi SitxClient MulticastPublisher MulticastWifiRequest`
-
-## Project Information
-
-**Rights:** Unlimited rights granted to TAK Product Center.
-
-**Point of contact:** Alex Gorsuch on chat.tak.gov or Signal.
-
-**Repositories:** The [TAK Forge repository](https://git.tak.gov/core/weartak-core/weartak-tracker) is canonical. [GitHub](https://github.com/aegorsuch/weartak-tracker) is a secondary repository.
-
-## Build
+### Build
 ```
 .\gradlew.bat :app:assembleDebug
 .\gradlew.bat :app:testDebugUnitTest
 ```
 CI (`.github/workflows/android.yml`) runs the unit tests and builds the debug APK on every push and pull request.
 
-### Government GitLab CI/CD
+#### Government GitLab CI/CD
 
 The canonical TAK Forge repository uses `.gitlab-ci.yml`, matching WearTAK-WearOS's
 Gradle build-launcher image and release workflow. A push to `main` runs unit tests
@@ -212,7 +321,7 @@ Configure these masked CI/CD variables in the **Tracker** GitLab project:
 | `RELEASE_STORE_PASSWORD` | Tracker keystore password |
 | `RELEASE_KEY_ALIAS` | Tracker signing-key alias |
 | `RELEASE_KEY_PASSWORD` | Tracker signing-key password |
-| `DITTO_COMMUNITY_IDENTITY` | Optional Community identity for builds that include it |
+| `DITTO_COMMUNITY_IDENTITY` | Required for release jobs: authorized ATAK Community PDL (raw encoded, no quotes); masked and protected |
 | `GITHUB_RELEASE_TOKEN` | Fine-grained GitHub token restricted to `aegorsuch/weartak-tracker` with Contents read/write permission; masked and protected |
 
 TAKwerx Market reads `WEARTAK_MARKET_CATALOG_URL` and
@@ -257,7 +366,7 @@ certificate SHA-256 fingerprint:
 No signing secrets are committed or uploaded as artifacts. Local `signing.properties`
 builds and the existing GitHub debug workflow remain supported.
 
-#### Automated GitHub release
+##### Automated GitHub release
 
 After `main_release` succeeds on a protected `main` push,
 `publish_github_pipeline_release` publishes its signed APK to the GitHub mirror
@@ -285,6 +394,10 @@ The job is serialized and requires both canonical and mirrored `main` heads
 to match the pipeline commit before publication and again before final publication.
 A stale mirror fails the job; synchronize it before retrying. The approved
 `takgov-pipeline` anchor tag must already exist and is never moved by the publisher.
+New releases are staged as drafts with `make_latest=false`; the final verified
+publish/update explicitly sets `make_latest=true`, rather than relying on GitHub's
+default. Intermediate metadata-only staging updates leave the current latest
+release designation unchanged.
 It rechecks the established Tracker signing certificate and uploads the unchanged
 APK bytes as `WearTAK-Tracker-<APK version without +SHA>-p<IID>.apk`, omitting
 the extra `-p<IID>` when already present (for example `WearTAK-Tracker-5.8.4-p7.apk`).
@@ -321,20 +434,21 @@ Run the publisher's offline mocked-API tests without credentials or network acce
 py -3 -m unittest discover -s tests -p 'test_publish_github_release.py'
 ```
 
-Ditto defaults to the Community PDL. Provide `dittoCommunityIdentity` in the ignored root `local.properties`,
-through Gradle properties, or with the `DITTO_COMMUNITY_IDENTITY` environment variable for builds that include the
-Community identity; keep the license out of source control. A custom PDL can also be entered on the watch under
-**Plugins > Ditto > Ditto Identity**.
-The Ditto plugin subtitle shows Community or the saved custom PDL (truncated to fit); the switch controls sync.
+Ditto Edge Sync defaults to the Community PDL. The `DITTO_COMMUNITY_IDENTITY` environment variable takes precedence, then the
+`dittoCommunityIdentity` Gradle property, then the ignored root `local.properties`; release CI fails if the variable is
+missing. Keep the license out of source control. A custom PDL can also be entered on the watch under
+**Plugins > Ditto Edge Sync > Ditto Edge Sync Identity**.
+The Ditto Edge Sync subtitle shows **Community** or **Custom**, followed by the actual native sync state. **Sync active** means the SDK is running, not that a peer is connected or delivery is confirmed. Subtitles never display the raw PDL or infer license validity from the saved source; the full custom value remains available only in its editor. Enabling still validates the saved identity and requests the existing Nearby permissions. Both the plugin switch and Network Preferences checkbox use the same enable path, rechecking the live network lock, permissions and selected identity after permission prompts. Identity selection/editing also respects the network lock.
 Plugins are listed alphabetically. Everywhere Comms, GoTenna and Somewear Labs display **Unfunded Request**;
 their placeholder switches stay off and tapping them does not activate any integration.
 Sensor Manager also displays **Unfunded Request** and has a saved enable/disable switch (off by default). Tapping
 its row opens a page showing **Unfunded Request**, **Button is Placeholder** and an inert **Scan** button; no
 scanning, pairing or Bluetooth access is performed.
-PDL Help contains scrollable instructions for copying and pasting a custom identity. Turning Ditto off closes its
-database before it is reopened, so repeated off/on cycles release the previous instance's resources.
+PDL Help contains scrollable instructions for copying and pasting a custom identity. Turning Ditto Edge Sync off stops
+peer-to-peer sync and track publication; turning it back on resumes the same session. Changing identity closes the
+previous database before opening the new one, and stopping the tracker releases the session entirely.
 
-### Release signing
+#### Release signing
 Release builds are signed only when a `signing.properties` file exists in the project root (it is git-ignored, as are `*.jks`/`*.keystore`):
 ```
 storeFile=release.jks
@@ -345,3 +459,21 @@ keyPassword=...
 Create a key once with `keytool -genkeypair -v -keystore release.jks -alias weartak-tracker -keyalg RSA -keysize 4096 -validity 10000`, keep it backed up (updates must be signed with the same key), then run `.\gradlew.bat :app:assembleRelease`. Without the file, `assembleRelease` produces an unsigned APK.
 
 The published release key is configured locally in `release.jks` and `signing.properties`; neither file is committed. Back up both securely together. Losing the key prevents in-place updates to installed release builds. Debug builds and CI APK artifacts remain development-only and use a different signing key.
+
+## Developer Notes
+
+Operational and security details remain in their original subsections: [Chat commands](#chat-commands-weartak-130), [Developer mode and network admin lock](#developer-mode-and-network-admin-lock), [Logging](#logging), [Server identity checks](#server-identity-checks) and [Troubleshooting](#troubleshooting). These cover credential exposure, replay protection, local administration limits, opt-in diagnostics and TLS validation; preserve those constraints when changing integrations.
+
+The README retains historical release notes and behavior descriptions. In particular, [Features](#features) and [Dynamic reporting](#dynamic-reporting) contain differing descriptions of stationary observation cadence; confirm current implementation and tests before using either description as an operational guarantee.
+
+Local release signing above describes the `signing.properties` path. TAK Forge release jobs instead supply the validated keystore and signing environment variables documented under [Government GitLab CI/CD](#government-gitlab-cicd). CI signing and local signing must use the established Tracker release key for in-place release updates.
+
+## License
+
+**Rights:** Unlimited rights granted to TAK Product Center.
+
+WearTAK-Tracker's original code is licensed under the GNU General Public License, version 3 or (at your option) any later version (**GPL-3.0-or-later**). See [LICENSE](LICENSE) for the complete license text. The existing grant of Unlimited Rights to TAK Product Center is preserved.
+
+Integration assets are declared under GPL-3.0-or-later on the project owner's stated authority that permission has been obtained; the underlying asset-owner grants have not been independently verified here. The earlier permission/provenance record under [Features](#features) and existing third-party notices are retained. Everywhere Comms, GoTenna, Somewear Labs and ATAK names and marks remain their respective owners' property; this license declaration grants no trademark rights.
+
+Third-party components retain their own licenses and notices, including the Apache-2.0 Gradle wrapper scripts and bundled wrapper JAR. The proprietary Samsung Health Sensor SDK is not committed and is not covered by this GPL declaration. Ditto identities must remain out of source control as documented under [Compilation](#compilation).

@@ -1,14 +1,49 @@
 pluginManagement {
     repositories {
+        def takUser = ['ARTIFACTORY_CONSUME_USER', 'ARTIFACTORY_USER', 'TAK_USERNAME']
+            .collect { System.getenv(it) }.find { it?.trim() }
+        def takPassword = ['ARTIFACTORY_CONSUME_PASSWORD', 'ARTIFACTORY_PASSWORD', 'TAK_PASSWORD']
+            .collect { System.getenv(it) }.find { it?.trim() }
+        if (takUser && takPassword) {
+            maven {
+                name = 'takArtifactory'
+                url = uri('https://artifacts.tak.gov/artifactory/maven-release')
+                credentials {
+                    username = takUser
+                    password = takPassword
+                }
+            }
+        }
         gradlePluginPortal()
         google()
         mavenCentral()
     }
 }
 
+// pluginManagement is evaluated separately and cannot share these values.
+def takUser = ['ARTIFACTORY_CONSUME_USER', 'ARTIFACTORY_USER', 'TAK_USERNAME']
+    .collect { System.getenv(it) }.find { it?.trim() }
+def takPassword = ['ARTIFACTORY_CONSUME_PASSWORD', 'ARTIFACTORY_PASSWORD', 'TAK_PASSWORD']
+    .collect { System.getenv(it) }.find { it?.trim() }
+if (takUser && takPassword) {
+    gradle.ext.takArtifactoryUrl = 'https://artifacts.tak.gov/artifactory/maven-release'
+    gradle.ext.takArtifactoryUser = takUser
+    gradle.ext.takArtifactoryPassword = takPassword
+}
+
 dependencyResolutionManagement {
     repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
     repositories {
+        if (takUser && takPassword) {
+            maven {
+                name = 'takArtifactory'
+                url = uri(gradle.ext.takArtifactoryUrl)
+                credentials {
+                    username = takUser
+                    password = takPassword
+                }
+            }
+        }
         google()
         mavenCentral()
     }

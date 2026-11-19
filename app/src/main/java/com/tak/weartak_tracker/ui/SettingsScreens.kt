@@ -6,6 +6,7 @@ import android.hardware.SensorManager
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.net.Uri
 import android.os.Build
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -28,22 +29,24 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -56,7 +59,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -84,6 +86,13 @@ import com.tak.weartak_tracker.R
 import com.tak.weartak_tracker.cot.calculateExertion
 import com.tak.weartak_tracker.command.ChatCommandAuthorizer
 import com.tak.weartak_tracker.data.MULTICAST_PROTOCOLS
+import com.tak.weartak_tracker.data.MoppStatus
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.flow.first
+import com.tak.weartak_tracker.service.ChatCommandRuntime
+import kotlinx.coroutines.Dispatchers
+import com.tak.weartak_tracker.data.PresetSummary
+import com.tak.weartak_tracker.data.ProfilePresets
 import com.tak.weartak_tracker.BuildConfig
 import com.tak.weartak_tracker.data.DEFAULT_SITX_CLIENT_ID
 import com.tak.weartak_tracker.data.DittoPdlSource
@@ -100,6 +109,7 @@ import com.tak.weartak_tracker.data.TakServerChannels
 import com.tak.weartak_tracker.data.TakServerState
 import com.tak.weartak_tracker.data.TakStatus
 import com.tak.weartak_tracker.data.TrackerConfig
+import com.tak.weartak_tracker.data.runtimeTakServers
 import com.tak.weartak_tracker.data.formatSitxPairingCode
 import com.tak.weartak_tracker.data.isValidSitxReauthPin
 import com.tak.weartak_tracker.data.sitxAccountValue
@@ -112,6 +122,34 @@ import kotlinx.coroutines.launch
 
 private const val INTERVAL_MIN = 1
 private const val INTERVAL_MAX = 1_000_000
+internal const val DITTO_PLUGIN_NAME = "Ditto Edge Sync"
+internal val PLUGIN_TITLES = listOf(
+    "Commands", DITTO_PLUGIN_NAME, "Everywhere Comms", "GoTenna", "MOPP", "Sensor Manager", "Somewear Labs",
+).sortedWith(String.CASE_INSENSITIVE_ORDER)
+
+internal fun pluginIconResource(title: String): Int = when (title) {
+    "Commands" -> R.drawable.ic_commands_megaphone
+    DITTO_PLUGIN_NAME -> R.drawable.ic_integration_ditto
+    "Everywhere Comms" -> R.drawable.ic_integration_everywhere
+    "GoTenna" -> R.drawable.ic_integration_gotenna
+    "Somewear Labs" -> R.drawable.ic_integration_somewear
+    "Sensor Manager" -> R.drawable.ic_plugin_sensor
+    "MOPP" -> R.drawable.mopp_mask
+    else -> error("Unknown Tracker plugin")
+}
+
+@Composable
+private fun PluginRowIcon(title: String) {
+    Image(
+        painter = painterResource(pluginIconResource(title)),
+        contentDescription = null,
+        modifier = Modifier.padding(end = 6.dp).size(24.dp),
+    )
+}
+
+// Navigation/lazy controls can retain callbacks. A tap must invert the live setting, not an old checked value.
+internal fun dittoToggleCallback(config: State<TrackerConfig>, onToggle: (Boolean) -> Unit): (Boolean) -> Unit =
+    { onToggle(!config.value.dittoEnabled) }
 
 internal fun serversAlphabetically(servers: List<TakServerConfig>): List<TakServerConfig> =
     servers.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.name })
@@ -294,7 +332,9 @@ fun NavGraphBuilder.settingsGraph(repo: SettingsRepository, configState: State<T
 
     networkComposable("network_preferences", configState, back) {
         val currentConfig by repo.config.collectAsStateWithLifecycle(initialValue = config)
+        val checklist = networkTransportChecklist(repo, configState, { go("ditto_identity") }) { go(it.settingsRoute()) }
         WearTAKPageWithBackArrow("Network Preferences", back) {
+            if (currentConfig.networkPreferencesChecklist) checklist()
             item { WearTAKTitleChip("TAK Servers") { go("tak_servers") } }
             item { WearTAKTitleChip("Channels") { go("tak_channels") } }
             item {
@@ -307,6 +347,7 @@ fun NavGraphBuilder.settingsGraph(repo: SettingsRepository, configState: State<T
                     go("sitx_tak_screen")
                 }
             }
+            item { WearTAKTitleChip(stringResource(R.string.transport_ditto)) { go("ditto_identity") } }
         }
     }
 
@@ -321,86 +362,71 @@ fun NavGraphBuilder.settingsGraph(repo: SettingsRepository, configState: State<T
     }
 
     composable("plugins") {
+        val currentConfig by repo.config.collectAsStateWithLifecycle(initialValue = config)
+        val dittoState by TrackerState.ditto.collectAsStateWithLifecycle()
         val update = rememberUpdater(repo)
         val context = LocalContext.current
-        val dittoPermissions = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { results ->
-            if (results.values.all { it }) {
-                update { it.copy(dittoEnabled = true) }
-                TrackerService.start(context)
-            } else {
-                Toast.makeText(context, "Nearby permissions are required for Ditto peer-to-peer sync", Toast.LENGTH_LONG).show()
-            }
+        LaunchedEffect(dittoState) {
+            val error = dittoState as? DittoState.Error
+            if (error != null) Toast.makeText(context, error.message, Toast.LENGTH_LONG).show()
         }
+        val toggleDitto = rememberDittoToggle(repo, configState) { go("ditto_identity") }
+        val dittoSource = stringResource(
+            if (currentConfig.dittoPdlSource == DittoPdlSource.COMMUNITY) {
+                R.string.transport_community
+            } else R.string.transport_custom,
+        )
         WearTAKPageWithBackArrow("Plugins", back) {
-            item { WearTAKTitleChip("TAKwerx Market") { go("takwerx_market") } }
-            listOf("Commands", "Ditto", "Everywhere Comms", "GoTenna", "Sensor Manager", "Somewear Labs")
+            (PLUGIN_TITLES + "TAKwerx Market")
                 .sortedWith(String.CASE_INSENSITIVE_ORDER)
                 .forEach { title ->
                     item {
                         when (title) {
+                            "TAKwerx Market" -> {
+                                WearTAKTitleChip(title) { go("takwerx_market") }
+                            }
                             "Commands" -> {
                                 WearTAKSplitToggleChip(
-                                    appIcon = {},
+                                    appIcon = { PluginRowIcon(title) },
                                     title = title,
-                                    label = if (config.chatCommandsEnabled) "Enabled" else "Disabled",
-                                    checked = config.chatCommandsEnabled,
+                                    checked = currentConfig.chatCommandsEnabled,
                                     onCheckedChange = { on -> update { it.copy(chatCommandsEnabled = on) } },
                                     onClick = { go("chat_commands") },
                                 )
                             }
-                            "Ditto" -> {
+                            DITTO_PLUGIN_NAME -> {
                                 WearTAKSplitToggleChip(
-                                    appIcon = {},
+                                    appIcon = { PluginRowIcon(title) },
                                     title = title,
-                                    label = when (config.dittoPdlSource) {
-                                        DittoPdlSource.COMMUNITY -> "Community"
-                                        DittoPdlSource.CUSTOM -> config.dittoCustomPdl.ifBlank { "No custom PDL saved" }
-                                    },
-                                    checked = config.dittoEnabled,
-                                    onCheckedChange = { on ->
-                                        if (!on) {
-                                            update { it.copy(dittoEnabled = false) }
-                                            return@WearTAKSplitToggleChip
-                                        }
-                                        val pdl = when (config.dittoPdlSource) {
-                                            DittoPdlSource.COMMUNITY -> BuildConfig.DITTO_COMMUNITY_IDENTITY
-                                            DittoPdlSource.CUSTOM -> config.dittoCustomPdl
-                                        }
-                                        val identityError = try {
-                                            val license = com.tak.weartak_tracker.service.DittoCommunityLicenseHelper.parse(pdl)
-                                            if (license.expiresAtMillis <= System.currentTimeMillis()) "Ditto identity has expired" else null
-                                        } catch (error: IllegalArgumentException) {
-                                            error.message ?: "Invalid Ditto identity"
-                                        }
-                                        if (identityError != null) {
-                                            Toast.makeText(context, identityError, Toast.LENGTH_LONG).show()
-                                            go("ditto_identity")
-                                            return@WearTAKSplitToggleChip
-                                        }
-                                        val missing = dittoRuntimePermissions(context)
-                                        if (missing.isEmpty()) {
-                                            update { it.copy(dittoEnabled = true) }
-                                            TrackerService.start(context)
-                                        } else {
-                                            dittoPermissions.launch(missing)
-                                        }
-                                    },
+                                    label = if (dittoState == DittoState.Disabled) dittoSource else stringResource(
+                                        R.string.transport_ditto_subtitle,
+                                        dittoSource,
+                                        stringResource(dittoStatusResource(dittoState)),
+                                    ),
+                                    checked = currentConfig.dittoEnabled,
+                                    onCheckedChange = dittoToggleCallback(configState, toggleDitto),
                                     onClick = { go("ditto_identity") },
                                 )
                             }
+                            "MOPP" -> {
+                                WearTAKTitleChip(
+                                    title = "MOPP",
+                                    icon = { PluginRowIcon(title) },
+                                ) { go("mopp_status") }
+                            }
                             "Sensor Manager" -> {
                                 WearTAKSplitToggleChip(
-                                    appIcon = {},
+                                    appIcon = { PluginRowIcon(title) },
                                     title = title,
                                     label = "Unfunded Request",
-                                    checked = config.sensorManagerEnabled,
+                                    checked = currentConfig.sensorManagerEnabled,
                                     onCheckedChange = { on -> update { it.copy(sensorManagerEnabled = on) } },
                                     onClick = { go("sensor_manager") },
                                 )
                             }
                             else -> {
                                 WearTAKSplitToggleChip(
-                                    appIcon = {},
+                                    appIcon = { PluginRowIcon(title) },
                                     title = title,
                                     label = "Unfunded Request",
                                     checked = false,
@@ -414,24 +440,68 @@ fun NavGraphBuilder.settingsGraph(repo: SettingsRepository, configState: State<T
         }
     }
 
-    composable("ditto_identity") {
+    composable("mopp_status") {
+        val currentConfig by repo.config.collectAsStateWithLifecycle(initialValue = config)
+        val context = LocalContext.current
+        val scope = rememberCoroutineScope()
+        var candidate by rememberSaveable { mutableStateOf(currentConfig.moppStatus.name) }
+        var saving by remember { mutableStateOf(false) }
+        WearTAKPageWithBackArrow("PPE Status", back) {
+            item {
+                Icon(painterResource(R.drawable.mopp_mask), contentDescription = "Protective mask", modifier = Modifier.size(32.dp))
+            }
+            item { Text("PPE Status: ${currentConfig.moppStatus.label}", textAlign = TextAlign.Center) }
+            item { Text("Save to include PPE in outgoing PLI. None omits PPE. Back discards changes.", textAlign = TextAlign.Center, color = Color.LightGray) }
+            MoppStatus.entries.forEach { status ->
+                item {
+                    WearTAKSelectableChip(
+                        selected = candidate == status.name,
+                        title = status.label,
+                        item = status,
+                        list = MoppStatus.entries,
+                        onClick = { if (!saving) candidate = status.name },
+                    )
+                }
+            }
+            item {
+                WearTAKTitleChip(if (saving) "Saving..." else "Save", enabled = !saving) {
+                    val selected = MoppStatus.fromStored(candidate)
+                    saving = true
+                    scope.launch {
+                        try {
+                            repo.update { it.copy(moppStatus = selected) }
+                            Toast.makeText(context, "PPE status saved: ${selected.label}", Toast.LENGTH_SHORT).show()
+                            back()
+                        } catch (error: java.io.IOException) {
+                            com.tak.weartak_tracker.diagnostics.AppLog.w("MoppStatus", "Unable to save PPE status", error)
+                            Toast.makeText(context, "Unable to save PPE status. Try again.", Toast.LENGTH_LONG).show()
+                        } finally {
+                            saving = false
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    networkComposable("ditto_identity", configState, back) {
         DittoIdentityPage(repo, config, back, go)
     }
 
-    composable("ditto_custom_identity") {
+    networkComposable("ditto_custom_identity", configState, back) {
         val currentConfig by repo.config.collectAsStateWithLifecycle(initialValue = config)
-        val update = rememberUpdater(repo)
+        val update = rememberNetworkUpdater(repo)
         WearTAKStringEntryPage(
             item = currentConfig.dittoCustomPdl,
-            label = "Ditto Community PDL",
+            label = "Ditto Edge Sync Community PDL",
             onBack = back,
             keyboardType = KeyboardType.Ascii,
             validate = { value ->
                 try {
                     val license = com.tak.weartak_tracker.service.DittoCommunityLicenseHelper.parse(value)
-                    if (license.expiresAtMillis <= System.currentTimeMillis()) "Ditto identity has expired" else null
+                    if (license.expiresAtMillis <= System.currentTimeMillis()) "Ditto Edge Sync identity has expired" else null
                 } catch (error: IllegalArgumentException) {
-                    error.message ?: "Invalid Ditto identity"
+                    error.message ?: "Invalid Ditto Edge Sync identity"
                 }
             },
             confirmFunction = { value ->
@@ -448,8 +518,16 @@ fun NavGraphBuilder.settingsGraph(repo: SettingsRepository, configState: State<T
                     if (config.chatCommandCallsigns.isEmpty()) "None" else "${config.chatCommandCallsigns.size} allowed",
                 ) { go("chat_command_callsigns") }
             }
+            item { WearTAKTitleChip("Profiles") { go("chat_command_profiles") } }
         }
     }
+
+    composable("chat_command_profiles") { PresetListPage(repo, go, back) }
+
+    composable(
+        "chat_command_profile/{name}",
+        arguments = listOf(navArgument("name") { type = NavType.StringType }),
+    ) { entry -> PresetDetailPage(repo, entry.arguments?.getString("name").orEmpty(), back) }
 
     composable("sensor_manager") {
         WearTAKPageWithBackArrow("Sensor Manager", back) {
@@ -480,6 +558,28 @@ fun NavGraphBuilder.settingsGraph(repo: SettingsRepository, configState: State<T
             }
         }
     }
+    composable(
+        "chat_command_callsigns_edit/{callsign}",
+        arguments = listOf(navArgument("callsign") { type = NavType.StringType }),
+    ) { entry ->
+        val update = rememberUpdater(repo)
+        val original = entry.arguments?.getString("callsign").orEmpty()
+        WearTAKStringEntryPage(
+            item = original,
+            label = "Callsign",
+            onBack = back,
+            openKeyboard = true,
+            validate = { ChatCommandAuthorizer.validateEditedCallsign(original, it, config.chatCommandCallsigns) },
+        ) { value ->
+            update { current ->
+                current.copy(
+                    chatCommandCallsigns =
+                        ChatCommandAuthorizer.replaceAllowedCallsign(current.chatCommandCallsigns, original, value)
+                            ?: current.chatCommandCallsigns,
+                )
+            }
+        }
+    }
     networkComposable("tak_servers", configState, back) { TakServersPage(repo, config, go, back) }
 
     networkComposable("tak_channels", configState, back) { ChannelServersPage(config, go, back) }
@@ -489,7 +589,7 @@ fun NavGraphBuilder.settingsGraph(repo: SettingsRepository, configState: State<T
         configState, back,
         arguments = listOf(navArgument("id") { type = NavType.StringType }),
     ) { entry ->
-        val server = config.servers.firstOrNull { it.id == entry.arguments?.getString("id") }
+        val server = config.runtimeTakServers.firstOrNull { it.id == entry.arguments?.getString("id") }
         if (server == null) {
             LaunchedEffect(Unit) { back() }
         } else {
@@ -499,7 +599,7 @@ fun NavGraphBuilder.settingsGraph(repo: SettingsRepository, configState: State<T
 
     networkComposable("new_server_screen", configState, back) {
         val newId = rememberSaveable { java.util.UUID.randomUUID().toString() }
-        ServerFormPage(repo, "New Server", TakServerConfig(id = newId), isNew = true, back = back)
+        ServerFormPage(repo, "New Server", TakServerConfig(id = newId), isNew = true, takEnabled = config.takServersEnabled, back = back)
     }
 
     networkComposable(
@@ -511,12 +611,12 @@ fun NavGraphBuilder.settingsGraph(repo: SettingsRepository, configState: State<T
         if (server == null) {
             LaunchedEffect(Unit) { back() }
         } else {
-            ServerFormPage(repo, "Edit Server", server, isNew = false, back = back)
+            ServerFormPage(repo, "Edit Server", server, isNew = false, takEnabled = config.takServersEnabled, back = back)
         }
     }
 
     networkComposable("tak_sa_multicast", configState, back) {
-        val update = rememberUpdater(repo)
+        val update = rememberNetworkUpdater(repo)
         WearTAKPageWithBackArrow("TAK SA Multicast", back) {
             item {
                 WearTAKToggleChip(
@@ -533,7 +633,7 @@ fun NavGraphBuilder.settingsGraph(repo: SettingsRepository, configState: State<T
     }
 
     networkComposable("multicast_address", configState, back) {
-        val update = rememberUpdater(repo)
+        val update = rememberNetworkUpdater(repo)
         WearTAKStringEntryPage(
             item = config.multicastAddress,
             label = "Address",
@@ -543,7 +643,7 @@ fun NavGraphBuilder.settingsGraph(repo: SettingsRepository, configState: State<T
     }
 
     networkComposable("multicast_protocol", configState, back) {
-        val update = rememberUpdater(repo)
+        val update = rememberNetworkUpdater(repo)
         WearTAKSelectionPage("Output Protocol", MULTICAST_PROTOCOLS, config.multicastProtocol, onBack = back) { protocol ->
             update { it.copy(multicastProtocol = protocol) }
             back()
@@ -551,14 +651,14 @@ fun NavGraphBuilder.settingsGraph(repo: SettingsRepository, configState: State<T
     }
 
     networkComposable("multicast_port", configState, back) {
-        val update = rememberUpdater(repo)
+        val update = rememberNetworkUpdater(repo)
         WearTAKIntEntryPage(config.multicastPort, "Port", 1, 65535, back) { v -> update { it.copy(multicastPort = v) } }
     }
 
     networkComposable("sitx_tak_screen", configState, back) { SitxPage(repo, config, go, back) }
 
     networkComposable("sitx_tak_url_screen", configState, back) {
-        val update = rememberUpdater(repo)
+        val update = rememberNetworkUpdater(repo)
         val currentConfig by repo.config.collectAsStateWithLifecycle(initialValue = config)
         WearTAKStringEntryPage(item = currentConfig.sitxUrl, label = "Address", onBack = back) { v ->
             update { it.copy(sitxUrl = v.trim(), sitxGroup = "") }
@@ -586,12 +686,12 @@ private fun DittoIdentityPage(
     go: Navigate,
 ) {
     val context = LocalContext.current
-    val update = rememberUpdater(repo)
+    val update = rememberNetworkUpdater(repo)
     val state by TrackerState.ditto.collectAsStateWithLifecycle()
     var showPdlHelp by rememberSaveable { mutableStateOf(false) }
     val communityAvailable = BuildConfig.DITTO_COMMUNITY_IDENTITY.isNotBlank()
     val currentState = state
-    WearTAKPageWithBackArrow("Ditto Identity", back) {
+    WearTAKPageWithBackArrow("$DITTO_PLUGIN_NAME Identity", back) {
         item {
             WearTAKSelectableChip(
                 selected = config.dittoPdlSource == DittoPdlSource.COMMUNITY,
@@ -625,7 +725,7 @@ private fun DittoIdentityPage(
                 title = "Custom PDL",
                 item = DittoPdlSource.CUSTOM,
                 list = DittoPdlSource.entries,
-                secondaryTitle = config.dittoCustomPdl.ifBlank { "No custom PDL saved" },
+                secondaryTitle = if (config.dittoCustomPdl.isBlank()) "No custom PDL saved" else stringResource(R.string.transport_custom_saved),
             )
         }
         item {
@@ -638,10 +738,10 @@ private fun DittoIdentityPage(
         item {
             Text(
                 when (currentState) {
-                    DittoState.Disabled -> "Ditto sync is off"
-                    DittoState.NeedsIdentity -> "Set a Ditto identity to start sync"
-                    DittoState.Starting -> "Starting Ditto peer-to-peer sync"
-                    DittoState.Active -> "Ditto peer-to-peer sync is active"
+                    DittoState.Disabled -> "$DITTO_PLUGIN_NAME is off"
+                    DittoState.NeedsIdentity -> "Set a $DITTO_PLUGIN_NAME identity to start sync"
+                    DittoState.Starting -> "Starting $DITTO_PLUGIN_NAME"
+                    DittoState.Active -> "$DITTO_PLUGIN_NAME is active"
                     is DittoState.Error -> currentState.message
                 },
                 fontSize = 11.sp,
@@ -685,7 +785,7 @@ private fun DittoIdentityPage(
     )
 }
 
-private fun dittoRuntimePermissions(context: Context): Array<String> = buildList {
+internal fun dittoRuntimePermissions(context: Context): Array<String> = buildList {
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
         add(Manifest.permission.BLUETOOTH_SCAN)
         add(Manifest.permission.BLUETOOTH_CONNECT)
@@ -716,7 +816,7 @@ private fun NavGraphBuilder.networkComposable(
 
 /** CIV's "Physiological Monitoring" switch; turning it on asks for heart-rate access first. */
 @Composable
-private fun PhysioToggle(repo: SettingsRepository, config: TrackerConfig) {
+internal fun PhysioToggle(repo: SettingsRepository, config: TrackerConfig) {
     val context = LocalContext.current
     val update = rememberUpdater(repo)
     val bpm by TrackerState.heartRate.collectAsStateWithLifecycle()
@@ -744,6 +844,7 @@ private fun PhysioToggle(repo: SettingsRepository, config: TrackerConfig) {
             }
         },
         title = "Physiological Monitoring",
+        icon = { Icon(Icons.Filled.Favorite, contentDescription = null, modifier = Modifier.size(24.dp)) },
         description = if (!config.physioMonitoring) "Off" else {
             val hr = if (bpm > 0) "$bpm" else "N/A"
             val skin = skinF?.let { String.format(java.util.Locale.US, "%.1f°F", it) } ?: "N/A"
@@ -783,7 +884,7 @@ private fun ChannelServersPage(config: TrackerConfig, go: Navigate, back: () -> 
         if (config.servers.isEmpty()) {
             item { Text("Add a TAK Server first", textAlign = TextAlign.Center, color = Color.LightGray) }
         }
-        itemsIndexed(serversAlphabetically(config.servers), key = { _, s -> s.id }) { _, server ->
+        itemsIndexed(serversAlphabetically(config.runtimeTakServers), key = { _, s -> s.id }) { _, server ->
             WearTAKTitleChipWithState(server.name, channelSummary(server, states[server.id], channels[server.id])) {
                 go("tak_channels/${server.id}")
             }
@@ -849,6 +950,160 @@ private fun ChannelsPage(server: TakServerConfig, back: () -> Unit) {
     }
 }
 
+@Composable
+private fun PresetListPage(repo: SettingsRepository, go: Navigate, back: () -> Unit) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var refresh by remember { mutableStateOf(0) }
+    var message by remember { mutableStateOf("") }
+    val names by produceState<List<String>?>(null, refresh) {
+        value = withContext(Dispatchers.IO) { ProfilePresets.names(context) }
+    }
+    WearTAKPageWithBackArrow("Profiles", back) {
+        item {
+            WearTAKTitleChip("Save Current Settings") {
+                scope.launch {
+                    val config = repo.config.first()
+                    val saved = withContext(Dispatchers.IO) { ProfilePresets.saveBackup(context, config) }
+                    message = saved?.let { "Saved as $it" } ?: "Could not save profile"
+                    refresh++
+                }
+            }
+        }
+        if (message.isNotBlank()) {
+            item { Text(message, fontSize = 12.sp, textAlign = TextAlign.Center, color = Color.LightGray) }
+        }
+        val list = names
+        when {
+            list == null -> item { Text("Loading…", textAlign = TextAlign.Center, color = Color.LightGray) }
+            list.isEmpty() -> {
+                item { Text("No saved profiles", textAlign = TextAlign.Center, color = Color.LightGray) }
+                item {
+                    Text(
+                        "Push presets to files/presets/<name>.json",
+                        textAlign = TextAlign.Center,
+                        color = Color.LightGray,
+                    )
+                }
+            }
+            else -> list.forEach { name -> item { WearTAKTitleChip(name) { go("chat_command_profile/$name") } } }
+        }
+    }
+}
+
+/** Profile values and server endpoints, with Load and Delete; server credentials are never shown. */
+@Composable
+private fun PresetDetailPage(repo: SettingsRepository, name: String, back: () -> Unit) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var confirmLoad by remember { mutableStateOf(false) }
+    var confirmDelete by remember { mutableStateOf(false) }
+    var busy by remember { mutableStateOf(false) }
+    var message by remember { mutableStateOf("") }
+    val summary by produceState<PresetSummary?>(null, name) {
+        value = withContext(Dispatchers.IO) { ProfilePresets.summary(context, name) }
+    }
+    WearTAKPageWithBackArrow(name, back) {
+        val s = summary
+        when {
+            s == null -> item { Text("Loading…", textAlign = TextAlign.Center, color = Color.LightGray) }
+            !s.valid -> item { Text("Invalid preset", textAlign = TextAlign.Center, color = Color.LightGray) }
+            else -> {
+                if (s.profile.isEmpty()) item { Text("No profile fields", textAlign = TextAlign.Center, color = Color.LightGray) }
+                s.profile.forEach { (key, value) ->
+                    item { WearTAKTitleChipWithState(ProfilePresets.label(key), value) {} }
+                }
+                item { Text("Servers", textAlign = TextAlign.Center) }
+                if (s.servers.isEmpty()) item { Text("None", textAlign = TextAlign.Center, color = Color.LightGray) }
+                s.servers.forEach { server ->
+                    item { Text(server, textAlign = TextAlign.Center, color = Color.LightGray) }
+                }
+                if (s.customAlerts.isNotEmpty()) {
+                    item { Text("Custom Alerts", textAlign = TextAlign.Center) }
+                    s.customAlerts.forEach { alert ->
+                        item { Text(alert, textAlign = TextAlign.Center, color = Color.LightGray) }
+                    }
+                }
+            }
+        }
+        if (message.isNotBlank()) {
+            item { Text(message, fontSize = 12.sp, textAlign = TextAlign.Center, color = Color.LightGray) }
+        }
+        item {
+            Button(
+                onClick = { confirmLoad = true },
+                enabled = s?.valid == true && !busy,
+                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = colors.primary,
+                    contentColor = Color.Black,
+                    disabledContainerColor = Color.DarkGray,
+                    disabledContentColor = Color.Gray,
+                ),
+            ) { Text("Load", color = if (s?.valid == true && !busy) Color.Black else Color.Gray) }
+        }
+        item {
+            Button(
+                onClick = { confirmDelete = true },
+                enabled = s != null && !busy,
+                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = Color.Red, contentColor = Color.White),
+            ) { Text("Delete", color = Color.White) }
+        }
+        item { Spacer(Modifier.height(10.dp)) }
+    }
+
+    WearTAKAlertDialog(
+        show = confirmLoad,
+        onDismissRequest = { confirmLoad = false },
+        text = {
+            Text(
+                "Load $name? Its profile values replace the current ones and its servers are added. The preset is kept.",
+                textAlign = TextAlign.Center,
+                fontSize = 14.sp,
+            )
+        },
+        confirmButton = {
+            DialogButton("Load", colors.primary, Color.Black) {
+                confirmLoad = false
+                busy = true
+                scope.launch {
+                    message = ChatCommandRuntime.loadPreset(context, repo, name).message
+                    busy = false
+                }
+            }
+        },
+        dismissButton = { DialogButton("Dismiss", Color.Gray, Color.White) { confirmLoad = false } },
+    )
+
+    WearTAKAlertDialog(
+        show = confirmDelete,
+        onDismissRequest = { confirmDelete = false },
+        icon = {
+            Icon(Icons.Default.Warning, modifier = Modifier.size(25.dp), contentDescription = null, tint = Color.LightGray)
+        },
+        text = {
+            Text(
+                "Delete $name from this watch? Current settings are not changed. This can't be undone.",
+                textAlign = TextAlign.Center,
+                fontSize = 14.sp,
+            )
+        },
+        confirmButton = {
+            DialogButton("Delete", Color.Red, Color.White) {
+                confirmDelete = false
+                busy = true
+                scope.launch {
+                    val deleted = withContext(Dispatchers.IO) { ProfilePresets.delete(context, name) }
+                    busy = false
+                    if (deleted) back() else message = "Could not delete $name"
+                }
+            }
+        },
+        dismissButton = { DialogButton("Dismiss", Color.Gray, Color.White) { confirmDelete = false } },
+    )
+}
+
 @OptIn(ExperimentalWearMaterialApi::class, ExperimentalWearFoundationApi::class)
 @Composable
 private fun AllowedCallsignsPage(
@@ -870,31 +1125,22 @@ private fun AllowedCallsignsPage(
             item { Text("No callsigns allowed", textAlign = TextAlign.Center, color = Color.LightGray) }
         }
         itemsIndexed(sortedCallsigns, key = { _, callsign -> ChatCommandAuthorizer.normalize(callsign) }) { _, callsign ->
-            val revealState = rememberRevealState()
-            val scope = rememberCoroutineScope()
-            val remove = {
-                update { current ->
-                    current.copy(
-                        chatCommandCallsigns =
-                            ChatCommandAuthorizer.removeAllowedCallsign(current.chatCommandCallsigns, callsign),
-                    )
+            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Box(modifier = Modifier.weight(1f)) {
+                    WearTAKTitleChip(callsign) { go("chat_command_callsigns_edit/${Uri.encode(callsign)}") }
                 }
-            }
-            SwipeToRevealChip(
-                revealState = revealState,
-                modifier = Modifier.fillMaxWidth(),
-                primaryAction = {
-                    SwipeToRevealPrimaryAction(
-                        revealState = revealState,
-                        icon = { Icon(SwipeToRevealDefaults.Delete, "Remove") },
-                        label = { Text("Remove") },
-                        onClick = { remove() },
-                    )
-                },
-                onFullSwipe = { remove() },
-            ) {
-                WearTAKTitleChip(callsign) {
-                    scope.launch { revealState.animateTo(RevealValue.Revealing) }
+                IconButton(
+                    onClick = {
+                        update { current ->
+                            current.copy(
+                                chatCommandCallsigns =
+                                    ChatCommandAuthorizer.removeAllowedCallsign(current.chatCommandCallsigns, callsign),
+                            )
+                        }
+                    },
+                    modifier = Modifier.size(48.dp),
+                ) {
+                    Icon(Icons.Filled.Delete, contentDescription = "Delete $callsign", tint = Color.Red)
                 }
             }
         }
@@ -904,7 +1150,7 @@ private fun AllowedCallsignsPage(
 @OptIn(ExperimentalWearMaterialApi::class, ExperimentalWearFoundationApi::class)
 @Composable
 private fun TakServersPage(repo: SettingsRepository, config: TrackerConfig, go: Navigate, back: () -> Unit) {
-    val update = rememberUpdater(repo)
+    val update = rememberNetworkUpdater(repo)
     val context = LocalContext.current
     val states by TrackerState.takServers.collectAsStateWithLifecycle()
     WearTAKPageWithBackArrow("TAK Server Connections", back) {
@@ -912,7 +1158,7 @@ private fun TakServersPage(repo: SettingsRepository, config: TrackerConfig, go: 
             val revealState = rememberRevealState()
             val scope = rememberCoroutineScope()
             val remove = { update { c -> c.copy(servers = c.servers.filterNot { it.id == server.id }) } }
-            val status = states[server.id]?.status
+            val status = if (config.takServersEnabled) states[server.id]?.status else TakStatus.DISABLED
             SwipeToRevealChip(
                 revealState = revealState,
                 modifier = Modifier.fillMaxWidth(),
@@ -969,9 +1215,8 @@ private fun TakServersPage(repo: SettingsRepository, config: TrackerConfig, go: 
 
 /** New/Edit server form plus CIV's registration dialogs driven by the connection state. */
 @Composable
-private fun ServerFormPage(repo: SettingsRepository, title: String, initial: TakServerConfig, isNew: Boolean, back: () -> Unit) {
+private fun ServerFormPage(repo: SettingsRepository, title: String, initial: TakServerConfig, isNew: Boolean, takEnabled: Boolean, back: () -> Unit) {
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
     var name by rememberSaveable { mutableStateOf(initial.name) }
     var address by rememberSaveable { mutableStateOf(initial.address) }
     var port by rememberSaveable { mutableStateOf(initial.port.toString()) }
@@ -980,6 +1225,13 @@ private fun ServerFormPage(repo: SettingsRepository, title: String, initial: Tak
     var savedId by rememberSaveable { mutableStateOf<String?>(null) }
     var dismissed by rememberSaveable { mutableStateOf(false) }
     val states by TrackerState.takServers.collectAsStateWithLifecycle()
+    val update = rememberNetworkUpdater(repo) {
+        TrackerService.start(context, TrackerService.ACTION_TAK_SERVER_RETRY) {
+            putExtra(TrackerService.EXTRA_SERVER_ID, initial.id)
+        }
+        dismissed = false
+        savedId = initial.id
+    }
 
     WearTAKPageWithConfirmCancel(
         title = title,
@@ -998,19 +1250,12 @@ private fun ServerFormPage(repo: SettingsRepository, title: String, initial: Tak
                     name = name.trim(), address = address.trim(), port = p,
                     username = username.trim(), password = password, enabled = true,
                 ).let { if (moved) it.copy(tlsName = "", apiTlsName = "") else it }
-                scope.launch {
-                    repo.update { c ->
-                        // Upsert: the form stays open while registering, so Save can be pressed again for a new server.
-                        val exists = c.servers.any { it.id == server.id }
-                        c.copy(
-                            servers = if (exists) c.servers.map { if (it.id == server.id) server else it } else c.servers + server,
-                        )
-                    }
-                    TrackerService.start(context, TrackerService.ACTION_TAK_SERVER_RETRY) {
-                        putExtra(TrackerService.EXTRA_SERVER_ID, server.id)
-                    }
-                    dismissed = false
-                    savedId = server.id
+                update { c ->
+                    // Upsert: the form stays open while registering, so Save can be pressed again for a new server.
+                    val exists = c.servers.any { it.id == server.id }
+                    c.copy(
+                        servers = if (exists) c.servers.map { if (it.id == server.id) server else it } else c.servers + server,
+                    )
                 }
             }
         },
@@ -1018,7 +1263,7 @@ private fun ServerFormPage(repo: SettingsRepository, title: String, initial: Tak
             val id = savedId
             if (id != null && !dismissed) {
                 val state = states[id]
-                val status = state?.status
+                val status = if (takEnabled) state?.status else TakStatus.DISABLED
                 WearTAKLoadingDialog(
                     show = status == null || status == TakStatus.ENROLLING || status == TakStatus.CONNECTING ||
                         status == TakStatus.DISCONNECTED,
@@ -1033,6 +1278,7 @@ private fun ServerFormPage(repo: SettingsRepository, title: String, initial: Tak
                             when (status) {
                                 TakStatus.CONNECTED -> "Registration Complete"
                                 TakStatus.DUPLICATE -> "Duplicate TAK Server"
+                                TakStatus.DISABLED -> stringResource(R.string.transport_tak_saved)
                                 else -> "Registration Failed"
                             },
                             textAlign = TextAlign.Center,
@@ -1044,6 +1290,7 @@ private fun ServerFormPage(repo: SettingsRepository, title: String, initial: Tak
                             when (status) {
                                 TakStatus.CONNECTED -> "TAK Server registration succeeded"
                                 TakStatus.DUPLICATE -> "This TAK Server already exists"
+                                TakStatus.DISABLED -> stringResource(R.string.transport_tak_off)
                                 else -> state?.message ?: "Invalid Credentials, try again"
                             },
                             textAlign = TextAlign.Center,
@@ -1052,7 +1299,7 @@ private fun ServerFormPage(repo: SettingsRepository, title: String, initial: Tak
                         )
                     },
                     confirmButton = {
-                        if (status == TakStatus.CONNECTED) {
+                        if (status == TakStatus.CONNECTED || status == TakStatus.DISABLED) {
                             DialogButton("Okay", colors.primary, Color.Black) { dismissed = true; back() }
                         } else {
                             DialogButton("Retry", colors.primary, Color.Black) {
@@ -1128,8 +1375,8 @@ private fun sitxStatusText(state: SitxState): String = when (state) {
 @Composable
 private fun SitxPage(repo: SettingsRepository, initialConfig: TrackerConfig, go: Navigate, back: () -> Unit) {
     val config by repo.config.collectAsStateWithLifecycle(initialValue = initialConfig)
-    val update = rememberUpdater(repo)
     val context = LocalContext.current
+    val update = rememberNetworkUpdater(repo) { if (it.sitxEnabled) TrackerService.start(context) }
     val scope = rememberCoroutineScope()
     val sitx by TrackerState.sitx.collectAsStateWithLifecycle()
     val account by TrackerState.sitxAccount.collectAsStateWithLifecycle()
@@ -1174,7 +1421,6 @@ private fun SitxPage(repo: SettingsRepository, initialConfig: TrackerConfig, go:
                 checked = config.sitxEnabled,
                 onCheckedChange = { on ->
                     update { it.copy(sitxEnabled = on) }
-                    if (on) TrackerService.start(context)
                 },
                 title = "Sit(x) TAK",
                 description = "Service ON/OFF",
@@ -1288,15 +1534,13 @@ private fun SitxPage(repo: SettingsRepository, initialConfig: TrackerConfig, go:
             text = {
                 Column {
                     Text(stringResource(R.string.reauth_pin_explanation))
-                    OutlinedTextField(
+                    WearTAKNativeTextField(
                         value = pin,
                         onValueChange = { value ->
                             if (value.length <= 6 && value.all { it in '0'..'9' }) pin = value
                         },
-                        label = { Text(stringResource(R.string.reauth_pin_hint)) },
-                        singleLine = true,
-                        visualTransformation = PasswordVisualTransformation(),
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                        label = stringResource(R.string.reauth_pin_hint),
+                        keyboardType = KeyboardType.NumberPassword,
                     )
                 }
             },
@@ -1323,7 +1567,7 @@ private fun SitxPage(repo: SettingsRepository, initialConfig: TrackerConfig, go:
 
 @Composable
 private fun SitxGroupPage(repo: SettingsRepository, config: TrackerConfig, back: () -> Unit) {
-    val update = rememberUpdater(repo)
+    val update = rememberNetworkUpdater(repo)
     val context = LocalContext.current
     val groups by TrackerState.sitxGroups.collectAsStateWithLifecycle()
     LaunchedEffect(Unit) {

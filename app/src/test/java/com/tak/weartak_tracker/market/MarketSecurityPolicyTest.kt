@@ -1,5 +1,6 @@
 package com.tak.weartak_tracker.market
 
+import com.tak.weartak_tracker.ui.marketPluginsInDisplayOrder
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -8,6 +9,19 @@ import org.junit.Test
 class MarketSecurityPolicyTest {
     private val hostPackage = "com.tak.weartak_tracker"
     private val signer = "a".repeat(64)
+
+    @Test
+    fun pluginDisplayOrderIgnoresCaseAndUsesVisibleHostName() {
+        val host = plugin(packageName = hostPackage, hostUpdate = true).copy(name = "AAA host metadata")
+        val openVpn = plugin(id = "vpn", packageName = "org.example.vpn").copy(name = "OpenVPN")
+        val alpha = plugin(id = "alpha", packageName = "org.example.alpha").copy(name = "alpha")
+        val zulu = plugin(id = "zulu", packageName = "org.example.zulu").copy(name = "Zulu")
+
+        assertEquals(
+            listOf(alpha, openVpn, host, zulu),
+            marketPluginsInDisplayOrder(listOf(zulu, host, openVpn, alpha), "WearTAK-Tracker"),
+        )
+    }
 
     @Test
     fun comparesInstalledVersionAndHostCompatibility() {

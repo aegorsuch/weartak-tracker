@@ -3,7 +3,7 @@ package com.tak.weartak_tracker.service
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import android.util.Log
+import com.tak.weartak_tracker.diagnostics.AppLog as Log
 import androidx.core.content.ContextCompat
 
 class DebugStayAwakeUpdateReceiver : BroadcastReceiver() {
@@ -15,6 +15,8 @@ class DebugStayAwakeUpdateReceiver : BroadcastReceiver() {
             .setAction(DebugStayAwakeService.ACTION_RESTORE_AFTER_UPDATE)
         try {
             ContextCompat.startForegroundService(context, serviceIntent)
+        } catch (error: IllegalStateException) {
+            Log.w(TAG, "Cannot restore debug stay awake from background after update", error)
         } catch (error: SecurityException) {
             Log.e(TAG, "Cannot restore debug stay awake after update", error)
         }

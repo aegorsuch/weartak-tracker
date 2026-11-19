@@ -2,7 +2,7 @@ package com.tak.weartak_tracker.transport
 
 import android.content.Context
 import android.util.Base64
-import android.util.Log
+import com.tak.weartak_tracker.diagnostics.AppLog as Log
 import com.tak.weartak_tracker.BuildConfig
 import com.tak.weartak_tracker.R
 import com.tak.weartak_tracker.data.TakServerConfig
@@ -161,6 +161,7 @@ object TakCertificates {
 
     /** Returns credentials from a sideloaded P12, a still-valid cached enrollment, or a fresh enrollment. */
     fun obtain(context: Context, server: TakServerConfig, deviceUid: String, onEnrolling: () -> Unit): Credentials {
+        P12CredentialStore(context).load(server)?.let { return it }
         loadSideloaded(context, server)?.let { return it }
         val cached = cachedFile(context, server)
         loadCached(cached)?.let { return it }
