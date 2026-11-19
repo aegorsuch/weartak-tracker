@@ -348,7 +348,7 @@ the catalog publisher's protected environment.
 
 Use a Tracker-specific signed catalog, not WearTAK-WearOS's catalog or signing
 configuration. Tracker rejects catalogs containing another app's host update.
-The planned Tracker endpoint is
+The Tracker deployment endpoint is
 `https://aegorsuch.github.io/weartak-tracker/catalog.json`; do not configure it
 until its publisher, Pages deployment, and matching public key are verified.
 The APK signing certificate and catalog signing public key are separate trust
@@ -367,9 +367,10 @@ until the app process restarts, including after catalog refreshes or new release
 Downloads are limited to 250 MiB and checked against the signed catalog's SHA-256,
 package, version, and APK certificate before Android confirms installation.
 Knox policy can still prohibit installation; Market does not bypass device management.
-The previously verified universal Tracker p61 APK exceeds this limit. New
-release builds exclude x86 emulator libraries, but catalog activation still
-requires a verified, eligible canonical ARM release; do not repackage a signed APK.
+The historical universal Tracker p61 APK exceeded this limit. Canonical signed
+ARM-only p65 (143,355,363 bytes) resolved that blocker while retaining ARMv7 and
+ARM64 support. Catalog activation still requires the verified signed endpoint
+and eligible canonical host record; do not repackage a signed APK.
 
 Protect the signing variables and ensure `main` and release tags are protected so
 their jobs can access them. The instance/group must supply `TAK_REGISTRY_HOST` and a
