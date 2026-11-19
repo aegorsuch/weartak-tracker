@@ -316,6 +316,10 @@ fun NavGraphBuilder.settingsGraph(repo: SettingsRepository, configState: State<T
         }
     }
 
+    composable("takwerx_market") {
+        TakwerxMarketPage(onBack = back)
+    }
+
     composable("plugins") {
         val update = rememberUpdater(repo)
         val context = LocalContext.current
@@ -328,6 +332,7 @@ fun NavGraphBuilder.settingsGraph(repo: SettingsRepository, configState: State<T
             }
         }
         WearTAKPageWithBackArrow("Plugins", back) {
+            item { WearTAKTitleChip("TAKwerx Market") { go("takwerx_market") } }
             listOf("Commands", "Ditto", "Everywhere Comms", "GoTenna", "Sensor Manager", "Somewear Labs")
                 .sortedWith(String.CASE_INSENSITIVE_ORDER)
                 .forEach { title ->

@@ -56,6 +56,37 @@ Allowed Callsigns shows one callsign per row in case-insensitive alphabetical or
 - `#weartaktrackercommandloadprofile name=odin-weartak` applies `Android/data/<package>/files/presets/<name>.json` (`{"profile":{"team":"Blue"},"servers":[{"name","url","port","username","password"}]}`). Credentials come only from that file, never from chat. Servers already configured are skipped, and servers are not touched when network settings are locked.
 
 Callsigns are not authenticated, so only allow-list callsigns you trust on your servers.
+## Windows development setup
+
+Use JDK 17, the checked-in Gradle wrapper (8.14.5), and Android SDK Platform 36.
+Install required SDK packages through Android Studio's SDK Manager; review and
+accept any license prompts yourself. No release keystore is needed for unit
+tests or a debug APK.
+
+From the repository root in PowerShell, set the tool locations for the current
+shell only (adjust the paths for your installation):
+
+```powershell
+$env:JAVA_HOME = 'C:\Program Files\Eclipse Adoptium\jdk-17.0.20.101-hotspot'
+$env:ANDROID_HOME = "$env:LOCALAPPDATA\Android\Sdk"
+.\gradlew.bat --no-daemon :app:testDebugUnitTest :app:assembleDebug
+```
+
+The debug APK is written under `app\build\outputs\apk\debug`. This command does
+not install it on a watch or verify release signing. After dependencies are
+cached, `--offline` can be added for subsequent builds. Configure Android
+Studio's Gradle JDK to use JDK 17 as well.
+
+Release APKs package ARM64 (`arm64-v8a`) and ARMv7 (`armeabi-v7a`) native
+libraries for watches, excluding x86 and x86_64 emulator libraries. Debug
+builds retain all supported architectures for emulator development.
+
+Without `app\libs\samsung-health-sensor-api-1.4.1.aar`, the documented
+skin-temperature stub is used. Ditto Community operation requires the identity
+configuration described below; a successful debug build does not verify that
+integration. Preserve existing release signing material and use the established
+release process rather than generating a replacement key during environment setup.
+
 ## Setup
 1. Download the APK from [GitHub Releases](https://github.com/aegorsuch/weartak-tracker/releases) and install it on the watch (`adb install -r WearTAK-Tracker-<version>-release.apk`). Uninstall the old debug-signed app first if migrating to the release key; this clears settings.
 2. Open the app and grant **location** (precise or approximate) and, on Wear OS 4+, **notifications**. Startup also requests heart-rate access if missing; it is optional for position tracking and granting it does not turn Physiological Monitoring on.
@@ -183,6 +214,34 @@ Configure these masked CI/CD variables in the **Tracker** GitLab project:
 | `RELEASE_KEY_PASSWORD` | Tracker signing-key password |
 | `DITTO_COMMUNITY_IDENTITY` | Optional Community identity for builds that include it |
 | `GITHUB_RELEASE_TOKEN` | Fine-grained GitHub token restricted to `aegorsuch/weartak-tracker` with Contents read/write permission; masked and protected |
+
+TAKwerx Market reads `WEARTAK_MARKET_CATALOG_URL` and
+`WEARTAK_MARKET_CATALOG_PUBLIC_KEY` at build time. Both are public values: set
+them as CI variables or pass Gradle properties `weartakMarketCatalogUrl` and
+`weartakMarketCatalogPublicKey`. Builds without both values leave Market
+unconfigured and make no catalog request. The catalog public key must be the
+Base64-encoded Ed25519 X.509 public key; keep its private signing key only in
+the catalog publisher's protected environment.
+
+Use a Tracker-specific signed catalog, not WearTAK-WearOS's catalog or signing
+configuration. Tracker rejects catalogs containing another app's host update.
+The planned Tracker endpoint is
+`https://aegorsuch.github.io/weartak-tracker/catalog.json`; do not configure it
+until its publisher, Pages deployment, and matching public key are verified.
+The APK signing certificate and catalog signing public key are separate trust
+anchors. Previously configured WearOS catalog variables are not Tracker activation.
+
+Open **Tool Preferences > Plugins > TAKwerx Market** to browse approved
+releases. The home **Update** indicator only appears for a newer compatible
+Tracker release or an already-installed plugin with the expected signer.
+Uninstalled plugins do not trigger it. Opening Market acknowledges the warning
+until the app process restarts, including after catalog refreshes or new releases.
+Downloads are limited to 250 MiB and checked against the signed catalog's SHA-256,
+package, version, and APK certificate before Android confirms installation.
+Knox policy can still prohibit installation; Market does not bypass device management.
+The previously verified universal Tracker p61 APK exceeds this limit. New
+release builds exclude x86 emulator libraries, but catalog activation still
+requires a verified, eligible canonical ARM release; do not repackage a signed APK.
 
 Protect the signing variables and ensure `main` and release tags are protected so
 their jobs can access them. The instance/group must supply `TAK_REGISTRY_HOST` and a

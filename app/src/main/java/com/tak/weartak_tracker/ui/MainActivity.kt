@@ -28,6 +28,8 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -44,6 +46,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -101,6 +104,10 @@ fun foregroundPermissions(): Array<String> = buildList {
 private fun TrackerNav(repo: SettingsRepository) {
     val nav = rememberSwipeDismissableNavController()
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val marketUpdateMonitor = remember(context.applicationContext) {
+        (context.applicationContext as TrackerApp).marketUpdateMonitor
+    }
     val config = repo.config.collectAsStateWithLifecycle(initialValue = null).value ?: return
     val permissions = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
         TrackerService.start(context)
@@ -129,6 +136,13 @@ private fun TrackerNav(repo: SettingsRepository) {
     }
     val back: () -> Unit = { nav.popBackStack() }
     val home: () -> Unit = { nav.popBackStack("main_screen", inclusive = false) }
+    DisposableEffect(lifecycleOwner, marketUpdateMonitor) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) marketUpdateMonitor.retryInterruptedRefresh()
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
     SwipeDismissableNavHost(navController = nav, startDestination = "main_screen") {
         composable("main_screen") { MainScreen(currentConfig.value, go) }
         composable("sos_screen") { SosScreen(repo, home) }
@@ -139,6 +153,10 @@ private fun TrackerNav(repo: SettingsRepository) {
 @Composable
 fun MainScreen(config: TrackerConfig, go: Navigate) {
     val context = LocalContext.current
+    val marketUpdateMonitor = remember(context.applicationContext) {
+        (context.applicationContext as TrackerApp).marketUpdateMonitor
+    }
+    val marketSnapshot by marketUpdateMonitor.snapshot.collectAsStateWithLifecycle()
     val alerts by TrackerState.alerts.collectAsStateWithLifecycle()
     val isAlerting = alerts.any { it.state == AlertState.ALERT }
 
@@ -162,6 +180,11 @@ fun MainScreen(config: TrackerConfig, go: Navigate) {
             config,
             onNetworkClick = { go("network_preferences") },
             onLocationClick = { go("reporting_strategy") },
+            marketUpdateAvailable = marketSnapshot.showUpdateWarning,
+            onMarketClick = {
+                marketUpdateMonitor.markUpdatesReviewed()
+                go("takwerx_market")
+            },
         )
         TimeWithSecondsAware()
     }
@@ -209,7 +232,13 @@ fun Callsign(callsign: String, onClick: () -> Unit) {
 
 /** Connection/location (top) and network/battery (bottom) icons, positioned like CIV's TroubleshootingIcons. */
 @Composable
-private fun StatusIcons(config: TrackerConfig, onNetworkClick: () -> Unit, onLocationClick: () -> Unit) {
+private fun StatusIcons(
+    config: TrackerConfig,
+    onNetworkClick: () -> Unit,
+    onLocationClick: () -> Unit,
+    marketUpdateAvailable: Boolean,
+    onMarketClick: () -> Unit,
+) {
     val endpoints by TrackerState.endpoints.collectAsStateWithLifecycle()
     val takStates by TrackerState.takServers.collectAsStateWithLifecycle()
     val sitx by TrackerState.sitx.collectAsStateWithLifecycle()
@@ -244,6 +273,21 @@ private fun StatusIcons(config: TrackerConfig, onNetworkClick: () -> Unit, onLoc
                     else -> Color.DarkGray
                 },
             )
+        }
+        if (marketUpdateAvailable) {
+            val label = stringResource(R.string.market_update_available)
+            Box(
+                modifier = Modifier.align(Alignment.Center).offset(y = (-10).dp).size(40.dp)
+                    .clip(CircleShape).clickable(onClickLabel = label, onClick = onMarketClick),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    Icons.Filled.Warning,
+                    contentDescription = label,
+                    modifier = Modifier.size(20.dp),
+                    tint = Color.Yellow,
+                )
+            }
         }
 
         val connectivity = rememberConnectivity()
