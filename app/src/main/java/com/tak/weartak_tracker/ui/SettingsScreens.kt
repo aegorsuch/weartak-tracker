@@ -178,7 +178,9 @@ fun NavGraphBuilder.settingsGraph(repo: SettingsRepository, configState: State<T
     val config by configState
     composable("settings_screen") {
         WearTAKPageWithBackArrow("WearTAK-Tracker Preferences", back) {
+            item { WearTAKTitleChip("Admin Preferences", enabled = config.developerMode) { go("admin_preferences") } }
             item { WearTAKTitleChip("Callsign and Device Preferences") { go("callsign_and_device_preferences") } }
+            item { WearTAKTitleChip("Developer Preferences", enabled = config.developerMode) { go("debug_tools") } }
             item {
                 if (config.networkPreferencesLocked) {
                     val context = LocalContext.current
@@ -190,8 +192,6 @@ fun NavGraphBuilder.settingsGraph(repo: SettingsRepository, configState: State<T
                 }
             }
             item { WearTAKTitleChip("Tool Preferences") { go("tool_preferences") } }
-            item { WearTAKTitleChip("Admin Preferences", enabled = config.developerMode) { go("admin_preferences") } }
-            item { WearTAKTitleChip("Developer Preferences", enabled = config.developerMode) { go("debug_tools") } }
             item { DeveloperVersion(repo, config) }
         }
     }
