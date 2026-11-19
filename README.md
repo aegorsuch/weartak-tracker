@@ -304,6 +304,20 @@ release process rather than generating a replacement key during environment setu
 ```
 CI (`.github/workflows/android.yml`) runs the unit tests and builds the debug APK on every push and pull request.
 
+#### Tracker catalog publishing
+
+`.github/workflows/publish-market-catalog.yml` calls an immutable publisher
+revision with `catalog_target: tracker`. Only trusted `main` runs receive the
+dedicated Tracker `MARKET_CATALOG_SIGNING_KEY` repository secret; the matching
+Ed25519 X.509 public key is stored in `MARKET_CATALOG_PUBLIC_KEY`. Pull requests
+can run publisher tests without the signing secret. GitHub Pages deploys in
+Tracker's own `github-pages` environment, separate from WearTAK-WearOS.
+
+The caller supports manual runs, release repository dispatches, and a
+15-minute refresh schedule. Client activation is separate: configure the
+Tracker catalog URL and matching public key only after verifying the deployed
+signature and approved Tracker host record.
+
 #### Government GitLab CI/CD
 
 The canonical TAK Forge repository uses `.gitlab-ci.yml`, matching WearTAK-WearOS's
