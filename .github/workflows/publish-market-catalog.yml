@@ -1,0 +1,41 @@
+name: Publish TAKwerx Market catalog
+
+on:
+  workflow_dispatch:
+  repository_dispatch:
+    types: [takwerx-market-release]
+  schedule:
+    - cron: "*/15 * * * *"
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/publish-market-catalog.yml
+  pull_request:
+    paths:
+      - .github/workflows/publish-market-catalog.yml
+
+permissions:
+  contents: read
+
+jobs:
+  test-publisher:
+    if: github.event_name == 'pull_request'
+    uses: aegorsuch/weartak-takwerx-market/.github/workflows/publish-market-catalog.yml@c64560d0503915ff3739fa077e2971e296308113
+    with:
+      publisher_ref: c64560d0503915ff3739fa077e2971e296308113
+      catalog_target: tracker
+      market_catalog_public_key: ${{ vars.MARKET_CATALOG_PUBLIC_KEY }}
+
+  publish:
+    if: github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.ref == 'refs/heads/main'
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    uses: aegorsuch/weartak-takwerx-market/.github/workflows/publish-market-catalog.yml@c64560d0503915ff3739fa077e2971e296308113
+    with:
+      publisher_ref: c64560d0503915ff3739fa077e2971e296308113
+      catalog_target: tracker
+      market_catalog_public_key: ${{ vars.MARKET_CATALOG_PUBLIC_KEY }}
+    secrets:
+      catalog_signing_key: ${{ secrets.MARKET_CATALOG_SIGNING_KEY }}
