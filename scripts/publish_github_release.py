@@ -412,6 +412,10 @@ class ReleasePublisher:
                 "target_commitish": commit_sha,
             },
         )
+        self.api.request_json(
+            "POST", f"/repos/{GITHUB_REPOSITORY}/dispatches",
+            {"event_type": "takwerx-market-release"},
+        )
         return asset_name
 
 def main():

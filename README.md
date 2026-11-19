@@ -340,6 +340,11 @@ until its publisher, Pages deployment, and matching public key are verified.
 The APK signing certificate and catalog signing public key are separate trust
 anchors. Previously configured WearOS catalog variables are not Tracker activation.
 
+After publishing and verifying a canonical signed APK, the release mirror
+dispatches `takwerx-market-release` to refresh Tracker's isolated catalog.
+Dispatch failures fail the publishing job explicitly; the caller's periodic
+refresh remains a recovery path.
+
 Open **Tool Preferences > Plugins > TAKwerx Market** to browse approved
 releases. The home **Update** indicator only appears for a newer compatible
 Tracker release or an already-installed plugin with the expected signer.
