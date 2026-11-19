@@ -25,6 +25,8 @@ For an LTE deployment, disable **TAK SA Multicast** under Network Preferences: i
 While **TAK SA Multicast** is enabled and Tracker is running, Tracker actively requests local Wi-Fi (internet is not required) and holds a non-reference-counted high-performance Wi-Fi lock. This best-effort retention keeps Wi-Fi demand across network loss, without keeping the screen or CPU awake or changing the default/LTE route. Disabling multicast or stopping Tracker releases both; failed acquisition rolls back the lock and can retry on the next settings/network update. PLI publishing is send-only; only the mesh chat-command listener (when Commands is also on) holds a multicast receive lock. This uses extra battery and cannot override disabled Wi-Fi, pin an SSID, or guarantee screen-off delivery. On Android 14+, high-performance mode maps to low-latency mode, which only takes effect while the app is foreground and the screen is on; the active network request remains the source of Wi-Fi demand.
 
 ### Features
+Top-level preference categories are alphabetized: Admin, Callsign and Device, Developer, Network, then Tool.
+
 Plugin rows, including TAKwerx Market, are alphabetized and retain separate toggle/navigation actions without redundant Enabled/Disabled subtitles. Market releases are also alphabetized by displayed app name. Rows use proportionally fitted 24 dp artwork and visible labels. Icons do not activate unfunded integrations. Commands uses original WearTAK megaphone artwork; Sensor Manager uses a neutral radio-wave glyph; MOPP retains its mask. The following integration assets are reused unchanged from WearTAK-WearOS under the user's confirmed 2026-10-21 permission (not a claim of a public redistribution license):
 
 | Entry | Asset provenance |
