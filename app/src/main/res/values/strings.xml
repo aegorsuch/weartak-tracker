@@ -1,6 +1,31 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">WearTAK-Tracker</string>
+    <string name="takwerx_market_title">TAKwerx Market</string>
+    <string name="market_not_configured">No signed catalog is configured for this build.</string>
+    <string name="market_refresh">Refresh catalog</string>
+    <string name="market_loading">Loading catalog…</string>
+    <string name="market_empty">No plugins are currently published.</string>
+    <string name="market_offline">No internet connection. Catalog will refresh when connection returns.</string>
+    <string name="market_catalog_invalid">Signed catalog failed signature or format verification.</string>
+    <string name="market_catalog_unavailable">Could not check for updates. Try again.</string>
+    <string name="market_no_updates">No newer compatible WearTAK or approved-plugin releases.</string>
+    <string name="market_update_available">Update</string>
+    <string name="market_host_name" translatable="false">WearTAK-Tracker</string>
+    <string name="market_plugin_by_publisher">%1$s by %2$s</string>
+    <string name="market_incompatible">Not compatible with this Tracker version</string>
+    <string name="market_install">Install</string>
+    <string name="market_update">Update</string>
+    <string name="market_up_to_date">Up to date</string>
+    <string name="market_newer_installed">Newer version already installed</string>
+    <string name="market_signer_mismatch">Installed signer differs from catalog</string>
+    <string name="market_play_managed">WearTAK-Tracker updates managed by Google Play</string>
+    <string name="market_package_unavailable">Cannot verify installed package</string>
+    <string name="market_permission_needed">Allow installs from WearTAK-Tracker, then return and retry</string>
+    <string name="market_permission_settings_error">Could not open Android install permission settings.</string>
+    <string name="market_download_verifying">Downloading and verifying…</string>
+    <string name="market_installer_confirmation">Confirm installation in Android installer.</string>
+    <string name="market_install_error">Could not prepare package for installation.</string>
     <string name="channel_name">Position reporting</string>
     <string name="notification_starting">Starting position reporting</string>
     <string name="tracking_resume_channel">Resume tracking</string>

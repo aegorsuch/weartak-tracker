@@ -357,6 +357,10 @@ fun NavGraphBuilder.settingsGraph(repo: SettingsRepository, configState: State<T
         }
     }
 
+    composable("takwerx_market") {
+        TakwerxMarketPage(onBack = back)
+    }
+
     composable("plugins") {
         val currentConfig by repo.config.collectAsStateWithLifecycle(initialValue = config)
         val dittoState by TrackerState.ditto.collectAsStateWithLifecycle()
@@ -367,16 +371,24 @@ fun NavGraphBuilder.settingsGraph(repo: SettingsRepository, configState: State<T
             if (error != null) Toast.makeText(context, error.message, Toast.LENGTH_LONG).show()
         }
         val toggleDitto = rememberDittoToggle(repo, configState) { go("ditto_identity") }
+        val dittoSource = stringResource(
+            if (currentConfig.dittoPdlSource == DittoPdlSource.COMMUNITY) {
+                R.string.transport_community
+            } else R.string.transport_custom,
+        )
         WearTAKPageWithBackArrow("Plugins", back) {
-            PLUGIN_TITLES
+            (PLUGIN_TITLES + "TAKwerx Market")
+                .sortedWith(String.CASE_INSENSITIVE_ORDER)
                 .forEach { title ->
                     item {
                         when (title) {
+                            "TAKwerx Market" -> {
+                                WearTAKTitleChip(title) { go("takwerx_market") }
+                            }
                             "Commands" -> {
                                 WearTAKSplitToggleChip(
                                     appIcon = { PluginRowIcon(title) },
                                     title = title,
-                                    label = if (currentConfig.chatCommandsEnabled) "Enabled" else "Disabled",
                                     checked = currentConfig.chatCommandsEnabled,
                                     onCheckedChange = { on -> update { it.copy(chatCommandsEnabled = on) } },
                                     onClick = { go("chat_commands") },
@@ -386,11 +398,9 @@ fun NavGraphBuilder.settingsGraph(repo: SettingsRepository, configState: State<T
                                 WearTAKSplitToggleChip(
                                     appIcon = { PluginRowIcon(title) },
                                     title = title,
-                                    label = stringResource(
+                                    label = if (dittoState == DittoState.Disabled) dittoSource else stringResource(
                                         R.string.transport_ditto_subtitle,
-                                        stringResource(if (currentConfig.dittoPdlSource == DittoPdlSource.COMMUNITY) {
-                                            R.string.transport_community
-                                        } else R.string.transport_custom),
+                                        dittoSource,
                                         stringResource(dittoStatusResource(dittoState)),
                                     ),
                                     checked = currentConfig.dittoEnabled,

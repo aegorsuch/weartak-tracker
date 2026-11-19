@@ -93,6 +93,9 @@ class FakeGitHubApi:
             self.writes.append(("update-release", payload))
             self.release.update(payload)
             return self.release
+        if route == "/dispatches" and method == "POST":
+            self.writes.append(("dispatch-catalog", payload))
+            return {}
         if route == "/git/ref/tags/" + RELEASE_TAG and method == "GET":
             return self.tag_ref
         if route == "/git/refs/tags/" + RELEASE_TAG and method == "PATCH":
@@ -180,6 +183,9 @@ class ReleasePublisherTests(OfflineTests):
         self.assertNotIn("make_latest", release_writes[1][1])
         self.assertEqual(release_writes[-1][1]["draft"], False)
         self.assertEqual(release_writes[-1][1]["make_latest"], "true")
+        self.assertEqual(api.writes[-1], (
+            "dispatch-catalog", {"event_type": "takwerx-market-release"},
+        ))
         self.assertLess(
             next(i for i, entry in enumerate(api.writes) if entry[0] == "verify"),
             max(i for i, entry in enumerate(api.writes) if entry[0] == "update-release"),
@@ -318,6 +324,22 @@ class ReleasePublisherTests(OfflineTests):
         self.assertTrue(api.release["prerelease"])
         self.assertEqual(api.tag_ref["object"]["sha"], "0" * 40)
         self.assertFalse(api.labels)
+        self.assertFalse(any(entry[0] == "dispatch-catalog" for entry in api.writes))
+
+    def test_catalog_dispatch_failure_is_reported_after_verified_publication(self):
+        api = FakeGitHubApi()
+        request = api.request_json
+
+        def reject_dispatch(method, path, *args, **kwargs):
+            if path.endswith("/dispatches"):
+                raise PublishError("GitHub API returned HTTP 403")
+            return request(method, path, *args, **kwargs)
+
+        api.request_json = reject_dispatch
+        with self.assertRaisesRegex(PublishError, "HTTP 403"):
+            self.publisher(api).run()
+        self.assertFalse(api.release["draft"])
+        self.assertEqual({a["name"] for a, _ in api.assets.values()}, {APK_NAME})
 
     def test_rejects_unowned_release_without_writes(self):
         api = FakeGitHubApi(body="Release created by someone else")

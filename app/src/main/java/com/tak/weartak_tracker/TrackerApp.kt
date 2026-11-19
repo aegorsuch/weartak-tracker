@@ -7,6 +7,7 @@ import android.app.NotificationManager
 import android.os.Bundle
 import android.os.PowerManager
 import com.tak.weartak_tracker.data.SettingsRepository
+import com.tak.weartak_tracker.market.MarketUpdateMonitor
 import com.tak.weartak_tracker.diagnostics.Diagnostics
 import com.tak.weartak_tracker.diagnostics.DiagnosticEvent
 import com.tak.weartak_tracker.diagnostics.DiagnosticDetail
@@ -26,6 +27,7 @@ class TrackerApp : Application() {
 
     lateinit var settings: SettingsRepository
         private set
+    internal val marketUpdateMonitor by lazy { MarketUpdateMonitor(applicationContext) }
 
     override fun onCreate() {
         super.onCreate()
@@ -57,6 +59,7 @@ class TrackerApp : Application() {
             override fun onActivitySaveInstanceState(activity: Activity, state: Bundle) = Unit
         })
         settings = SettingsRepository(this)
+        marketUpdateMonitor.start()
         scope.launch {
             settings.config.map { it.diagnosticsEnabled }.distinctUntilChanged().collectLatest {
                 Diagnostics.setEnabled(it)

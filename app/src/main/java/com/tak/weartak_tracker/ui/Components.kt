@@ -201,7 +201,7 @@ fun <T> WearTAKSelectableChip(
 fun WearTAKSplitToggleChip(
     appIcon: @Composable () -> Unit,
     title: String,
-    label: String,
+    label: String = "",
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit,
     onClick: () -> Unit,
@@ -214,7 +214,9 @@ fun WearTAKSplitToggleChip(
                 modifier = Modifier.align(Alignment.CenterVertically),
             )
         },
-        secondaryLabel = { Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+        secondaryLabel = if (label.isEmpty()) null else {
+            { Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+        },
         checked = checked,
         toggleControl = { Switch(checked = checked, onCheckedChange = null, enabled = true, modifier = Modifier.size(25.dp)) },
         onCheckedChange = onCheckedChange,

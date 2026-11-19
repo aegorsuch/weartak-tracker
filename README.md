@@ -25,7 +25,7 @@ For an LTE deployment, disable **TAK SA Multicast** under Network Preferences: i
 While **TAK SA Multicast** is enabled and Tracker is running, Tracker actively requests local Wi-Fi (internet is not required) and holds a non-reference-counted high-performance Wi-Fi lock. This best-effort retention keeps Wi-Fi demand across network loss, without keeping the screen or CPU awake or changing the default/LTE route. Disabling multicast or stopping Tracker releases both; failed acquisition rolls back the lock and can retry on the next settings/network update. PLI publishing is send-only; only the mesh chat-command listener (when Commands is also on) holds a multicast receive lock. This uses extra battery and cannot override disabled Wi-Fi, pin an SSID, or guarantee screen-off delivery. On Android 14+, high-performance mode maps to low-latency mode, which only takes effect while the app is foreground and the screen is on; the active network request remains the source of Wi-Fi demand.
 
 ### Features
-Plugin rows retain their existing status and separate toggle/navigation actions, with proportionally fitted 24 dp artwork and visible labels. Icons do not activate unfunded integrations. Commands uses original WearTAK megaphone artwork; Sensor Manager uses a neutral radio-wave glyph; MOPP retains its mask. The following integration assets are reused unchanged from WearTAK-WearOS under the user's confirmed 2026-10-21 permission (not a claim of a public redistribution license):
+Plugin rows, including TAKwerx Market, are alphabetized and retain separate toggle/navigation actions without redundant Enabled/Disabled subtitles. Market releases are also alphabetized by displayed app name. Rows use proportionally fitted 24 dp artwork and visible labels. Icons do not activate unfunded integrations. Commands uses original WearTAK megaphone artwork; Sensor Manager uses a neutral radio-wave glyph; MOPP retains its mask. The following integration assets are reused unchanged from WearTAK-WearOS under the user's confirmed 2026-10-21 permission (not a claim of a public redistribution license):
 
 | Entry | Asset provenance |
 | --- | --- |
@@ -266,9 +266,36 @@ Heart-rate reporting uses the standard watch sensor when available. Skin tempera
 
 Build prerequisites: JDK **17**, Android SDK **36**, and the repository's Gradle wrapper. TAK Forge CI also requires Android build-tools **35.0.0**. The optional Samsung Health AAR is proprietary and not committed; builds without it use the skin-temperature stub. See [Physiological monitoring](#physiological-monitoring).
 
+### Windows development setup
+
+Use JDK 17, the checked-in Gradle wrapper (8.14.5), and Android SDK Platform 36.
+Install required SDK packages through Android Studio's SDK Manager; review and
+accept any license prompts yourself. No release keystore is needed for unit
+tests or a debug APK.
+
+From the repository root in PowerShell, set the tool locations for the current
+shell only (adjust the paths for your installation):
+
+```powershell
+$env:JAVA_HOME = 'C:\Program Files\Eclipse Adoptium\jdk-17.0.20.101-hotspot'
+$env:ANDROID_HOME = "$env:LOCALAPPDATA\Android\Sdk"
+.\gradlew.bat --no-daemon :app:testDebugUnitTest :app:assembleDebug
+```
+
+The debug APK is written under `app\build\outputs\apk\debug`. This command does
+not install it on a watch or verify release signing. After dependencies are
+cached, `--offline` can be added for subsequent builds. Configure Android
+Studio's Gradle JDK to use JDK 17 as well.
+
 Release APKs package ARM64 (`arm64-v8a`) and ARMv7 (`armeabi-v7a`) native
 libraries for watches, excluding x86 and x86_64 emulator libraries. Debug
 builds retain all supported architectures for emulator development.
+
+Without `app\libs\samsung-health-sensor-api-1.4.1.aar`, the documented
+skin-temperature stub is used. Ditto Community operation requires the identity
+configuration described below; a successful debug build does not verify that
+integration. Preserve existing release signing material and use the established
+release process rather than generating a replacement key during environment setup.
 
 ### Build
 ```
@@ -310,6 +337,40 @@ Configure these masked CI/CD variables in the **Tracker** GitLab project:
 | `RELEASE_KEY_PASSWORD` | Tracker signing-key password |
 | `DITTO_COMMUNITY_IDENTITY` | Required for release jobs: authorized ATAK Community PDL (raw encoded, no quotes); masked and protected |
 | `GITHUB_RELEASE_TOKEN` | Fine-grained GitHub token restricted to `aegorsuch/weartak-tracker` with Contents read/write permission; masked and protected |
+
+TAKwerx Market reads `WEARTAK_MARKET_CATALOG_URL` and
+`WEARTAK_MARKET_CATALOG_PUBLIC_KEY` at build time. Both are public values: set
+them as CI variables or pass Gradle properties `weartakMarketCatalogUrl` and
+`weartakMarketCatalogPublicKey`. Builds without both values leave Market
+unconfigured and make no catalog request. The catalog public key must be the
+Base64-encoded Ed25519 X.509 public key; keep its private signing key only in
+the catalog publisher's protected environment.
+
+Use a Tracker-specific signed catalog, not WearTAK-WearOS's catalog or signing
+configuration. Tracker rejects catalogs containing another app's host update.
+The Tracker deployment endpoint is
+`https://aegorsuch.github.io/weartak-tracker/catalog.json`; do not configure it
+until its publisher, Pages deployment, and matching public key are verified.
+The APK signing certificate and catalog signing public key are separate trust
+anchors. Previously configured WearOS catalog variables are not Tracker activation.
+
+After publishing and verifying a canonical signed APK, the release mirror
+dispatches `takwerx-market-release` to refresh Tracker's isolated catalog.
+Dispatch failures fail the publishing job explicitly; the caller's periodic
+refresh remains a recovery path.
+
+Open **Tool Preferences > Plugins > TAKwerx Market** to browse approved
+releases. The home **Update** indicator only appears for a newer compatible
+Tracker release or an already-installed plugin with the expected signer.
+Uninstalled plugins do not trigger it. Opening Market acknowledges the warning
+until the app process restarts, including after catalog refreshes or new releases.
+Downloads are limited to 250 MiB and checked against the signed catalog's SHA-256,
+package, version, and APK certificate before Android confirms installation.
+Knox policy can still prohibit installation; Market does not bypass device management.
+The historical universal Tracker p61 APK exceeded this limit. Canonical signed
+ARM-only p65 (143,355,363 bytes) resolved that blocker while retaining ARMv7 and
+ARM64 support. Catalog activation still requires the verified signed endpoint
+and eligible canonical host record; do not repackage a signed APK.
 
 Protect the signing variables and ensure `main` and release tags are protected so
 their jobs can access them. The instance/group must supply `TAK_REGISTRY_HOST` and a
