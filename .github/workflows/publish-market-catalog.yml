@@ -20,11 +20,18 @@ permissions:
 jobs:
   test-publisher:
     if: github.event_name == 'pull_request'
-    uses: aegorsuch/weartak-takwerx-market/.github/workflows/publish-market-catalog.yml@c64560d0503915ff3739fa077e2971e296308113
-    with:
-      publisher_ref: c64560d0503915ff3739fa077e2971e296308113
-      catalog_target: tracker
-      market_catalog_public_key: ${{ vars.MARKET_CATALOG_PUBLIC_KEY }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+        with:
+          repository: aegorsuch/weartak-takwerx-market
+          ref: c64560d0503915ff3739fa077e2971e296308113
+          path: publisher
+          persist-credentials: false
+      - name: Test catalog publisher without deployment permissions
+        run: node --test publisher/market-publisher/tests/publish_catalog.test.mjs
 
   publish:
     if: github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.ref == 'refs/heads/main'
