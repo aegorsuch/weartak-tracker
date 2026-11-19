@@ -266,6 +266,10 @@ Heart-rate reporting uses the standard watch sensor when available. Skin tempera
 
 Build prerequisites: JDK **17**, Android SDK **36**, and the repository's Gradle wrapper. TAK Forge CI also requires Android build-tools **35.0.0**. The optional Samsung Health AAR is proprietary and not committed; builds without it use the skin-temperature stub. See [Physiological monitoring](#physiological-monitoring).
 
+Release APKs package ARM64 (`arm64-v8a`) and ARMv7 (`armeabi-v7a`) native
+libraries for watches, excluding x86 and x86_64 emulator libraries. Debug
+builds retain all supported architectures for emulator development.
+
 ### Build
 ```
 .\gradlew.bat :app:assembleDebug
