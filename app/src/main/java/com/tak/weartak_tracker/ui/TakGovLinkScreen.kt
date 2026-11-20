@@ -1,10 +1,6 @@
 package com.tak.weartak_tracker.ui
 
-import android.content.ClipData
-import android.content.ClipboardManager
-import android.content.Intent
-import android.net.Uri
-import android.widget.Toast
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -18,9 +14,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -37,7 +31,6 @@ private const val DEVICE_VERIFICATION_URL = "https://tak.gov/register-device"
 
 @Composable
 internal fun TakGovLinkScreen(repo: SettingsRepository, back: () -> Unit) {
-    val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val client = remember(repo) { TakGovDeviceClient(repo) }
     val status by repo.takGovLinkStatus.collectAsStateWithLifecycle(TakGovLinkStatus.UNLINKED)
@@ -83,9 +76,6 @@ internal fun TakGovLinkScreen(repo: SettingsRepository, back: () -> Unit) {
         }
         code?.let { deviceCode ->
             item {
-                Text("Enter this code at TAK.gov:", textAlign = TextAlign.Center, fontSize = 12.sp)
-            }
-            item {
                 SelectionContainer {
                     Text(
                         deviceCode.userCode,
@@ -95,19 +85,7 @@ internal fun TakGovLinkScreen(repo: SettingsRepository, back: () -> Unit) {
                 }
             }
             item {
-                WearTAKTitleChip("Open TAK.gov registration") {
-                    runCatching {
-                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(DEVICE_VERIFICATION_URL)))
-                    }.onFailure {
-                        Toast.makeText(context, "No browser available", Toast.LENGTH_SHORT).show()
-                    }
-                }
-            }
-            item {
-                WearTAKTitleChip("Copy code") {
-                    context.getSystemService(ClipboardManager::class.java)
-                        ?.setPrimaryClip(ClipData.newPlainText("TAK.gov device code", deviceCode.userCode))
-                }
+                Text(DEVICE_VERIFICATION_URL, textAlign = TextAlign.Center, fontSize = 12.sp)
             }
         }
         error?.let { message ->
