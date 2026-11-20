@@ -7,10 +7,15 @@ import com.tak.weartak_tracker.data.TrackerConfig
 import com.tak.weartak_tracker.data.sitxClientIdOrDefault
 import com.tak.weartak_tracker.data.ServerListCodec
 import com.tak.weartak_tracker.data.TakServerConfig
+import com.tak.weartak_tracker.data.TakGovAccessLevel
+import com.tak.weartak_tracker.data.TakGovLinkStatus
+import com.tak.weartak_tracker.data.takGovLinkStatusFor
 import com.tak.weartak_tracker.data.takServerFormError
 import com.tak.weartak_tracker.data.heartRatePermission
 import com.tak.weartak_tracker.transport.SitxClient
+import com.tak.weartak_tracker.transport.takGovAccessLevel
 import com.tak.weartak_tracker.ui.sitxConfigurationLabel
+import org.json.JSONArray
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
@@ -98,5 +103,40 @@ class SettingsTest {
         assertEquals("https://acme.sitx.io", SitxClient.baseUrl("Acme"))
         assertEquals("https://sitx.example.com", SitxClient.baseUrl("https://sitx.example.com/"))
         assertEquals("", SitxClient.baseUrl("  "))
+    }
+
+    @Test
+    fun takGovAccessLevelUsesExactWebsiteGroupsAndMilWins() {
+        assertEquals(
+            TakGovAccessLevel.MIL,
+            takGovAccessLevel(JSONArray("""["Website Public", "Website Military"]""")),
+        )
+        assertEquals(
+            TakGovAccessLevel.CIV,
+            takGovAccessLevel(JSONArray("""["Website Public"]""")),
+        )
+        assertNull(takGovAccessLevel(JSONArray("""["Military SDK"]""")))
+        assertNull(takGovAccessLevel(JSONArray("""["website military"]""")))
+    }
+
+    @Test
+    fun takGovAccessLevelRejectsUnknownOrMalformedGroups() {
+        assertNull(takGovAccessLevel(null))
+        assertNull(takGovAccessLevel(JSONArray("""["Unknown role"]""")))
+        assertNull(takGovAccessLevel(JSONArray("""["Website Public", 7]""")))
+    }
+
+    @Test
+    fun takGovLinkSubtitleFallsBackToLinkedWhenTierIsUnknown() {
+        assertEquals(TakGovLinkStatus.UNLINKED, takGovLinkStatusFor(false, null))
+        assertEquals(TakGovLinkStatus.LINKED, takGovLinkStatusFor(true, null))
+        assertEquals(
+            TakGovLinkStatus.CIV,
+            takGovLinkStatusFor(true, TakGovAccessLevel.CIV),
+        )
+        assertEquals(
+            TakGovLinkStatus.MIL,
+            takGovLinkStatusFor(true, TakGovAccessLevel.MIL),
+        )
     }
 }
