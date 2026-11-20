@@ -25,6 +25,7 @@ internal enum class MarketRefreshStatus {
     CHECKING,
     READY,
     INVALID_CATALOG,
+    UNSUPPORTED_TARGET,
     UNAVAILABLE,
 }
 
@@ -179,7 +180,9 @@ internal class MarketUpdateMonitor(
             throw error
         } catch (error: MarketCatalogException) {
             Log.e(TAG, "Could not load signed Market catalog", error)
-            if (error.invalidCatalog) {
+            if (error.unsupportedTarget) {
+                _snapshot.value = MarketUpdateSnapshot(status = MarketRefreshStatus.UNSUPPORTED_TARGET)
+            } else if (error.invalidCatalog) {
                 _snapshot.value = MarketUpdateSnapshot(status = MarketRefreshStatus.INVALID_CATALOG)
             } else {
                 _snapshot.value = _snapshot.value.copy(status = MarketRefreshStatus.UNAVAILABLE)

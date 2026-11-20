@@ -16,6 +16,11 @@ internal class MarketCatalogRepository(
     private val configuration: MarketConfiguration,
     client: OkHttpClient = OkHttpClient(),
 ) {
+    val hostProductId: String
+        get() = configuration.productId
+    val hostEditionIds: Set<String>
+        get() = configuration.editionIds
+
     private val client = client.newBuilder()
         .followRedirects(true)
         .followSslRedirects(false)
@@ -66,6 +71,8 @@ internal class MarketCatalogRepository(
                 output.toByteArray(),
                 configuration.catalogPublicKey,
                 hostPackage,
+                configuration.productId,
+                configuration.editionIds,
             )
         }
     }

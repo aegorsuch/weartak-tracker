@@ -8,6 +8,7 @@
     <string name="market_empty">No plugins are currently published.</string>
     <string name="market_offline">No internet connection. Catalog will refresh when connection returns.</string>
     <string name="market_catalog_invalid">Signed catalog failed signature or format verification.</string>
+    <string name="market_unsupported_target">This build has no supported Market editions configured.</string>
     <string name="market_catalog_unavailable">Could not check for updates. Try again.</string>
     <string name="market_no_updates">No newer compatible WearTAK or approved-plugin releases.</string>
     <string name="market_update_available">Update</string>
