@@ -108,6 +108,7 @@ import com.tak.weartak_tracker.data.TakChannelStatus
 import com.tak.weartak_tracker.data.TakServerChannels
 import com.tak.weartak_tracker.data.TakServerState
 import com.tak.weartak_tracker.data.TakStatus
+import com.tak.weartak_tracker.data.TakGovLinkStatus
 import com.tak.weartak_tracker.data.TrackerConfig
 import com.tak.weartak_tracker.data.runtimeTakServers
 import com.tak.weartak_tracker.data.formatSitxPairingCode
@@ -220,10 +221,12 @@ fun NavGraphBuilder.settingsGraph(repo: SettingsRepository, configState: State<T
     }
 
     composable("callsign_and_device_preferences") {
+        val takGovStatus by repo.takGovLinkStatus.collectAsStateWithLifecycle(TakGovLinkStatus.UNLINKED)
         WearTAKPageWithBackArrow("Callsign and Device Preferences", back) {
             item { WearTAKTitleChipWithState("My Callsign", config.callsign) { go("my_callsign") } }
-            item { WearTAKTitleChipWithState("My Team", config.team) { go("my_team") } }
             item { WearTAKTitleChipWithState("My Role", config.role) { go("my_role") } }
+            item { WearTAKTitleChipWithState("My TAK.gov Link", takGovStatus.subtitle) { go("my_takgov_link") } }
+            item { WearTAKTitleChipWithState("My Team", config.team) { go("my_team") } }
             item { WearTAKTitleChip("My User Metrics") { go("my_user_metrics") } }
             item {
                 HorizontalDivider(
@@ -273,6 +276,8 @@ fun NavGraphBuilder.settingsGraph(repo: SettingsRepository, configState: State<T
             }
         }
     }
+
+    composable("my_takgov_link") { TakGovLinkScreen(repo, back) }
 
     composable(
         "role_category_screen/{index}",

@@ -171,6 +171,8 @@ class SettingsRepository(private val context: Context) {
         val SITX_CLIENT_ID = stringPreferencesKey("sitx_client_id.enc")
         val SITX_GROUP = stringPreferencesKey("sitx_group.enc")
         val SITX_TOKENS = stringPreferencesKey("sitx_tokens.enc")
+        val TAK_GOV_REFRESH_TOKEN = stringPreferencesKey("tak_gov_refresh_token.enc")
+        val TAK_GOV_ACCESS_LEVEL = stringPreferencesKey("tak_gov_access_level")
         val SERVERS = stringPreferencesKey("tak_servers.enc")
         val PHYSIO = booleanPreferencesKey("enable_physiological_services")
         val BATDOK = booleanPreferencesKey("enable_batdok_cot")
@@ -194,6 +196,13 @@ class SettingsRepository(private val context: Context) {
 
     val config: Flow<TrackerConfig> = store.data.map(::read)
         .distinctUntilChanged()
+
+    val takGovLinkStatus: Flow<TakGovLinkStatus> = store.data.map { preferences ->
+        val linked = !SecretBox.decrypt(preferences[K.TAK_GOV_REFRESH_TOKEN]).isNullOrBlank()
+        val accessLevel = preferences[K.TAK_GOV_ACCESS_LEVEL]
+            ?.let { runCatching { TakGovAccessLevel.valueOf(it) }.getOrNull() }
+        takGovLinkStatusFor(linked, accessLevel)
+    }.distinctUntilChanged()
 
     suspend fun current(): TrackerConfig = config.first()
 
@@ -287,6 +296,34 @@ class SettingsRepository(private val context: Context) {
             .put("accessToken", tokens.accessToken)
             .toString()
         store.edit { it[K.SITX_TOKENS] = SecretBox.encrypt(json) }
+    }
+
+    suspend fun takGovRefreshToken(): String? =
+        SecretBox.decrypt(store.data.first()[K.TAK_GOV_REFRESH_TOKEN])?.takeIf(String::isNotBlank)
+
+    suspend fun saveTakGovRefreshToken(token: String, resetAccessLevel: Boolean = true) {
+        require(token.isNotBlank()) { "TAK.gov refresh token cannot be blank" }
+        store.edit { preferences ->
+            preferences[K.TAK_GOV_REFRESH_TOKEN] = SecretBox.encrypt(token)
+            if (resetAccessLevel) preferences.remove(K.TAK_GOV_ACCESS_LEVEL)
+        }
+    }
+
+    suspend fun setTakGovAccessLevel(accessLevel: TakGovAccessLevel?) {
+        store.edit { preferences ->
+            if (SecretBox.decrypt(preferences[K.TAK_GOV_REFRESH_TOKEN]).isNullOrBlank() || accessLevel == null) {
+                preferences.remove(K.TAK_GOV_ACCESS_LEVEL)
+            } else {
+                preferences[K.TAK_GOV_ACCESS_LEVEL] = accessLevel.name
+            }
+        }
+    }
+
+    suspend fun clearTakGovLink() {
+        store.edit { preferences ->
+            preferences.remove(K.TAK_GOV_REFRESH_TOKEN)
+            preferences.remove(K.TAK_GOV_ACCESS_LEVEL)
+        }
     }
 
     private fun read(p: Preferences): TrackerConfig =
