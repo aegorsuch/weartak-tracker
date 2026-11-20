@@ -349,13 +349,19 @@ unconfigured and make no catalog request. The catalog public key must be the
 Base64-encoded Ed25519 X.509 public key; keep its private signing key only in
 the catalog publisher's protected environment.
 
-Use a Tracker-specific signed catalog, not WearTAK-WearOS's catalog or signing
-configuration. Tracker rejects catalogs containing another app's host update.
+Tracker accepts legacy schemaVersion 1 catalogs and shared schemaVersion 2
+catalogs. Version 2 entries identify supported products and editions in
+`targets`; each product target carries its own host version range. Tracker
+filters for product `weartak-tracker` and supports both editions (`civ` and
+`mil`). Version 1 entries remain supported for the existing Tracker-scoped
+feed.
+
 The Tracker deployment endpoint is
 `https://aegorsuch.github.io/weartak-tracker/catalog.json`; do not configure it
-until its publisher, Pages deployment, and matching public key are verified.
-The APK signing certificate and catalog signing public key are separate trust
-anchors. Previously configured WearOS catalog variables are not Tracker activation.
+or switch it to a shared catalog until its publisher, Pages deployment, and
+matching public key are verified. The APK signing certificate and catalog
+signing public key are separate trust anchors. Previously configured WearOS
+catalog variables are not Tracker activation.
 
 After publishing and verifying a canonical signed APK, the release mirror
 dispatches `takwerx-market-release` to refresh Tracker's isolated catalog.

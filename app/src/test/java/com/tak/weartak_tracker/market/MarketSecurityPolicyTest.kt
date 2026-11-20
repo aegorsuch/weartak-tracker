@@ -27,23 +27,23 @@ class MarketSecurityPolicyTest {
     fun comparesInstalledVersionAndHostCompatibility() {
         assertEquals(
             MarketInstallState.INSTALL,
-            MarketSecurityPolicy.installState(plugin(), hostPackage, 100, null, null, false),
+            state(plugin(), 100, null, null, false),
         )
         assertEquals(
             MarketInstallState.UPDATE,
-            MarketSecurityPolicy.installState(plugin(), hostPackage, 100, 4, setOf(signer), false),
+            state(plugin(), 100, 4, setOf(signer), false),
         )
         assertEquals(
             MarketInstallState.UP_TO_DATE,
-            MarketSecurityPolicy.installState(plugin(), hostPackage, 100, 5, setOf(signer), false),
+            state(plugin(), 100, 5, setOf(signer), false),
         )
         assertEquals(
             MarketInstallState.NEWER_VERSION_INSTALLED,
-            MarketSecurityPolicy.installState(plugin(), hostPackage, 100, 6, setOf(signer), false),
+            state(plugin(), 100, 6, setOf(signer), false),
         )
         assertEquals(
             MarketInstallState.INCOMPATIBLE,
-            MarketSecurityPolicy.installState(plugin(), hostPackage, 201, null, null, false),
+            state(plugin(), 201, null, null, false),
         )
     }
 
@@ -52,12 +52,71 @@ class MarketSecurityPolicyTest {
         val hostUpdate = plugin(packageName = hostPackage, hostUpdate = true)
         assertEquals(
             MarketInstallState.PLAY_MANAGED_HOST,
-            MarketSecurityPolicy.installState(hostUpdate, hostPackage, 100, 4, setOf(signer), true),
+            state(hostUpdate, 100, 4, setOf(signer), true),
         )
         assertEquals(
             MarketInstallState.SIGNER_MISMATCH,
-            MarketSecurityPolicy.installState(plugin(), hostPackage, 100, 4, setOf("c".repeat(64)), false),
+            state(plugin(), 100, 4, setOf("c".repeat(64)), false),
         )
+    }
+
+    @Test
+    fun compatibilityUsesOnlyMatchingProductAndEditionRange() {
+        val multiTarget = plugin().copy(
+            targets = listOf(
+                MarketTarget(
+                    MarketTargetIds.WEARTAK_TRACKER,
+                    setOf(MarketTargetIds.MIL),
+                    MarketHostVersionRange(90, 200),
+                ),
+                MarketTarget(
+                    MarketTargetIds.WEARTAK_WEAROS,
+                    setOf(MarketTargetIds.CIV),
+                    MarketHostVersionRange(1, 10),
+                ),
+            ),
+        )
+
+        assertTrue(MarketSecurityPolicy.hostCompatible(
+            multiTarget, 100, MarketTargetIds.WEARTAK_TRACKER, setOf(MarketTargetIds.MIL),
+        ))
+        assertFalse(MarketSecurityPolicy.hostCompatible(
+            multiTarget, 100, MarketTargetIds.WEARTAK_TRACKER, setOf(MarketTargetIds.CIV),
+        ))
+        assertFalse(MarketSecurityPolicy.hostCompatible(
+            multiTarget, 100, MarketTargetIds.WEARTAK_WEAROS, setOf(MarketTargetIds.CIV),
+        ))
+        assertTrue(MarketSecurityPolicy.hostCompatible(
+            multiTarget, 5, MarketTargetIds.WEARTAK_WEAROS, setOf(MarketTargetIds.CIV),
+        ))
+        assertFalse(MarketSecurityPolicy.hostCompatible(
+            multiTarget, 5, MarketTargetIds.WEARTAK_TRACKER, setOf(MarketTargetIds.MIL),
+        ))
+    }
+
+    @Test
+    fun trackerBuildSupportsBothEditions() {
+        val civ = plugin().copy(
+            targets = listOf(
+                MarketTarget(
+                    MarketTargetIds.WEARTAK_TRACKER,
+                    setOf(MarketTargetIds.CIV),
+                    MarketHostVersionRange(90, 200),
+                ),
+            ),
+        )
+        val mil = plugin().copy(
+            targets = listOf(
+                MarketTarget(
+                    MarketTargetIds.WEARTAK_TRACKER,
+                    setOf(MarketTargetIds.MIL),
+                    MarketHostVersionRange(90, 200),
+                ),
+            ),
+        )
+
+        assertTrue(MarketSecurityPolicy.hostCompatible(civ, 100))
+        assertTrue(MarketSecurityPolicy.hostCompatible(mil, 100))
     }
 
     @Test
@@ -83,9 +142,12 @@ class MarketSecurityPolicyTest {
         val newPlugin = plugin(id = "new", packageName = "org.example.newplugin")
         fun updatesFor(releases: List<MarketPlugin>) = releases.filter { release ->
             val installed = if (release == newPlugin) null else 4L
-            MarketSecurityPolicy.installState(
-                release, hostPackage, 100, installed,
-                if (installed == null) null else setOf(signer), false,
+            state(
+                release,
+                100,
+                installed,
+                if (installed == null) null else setOf(signer),
+                false,
             ) == MarketInstallState.UPDATE
         }
         val updates = updatesFor(listOf(host, installedPlugin, newPlugin))
@@ -125,12 +187,34 @@ class MarketSecurityPolicyTest {
         packageName = packageName,
         versionName = "1.0",
         versionCode = 5,
-        minHostVersionCode = 90,
-        maxHostVersionCode = 200,
+        targets = listOf(
+            MarketTarget(
+                MarketTargetIds.WEARTAK_TRACKER,
+                setOf(MarketTargetIds.MIL),
+                MarketHostVersionRange(90, 200),
+            ),
+        ),
         apkUrl = "https://releases.example/weather.apk",
         apkSha256 = "b".repeat(64),
         signerSha256 = signer,
         sourceUrl = null,
         hostUpdate = hostUpdate,
+    )
+
+    private fun state(
+        plugin: MarketPlugin,
+        hostVersionCode: Long,
+        installedVersionCode: Long?,
+        installedSignerSha256: Set<String>?,
+        playManagedHost: Boolean,
+    ) = MarketSecurityPolicy.installState(
+        plugin,
+        hostPackage,
+        hostVersionCode,
+        installedVersionCode,
+        installedSignerSha256,
+        playManagedHost,
+        MarketTargetIds.WEARTAK_TRACKER,
+        setOf(MarketTargetIds.MIL),
     )
 }

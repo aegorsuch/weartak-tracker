@@ -173,6 +173,7 @@ internal fun TakwerxMarketPage(onBack: () -> Unit) {
             MarketRefreshStatus.OFFLINE -> R.string.market_offline
             MarketRefreshStatus.CHECKING -> if (catalog == null) R.string.market_loading else null
             MarketRefreshStatus.INVALID_CATALOG -> R.string.market_catalog_invalid
+            MarketRefreshStatus.UNSUPPORTED_TARGET -> R.string.market_unsupported_target
             MarketRefreshStatus.UNAVAILABLE -> R.string.market_catalog_unavailable
             MarketRefreshStatus.READY -> when {
                 snapshot.availableUpdates.isNotEmpty() -> null
@@ -186,6 +187,7 @@ internal fun TakwerxMarketPage(onBack: () -> Unit) {
                     stringResource(message),
                     modifier = Modifier.fillMaxWidth().padding(8.dp),
                     color = if (snapshot.status == MarketRefreshStatus.INVALID_CATALOG ||
+                        snapshot.status == MarketRefreshStatus.UNSUPPORTED_TARGET ||
                         snapshot.status == MarketRefreshStatus.UNAVAILABLE
                     ) MaterialTheme.colors.error else MaterialTheme.colors.onSurface,
                 )

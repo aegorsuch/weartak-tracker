@@ -63,6 +63,8 @@ internal class MarketInstallCoordinator(
             installedVersionCode = installed?.versionCode,
             installedSignerSha256 = installed?.signerSha256,
             playManagedHost = playManaged,
+            hostProductId = catalogRepository.hostProductId,
+            hostEditionIds = catalogRepository.hostEditionIds,
         )
     }
 
