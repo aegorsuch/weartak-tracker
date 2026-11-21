@@ -1,5 +1,6 @@
 package com.tak.weartak_tracker.market
 
+import com.tak.weartak_tracker.ui.marketPluginDisplayLabel
 import com.tak.weartak_tracker.ui.marketPluginsInDisplayOrder
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -21,6 +22,32 @@ class MarketSecurityPolicyTest {
             listOf(alpha, openVpn, host, zulu),
             marketPluginsInDisplayOrder(listOf(zulu, host, openVpn, alpha), "WearTAK-Tracker"),
         )
+    }
+
+    @Test
+    fun pluginDisplayLabelHidesOnlyAegorsuchPublisher() {
+        val original = plugin()
+        val hostName = "WearTAK-Tracker"
+        fun label(release: MarketPlugin) = marketPluginDisplayLabel(
+            release, hostName, "${release.name} by ${release.publisher}",
+        )
+
+        listOf("aegorsuch", " AEGORSUCH\t", "AegorSuch").forEach { publisher ->
+            val release = original.copy(publisher = publisher)
+            assertEquals("Weather", label(release))
+            assertEquals(publisher, release.publisher)
+        }
+        assertEquals("Weather by Community", label(original))
+        assertEquals(
+            "Community : Weather",
+            marketPluginDisplayLabel(original, hostName, "Community : Weather"),
+        )
+        assertEquals("Weather by aegorsuch-team", label(original.copy(publisher = "aegorsuch-team")))
+        val host = original.copy(packageName = hostPackage, hostUpdate = true, publisher = "Community")
+        assertEquals(hostName, label(host))
+        assertEquals(hostName, label(host.copy(publisher = "aegorsuch")))
+        assertEquals("Weather by Community", label(host.copy(hostUpdate = false)))
+        assertEquals("Weather by Community", label(host.copy(packageName = "org.example.other")))
     }
 
     @Test

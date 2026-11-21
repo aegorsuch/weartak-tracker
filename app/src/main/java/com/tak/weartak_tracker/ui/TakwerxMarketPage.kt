@@ -220,6 +220,16 @@ internal fun marketPluginsInDisplayOrder(plugins: List<MarketPlugin>, hostName: 
         } else plugin.name
     })
 
+internal fun marketPluginDisplayLabel(
+    plugin: MarketPlugin,
+    hostName: String,
+    publisherLabel: String,
+): String = when {
+    plugin.hostUpdate && plugin.packageName == com.tak.weartak_tracker.BuildConfig.APPLICATION_ID -> hostName
+    plugin.publisher.trim().equals("aegorsuch", ignoreCase = true) -> plugin.name
+    else -> publisherLabel
+}
+
 private data class MarketPluginDisplay(
     val plugin: MarketPlugin,
     val installState: MarketInstallState,
@@ -246,6 +256,11 @@ private fun MarketPluginEntry(
         else -> installResult ?: statusText
     }
     val progressDescription = stringResource(R.string.market_download_verifying)
+    val displayLabel = marketPluginDisplayLabel(
+        plugin,
+        stringResource(R.string.market_host_name),
+        stringResource(R.string.market_plugin_by_publisher, plugin.name, plugin.publisher),
+    )
     Chip(
         onClick = onInstall,
         enabled = canStartInstall && download,
@@ -256,11 +271,7 @@ private fun MarketPluginEntry(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    if (plugin.hostUpdate && plugin.packageName == com.tak.weartak_tracker.BuildConfig.APPLICATION_ID) {
-                        stringResource(R.string.market_host_name)
-                    } else {
-                        stringResource(R.string.market_plugin_by_publisher, plugin.name, plugin.publisher)
-                    },
+                    displayLabel,
                     modifier = Modifier.weight(1f),
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
