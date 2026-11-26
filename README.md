@@ -5,9 +5,9 @@
 Extremely lightweight Wear OS position tracker modeled on WearTAK-WearOS
 
 ### Downloads
-Download installable APKs from [GitHub Releases](https://github.com/aegorsuch/weartak-tracker/releases), or go directly to the [TAK.gov pipeline release](https://github.com/aegorsuch/weartak-tracker/releases/tag/takgov-pipeline). Expand **Assets** and select `WearTAK-Tracker-5.8.4-p<IID>.apk`; the source-code archives are not watch installers.
+Download installable APKs from [GitHub Releases](https://github.com/aegorsuch/weartak-tracker/releases), or go directly to the [TAK.gov pipeline release](https://github.com/aegorsuch/weartak-tracker/releases/tag/takgov-pipeline). Expand **Assets** and select the Tracker APK; the source-code archives are not watch installers. A 5.9.0 pipeline build is named `WearTAK-Tracker-5.9.0-p<IID>.apk` when published.
 
-Current base version is **5.8.4**, distributed as an optimized, non-debuggable APK signed with the permanent Tracker release key. TAK.gov CI builds use versionName `5.8.4-p<IID>+<short sha>` and Android versionCode `5860000 + <IID>`, preserving increasing update codes. Release notes report the actual APK version, code, pipeline, and source commit. Release-signed builds can use `adb install -r` while retaining settings. Moving from an earlier debug-signed build requires uninstalling first (`adb uninstall com.tak.weartak_tracker`), which removes app data and settings, then installing the release APK.
+Current source base version is **5.9.0**. Release builds are optimized, non-debuggable APKs signed with the permanent Tracker release key. TAK.gov CI builds use versionName `5.9.0-p<IID>+<short sha>` and Android versionCode `5870000 + <IID>`, preserving increasing update codes. Release notes report the actual APK version, code, pipeline, and source commit. Release-signed builds can use `adb install -r` while retaining settings. Moving from an earlier debug-signed build requires uninstalling first (`adb uninstall com.tak.weartak_tracker`), which removes app data and settings, then installing the release APK.
 
 **Updated 5.8.0.3 build:** The manual Alert picker adds 911 Alert, Ring The Bell, Geofence Breached, and In Contact, alphabetizes all presets, and sends immediately when a preset is tapped. Custom text and alert cancellation retain their confirmation buttons.
 
@@ -224,7 +224,7 @@ Logs: `adb logcat -s TrackerService TakServerManager TakCertificates TakChannelM
 
 ## Status
 
-The canonical source is maintained on TAK Forge's `main` branch. The current build configuration uses base version **5.8.4**; CI adds the pipeline IID and source SHA as described under [Compilation](#compilation). The 5.8.0.3 download notes above describe earlier builds, not a guarantee of the latest published version. Confirm the installed/downloaded APK version against its release notes.
+The canonical source is maintained on TAK Forge's `main` branch. This source configuration uses base version **5.9.0**; CI adds the pipeline IID and source SHA as described under [Compilation](#compilation). The 5.8.0.3 download notes above describe earlier builds, not a guarantee of the latest published version. Confirm the installed/downloaded APK version against its release notes.
 
 Release and debug build workflows are defined in this repository; deployment readiness and a tested-device matrix are not specified. Everywhere Comms, GoTenna, Somewear Labs and Sensor Manager remain **Unfunded Request** placeholders, with the limitations described under [Features](#features) and [Build](#build).
 
@@ -328,7 +328,7 @@ Gradle build-launcher image and release workflow. A push to `main` runs unit tes
 and builds a signed release APK in `main_release`; APKs and test reports are kept
 for 30 days. Version tags such as `v5.8.3` or `v5.8.0.3` run `official_release` with
 artifacts that do not expire. Use the official release job URL for TPC submissions.
-Each pipeline build gets versionName `<base>-p<pipeline IID>+<short sha>` (e.g. `5.8.4-p12+1a2b3c4d`) and versionCode `<baseVersionCode> * 10000 + <pipeline IID>` (base `586` for 5.8.4), matching WearTAK and Sextant, so every build installs over the previous one. Bump the base in `app/build.gradle` for each release.
+Each pipeline build gets versionName `<base>-p<pipeline IID>+<short sha>` (e.g. `5.9.0-p12+1a2b3c4d`) and versionCode `<baseVersionCode> * 10000 + <pipeline IID>` (base `587` for 5.9.0). Local builds use versionCode `5870000`, above the entire 5.8.4 CI range. Bump the base in `app/build.gradle` for each release.
 
 Configure these masked CI/CD variables in the **Tracker** GitLab project:
 
